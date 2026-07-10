@@ -1,6 +1,7 @@
 """Research Buddy FastAPI 应用 - HTTP 服务 + SSE 流式输出 + Web UI + 知识管理 + 追踪"""
 
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query
@@ -21,6 +22,9 @@ from research_buddy.graph import (
 from research_buddy.state import ResearchState
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.tracking.scheduler import get_scheduler
+from research_buddy.utils import stream_and_accumulate
+
+logger = logging.getLogger(__name__)
 
 
 # ── FastAPI Lifespan ────────────────────────────────────
@@ -63,6 +67,7 @@ class TopicCreateRequest(BaseModel):
     name: str
     description: str = ""
     tracking_keywords: list[str] | None = None
+    tracking_cron: str = ""
 
 
 class TopicUpdateRequest(BaseModel):
@@ -102,7 +107,7 @@ class KnowledgeResearchResponse(BaseModel):
 @app.get("/health")
 async def health():
     """健康检查"""
-    return {"status": "ok", "service": "research-buddy", "version": "0.2.0"}
+    return {"status": "ok", "service": "research-buddy", "version": "0.3.0"}
 
 
 # ── 原有研究接口（向后兼容） ────────────────────────────
@@ -117,17 +122,7 @@ async def research(req: ResearchRequest):
     if langfuse_handler:
         config["callbacks"] = [langfuse_handler]
 
-    result = {}
-    for event in graph.stream({"question": req.question}, config=config):
-        if isinstance(event, dict):
-            for node_name, state_update in event.items():
-                if isinstance(state_update, dict):
-                    for key, value in state_update.items():
-                        if isinstance(value, list) and key in result and isinstance(result[key], list):
-                            result[key].extend(value)
-                        else:
-                            result[key] = value
-
+    result = stream_and_accumulate(graph, {"question": req.question}, config)
     result.setdefault("question", req.question)
 
     if langfuse_handler:
@@ -167,21 +162,11 @@ async def knowledge_research(req: KnowledgeResearchRequest):
     if langfuse_handler:
         config["callbacks"] = [langfuse_handler]
 
-    result = {}
-    for event in graph.stream({
+    result = stream_and_accumulate(graph, {
         "question": req.question,
         "topic_id": req.topic_id,
         "is_incremental": req.is_incremental,
-    }, config=config):
-        if isinstance(event, dict):
-            for node_name, state_update in event.items():
-                if isinstance(state_update, dict):
-                    for key, value in state_update.items():
-                        if isinstance(value, list) and key in result and isinstance(result[key], list):
-                            result[key].extend(value)
-                        else:
-                            result[key] = value
-
+    }, config)
     result.setdefault("question", req.question)
 
     if langfuse_handler:
@@ -219,6 +204,7 @@ async def create_topic(req: TopicCreateRequest):
         name=req.name,
         description=req.description,
         tracking_keywords=req.tracking_keywords,
+        tracking_cron=req.tracking_cron,
     )
     return topic
 
@@ -287,7 +273,7 @@ async def list_reports(topic_id: str, limit: int = Query(20, description="返回
 async def get_report(report_id: str):
     """获取单个报告"""
     store = get_knowledge_store()
-    report = store.db.get_report(report_id)
+    report = store.get_report(report_id)
     if not report:
         return JSONResponse(status_code=404, content={"error": "报告不存在"})
     return report
@@ -303,7 +289,7 @@ async def delete_report(report_id: str):
     return {"deleted": True}
 
 
-# ── 追踪接口（Phase 7）─────────────────────────────────
+# ── 追踪接口（Phase 7）─────────────────────────────────────────
 
 class TrackingRequest(BaseModel):
     """手动触发追踪请求"""
@@ -325,6 +311,7 @@ async def tracking_run(req: TrackingRequest):
             "report_id": result.get("saved_report_id", ""),
         }
     except Exception as e:
+        logger.error("追踪任务失败: %s", e)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
@@ -452,6 +439,7 @@ def _event_generator(question: str, topic_id: str = "",
                 })
 
             except Exception as e:
+                logger.error("SSE 图执行失败: %s", e)
                 queue.put_nowait({
                     "event": "error",
                     "data": json.dumps({"message": str(e)}),
@@ -494,7 +482,6 @@ def _extract_detail(node_name: str, state_update: dict) -> dict:
     elif node_name == "searcher":
         results = state_update.get("search_results", [])
         detail["results_count"] = len(results)
-        # 取前 8 条搜索结果的标题+URL
         detail["results_preview"] = [
             {"title": r.get("title", ""), "url": r.get("url", ""), "score": round(r.get("score", 0), 2)}
             for r in results[:8]

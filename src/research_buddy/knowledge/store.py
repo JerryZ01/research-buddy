@@ -53,14 +53,28 @@ class KnowledgeStore:
 
         return report_record
 
+    def get_report(self, report_id: str) -> dict | None:
+        """获取单个报告"""
+        return self.db.get_report(report_id)
+
+    def get_latest_report(self, topic_id: str) -> dict | None:
+        """获取主题下最新的报告"""
+        return self.db.get_latest_report(topic_id)
+
     def delete_report(self, report_id: str) -> bool:
-        """删除报告（同时清理 SQLite 和 ChromaDB）"""
+        """删除报告（同时清理 SQLite 和 ChromaDB）
+
+        先删 SQLite 再删向量，确保 SQLite 删除失败时向量数据不丢失。
+        """
         report = self.db.get_report(report_id)
         if not report:
             return False
-        self.vector.delete_report(report_id)
-        self.vector.delete_facts(report_id)
-        return self.db.delete_report(report_id)
+        # 先删 SQLite（主数据源），成功后再删向量
+        deleted = self.db.delete_report(report_id)
+        if deleted:
+            self.vector.delete_report(report_id)
+            self.vector.delete_facts(report_id)
+        return deleted
 
     # ── 知识查询 ────────────────────────────────────────
 
@@ -128,8 +142,9 @@ class KnowledgeStore:
     # ── 主题管理 ────────────────────────────────────────
 
     def create_topic(self, name: str, description: str = "",
-                     tracking_keywords: list[str] | None = None) -> dict:
-        return self.db.create_topic(name, description, tracking_keywords)
+                     tracking_keywords: list[str] | None = None,
+                     tracking_cron: str = "") -> dict:
+        return self.db.create_topic(name, description, tracking_keywords, tracking_cron)
 
     def get_topic(self, topic_id: str) -> dict | None:
         return self.db.get_topic(topic_id)
@@ -141,12 +156,18 @@ class KnowledgeStore:
         return self.db.update_topic(topic_id, **kwargs)
 
     def delete_topic(self, topic_id: str) -> bool:
-        # 也需要清理 ChromaDB
+        # 先删 SQLite（级联删除报告），成功后再清理 ChromaDB
+        # 收集报告 ID 用于后续向量清理
         reports = self.db.list_reports(topic_id)
-        for r in reports:
-            self.vector.delete_report(r["id"])
-            self.vector.delete_facts(r["id"])
-        return self.db.delete_topic(topic_id)
+        report_ids = [r["id"] for r in reports]
+
+        deleted = self.db.delete_topic(topic_id)
+        if deleted:
+            # SQLite 删除成功后，清理 ChromaDB 向量
+            for rid in report_ids:
+                self.vector.delete_report(rid)
+                self.vector.delete_facts(rid)
+        return deleted
 
     def list_reports(self, topic_id: str, limit: int = 20) -> list[dict]:
         return self.db.list_reports(topic_id, limit)

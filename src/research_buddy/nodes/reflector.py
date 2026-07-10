@@ -1,18 +1,11 @@
 """反思节点 - LLM 自评报告质量，决定是否需要修正"""
 
-import json
-from langchain_openai import ChatOpenAI
-from research_buddy.config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL
+import logging
+
 from research_buddy.state import ResearchState
+from research_buddy.utils import parse_llm_json, create_llm, get_prompt_from_langfuse
 
-
-def _get_prompt() -> str:
-    """获取 prompt 模板：优先从 Langfuse 拉取"""
-    try:
-        from research_buddy.eval.prompts import get_prompt
-        return get_prompt("research-buddy-reflector", REFLECTOR_PROMPT)
-    except ImportError:
-        return REFLECTOR_PROMPT
+logger = logging.getLogger(__name__)
 
 
 REFLECTOR_PROMPT = """你是一个研究质量评审专家。请评估以下研究报告的质量，从三个维度打分（1-5 分）：
@@ -84,16 +77,10 @@ def reflector(state: ResearchState) -> dict:
     else:
         user_feedback_section = ""
 
-    print("🔄 正在反思评估报告质量...")
+    logger.info("正在反思评估报告质量...")
 
-    llm = ChatOpenAI(
-        model=OPENAI_MODEL,
-        api_key=OPENAI_API_KEY,
-        base_url=OPENAI_API_BASE,
-        temperature=0,
-    )
-
-    prompt_template = _get_prompt()
+    llm = create_llm()
+    prompt_template = get_prompt_from_langfuse("research-buddy-reflector", REFLECTOR_PROMPT)
 
     response = llm.invoke(
         prompt_template.format(
@@ -106,16 +93,10 @@ def reflector(state: ResearchState) -> dict:
     )
 
     # 解析 LLM 返回的 JSON
-    content = response.content
-    if "```json" in content:
-        content = content.split("```json")[1].split("```")[0]
-    elif "```" in content:
-        content = content.split("```")[1].split("```")[0]
-
     try:
-        evaluation = json.loads(content.strip())
-    except json.JSONDecodeError:
-        print("   ⚠️  反思节点解析失败，默认通过")
+        evaluation = parse_llm_json(response.content)
+    except (ValueError, Exception):
+        logger.warning("反思节点解析失败，默认通过")
         return {
             "reflection_pass": True,
             "reflection_feedback": "反思节点解析失败，默认通过",
@@ -127,11 +108,23 @@ def reflector(state: ResearchState) -> dict:
     supplement_queries = evaluation.get("supplement_queries", [])
     total_score = evaluation.get("total_score", 0)
 
-    print(f"   评分: {total_score}/15 → {'✅ 通过' if passed else '⚠️  需要修正'}")
+    # 验证 total_score 与维度分数之和一致
+    dim_sum = evaluation.get("completeness", 0) + evaluation.get("accuracy", 0) + evaluation.get("clarity", 0)
+    if total_score != dim_sum and dim_sum > 0:
+        logger.debug("total_score (%d) 与维度之和 (%d) 不一致，使用维度之和", total_score, dim_sum)
+        total_score = dim_sum
+
+    logger.info("评分: %d/15 → %s", total_score, "✅ 通过" if passed else "⚠️  需要修正")
 
     # 如果有用户反馈但反思通过了，仍需补充搜索（用户要求优先）
-    if user_feedback and passed and supplement_queries:
-        passed = False
+    if user_feedback and passed:
+        if supplement_queries:
+            passed = False
+        else:
+            # 有用户反馈但 LLM 没生成补充搜索词，强制不通过
+            logger.info("有用户反馈但无补充搜索词，强制不通过")
+            passed = False
+            supplement_queries = [f"{question} detailed analysis"]
 
     # 如果未通过，生成补充搜索任务
     gaps = []

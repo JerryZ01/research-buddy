@@ -1,8 +1,11 @@
 """ChromaDB 向量存储 — 研究报告和关键事实的语义检索"""
 
+import logging
 from pathlib import Path
 
 from research_buddy.config import DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 # 多语言 embedding 模型（支持中英文语义检索，基于 ONNX，无需 torch）
 _MULTILINGUAL_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
@@ -81,8 +84,13 @@ class VectorStore:
                    chunk_size: int = 500, chunk_overlap: int = 100) -> int:
         """将报告文本分块后存入 ChromaDB
 
+        先清理该报告的旧分块，避免报告变短时旧分块残留。
+
         Returns: 存入的 chunk 数量
         """
+        # 清理旧分块（upsert 不会删除多余的旧 chunk）
+        self.delete_report(report_id)
+
         chunks = self._split_text(text, chunk_size, chunk_overlap)
         if not chunks:
             return 0
@@ -101,7 +109,7 @@ class VectorStore:
         return len(chunks)
 
     def search_reports(self, query: str, topic_id: str | None = None,
-                       n_results: int = 5, max_distance: float = 1.2) -> list[dict]:
+                       n_results: int = 5, max_distance: float = 0.5) -> list[dict]:
         """语义检索相关报告分块
 
         Args:
@@ -148,23 +156,27 @@ class VectorStore:
 
     def delete_report(self, report_id: str) -> None:
         """删除某报告的所有分块"""
-        # ChromaDB 需要 where filter 来获取 ids
         try:
             self.report_collection.delete(
                 where={"report_id": report_id},
             )
         except Exception:
-            pass  # 可能不存在
+            logger.debug("删除报告分块失败（可能不存在）: %s", report_id, exc_info=True)
 
     # ── 关键事实 ────────────────────────────────────────
 
     def add_facts(self, report_id: str, topic_id: str, facts: list[str]) -> int:
         """将关键事实存入 ChromaDB
 
+        先清理该报告的旧事实，避免事实数量变化时旧事实残留。
+
         Returns: 存入的事实数量
         """
         if not facts:
             return 0
+
+        # 清理旧事实
+        self.delete_facts(report_id)
 
         ids = [f"fact_{report_id}_{i}" for i in range(len(facts))]
         metadatas = [
@@ -180,7 +192,7 @@ class VectorStore:
         return len(facts)
 
     def search_facts(self, query: str, topic_id: str | None = None,
-                     n_results: int = 10, max_distance: float = 1.2) -> list[dict]:
+                     n_results: int = 10, max_distance: float = 0.5) -> list[dict]:
         """语义检索相关关键事实
 
         Args:
@@ -227,7 +239,7 @@ class VectorStore:
                 where={"report_id": report_id},
             )
         except Exception:
-            pass
+            logger.debug("删除关键事实失败（可能不存在）: %s", report_id, exc_info=True)
 
     # ── 辅助方法 ────────────────────────────────────────
 

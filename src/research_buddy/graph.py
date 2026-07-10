@@ -1,5 +1,7 @@
 """LangGraph 工作流定义 - Phase 7 定时追踪 + 变化检测 + 智能通知"""
 
+import logging
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langfuse import Langfuse
@@ -21,6 +23,9 @@ from research_buddy.config import (
     LANGFUSE_HOST,
     MAX_REFLECTION_ROUNDS,
 )
+from research_buddy.utils import stream_and_accumulate
+
+logger = logging.getLogger(__name__)
 
 
 def get_langfuse_handler() -> CallbackHandler | None:
@@ -141,37 +146,6 @@ def create_research_graph_with_hitl() -> StateGraph:
 
 # ── 便捷运行函数 ────────────────────────────────────────
 
-def _stream_and_accumulate(graph, input_data, config) -> dict:
-    """流式执行图并累积最终状态
-
-    处理 graph.stream() 返回的两种格式：
-    - 无 Checkpointer: event 是 dict {node_name: state_update}
-    - 有 Checkpointer: event 可能是 tuple (node_name, state_update)
-
-    统一用 graph.get_state() 获取最终状态。
-    """
-    for event in graph.stream(input_data, config=config):
-        # 节点内部已打印进度，这里只消费事件驱动执行
-        pass
-
-    # 通过 checkpointer 获取完整最终状态（如果有）
-    try:
-        return dict(graph.get_state(config).values)
-    except (ValueError, AttributeError):
-        # 无 checkpointer 的图，手动累积
-        result = {}
-        for event in graph.stream(input_data, config=config):
-            if isinstance(event, dict):
-                for node_name, state_update in event.items():
-                    if isinstance(state_update, dict):
-                        for key, value in state_update.items():
-                            if isinstance(value, list) and key in result and isinstance(result[key], list):
-                                result[key].extend(value)
-                            else:
-                                result[key] = value
-        return result
-
-
 def run_research(question: str) -> dict:
     """运行全自动研究流程（流式输出，实时进度，无知识层）"""
     graph = create_research_graph()
@@ -181,21 +155,9 @@ def run_research(question: str) -> dict:
     if langfuse_handler:
         config["callbacks"] = [langfuse_handler]
 
-    print(f"\n🚀 开始研究: {question}")
-    print("=" * 60)
+    logger.info("开始研究: %s", question)
 
-    # 流式执行，节点内部打印进度
-    result = {}
-    for event in graph.stream({"question": question}, config=config):
-        if isinstance(event, dict):
-            for node_name, state_update in event.items():
-                if isinstance(state_update, dict):
-                    for key, value in state_update.items():
-                        if isinstance(value, list) and key in result and isinstance(result[key], list):
-                            result[key].extend(value)
-                        else:
-                            result[key] = value
-
+    result = stream_and_accumulate(graph, {"question": question}, config)
     result.setdefault("question", question)
 
     # 确保 Langfuse 数据刷出
@@ -222,26 +184,13 @@ def run_knowledge_research(question: str, topic_id: str,
         config["callbacks"] = [langfuse_handler]
 
     mode = "增量" if is_incremental else "全新"
-    print(f"\n🚀 开始{mode}研究: {question}")
-    print(f"   主题 ID: {topic_id}")
-    print("=" * 60)
+    logger.info("开始%s研究: %s (主题: %s)", mode, question, topic_id)
 
-    # 流式执行
-    result = {}
-    for event in graph.stream({
+    result = stream_and_accumulate(graph, {
         "question": question,
         "topic_id": topic_id,
         "is_incremental": is_incremental,
-    }, config=config):
-        if isinstance(event, dict):
-            for node_name, state_update in event.items():
-                if isinstance(state_update, dict):
-                    for key, value in state_update.items():
-                        if isinstance(value, list) and key in result and isinstance(result[key], list):
-                            result[key].extend(value)
-                        else:
-                            result[key] = value
-
+    }, config)
     result.setdefault("question", question)
 
     # 确保 Langfuse 数据刷出
@@ -329,26 +278,13 @@ def run_tracking(topic_id: str, question: str | None = None) -> dict:
     if langfuse_handler:
         config["callbacks"] = [langfuse_handler]
 
-    print(f"\n⏰ 开始追踪: {topic['name']}")
-    print(f"   问题: {question}")
-    print("=" * 60)
+    logger.info("开始追踪: %s (问题: %s)", topic['name'], question)
 
-    # 流式执行
-    result = {}
-    for event in graph.stream({
+    result = stream_and_accumulate(graph, {
         "question": question,
         "topic_id": topic_id,
         "is_incremental": True,
-    }, config=config):
-        if isinstance(event, dict):
-            for node_name, state_update in event.items():
-                if isinstance(state_update, dict):
-                    for key, value in state_update.items():
-                        if isinstance(value, list) and key in result and isinstance(result[key], list):
-                            result[key].extend(value)
-                        else:
-                            result[key] = value
-
+    }, config)
     result.setdefault("question", question)
 
     # 确保 Langfuse 数据刷出
@@ -369,8 +305,7 @@ def run_research_interactive(question: str) -> dict:
     if langfuse_handler:
         config["callbacks"] = [langfuse_handler]
 
-    print(f"\n🚀 开始研究: {question}")
-    print("=" * 60)
+    logger.info("开始交互式研究: %s", question)
 
     # 第一次执行：运行到 searcher 前暂停
     for event in graph.stream({"question": question}, config=config):

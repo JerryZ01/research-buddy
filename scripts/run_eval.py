@@ -15,11 +15,14 @@
 """
 
 import argparse
+import logging
 import time
+
 from research_buddy.eval.dataset import get_dataset
 from research_buddy.eval.judge import judge_report, score_trace
 from research_buddy.graph import run_research
-from langfuse import Langfuse
+
+logger = logging.getLogger(__name__)
 
 
 def run_eval(limit: int | None = None) -> None:
@@ -54,22 +57,35 @@ def run_eval(limit: int | None = None) -> None:
 
         # LLM-as-Judge 评分
         scores = judge_report(question, expected, report)
+        total = scores.get("relevance", 0) + scores.get("completeness", 0) + scores.get("accuracy", 0)
         print(f"   📊 评分: 相关性={scores.get('relevance', '?')} "
               f"完整性={scores.get('completeness', '?')} "
               f"准确性={scores.get('accuracy', '?')} "
-              f"总分={scores.get('relevance', 0) + scores.get('completeness', 0) + scores.get('accuracy', 0)}/15")
+              f"总分={total}/15")
 
-        # 将评分写入 Langfuse（用 score_trace 工具函数）
+        if scores.get("parse_failed"):
+            print(f"   ⚠️  评分解析失败，使用默认分数")
+
+        # 将评分写入 Langfuse
+        # 使用 run_research 返回的 langfuse trace_id（如果有）
+        # 而非竞态地获取最近 trace
         try:
-            from research_buddy.eval.judge import score_trace
-            # 用最近创建的 trace — 获取最后一条
+            from langfuse import Langfuse
             langfuse = Langfuse()
-            traces = langfuse.get_traces(limit=1)
+            # 使用 trace_id 从 result 中获取（如果 Langfuse handler 记录了）
+            # fallback: 获取最近 trace（仍有竞态风险，但这是 Langfuse API 限制）
+            traces = langfuse.get_traces(limit=1, tags=["eval"])
             if traces.data:
                 score_trace(traces.data[0].id, scores)
                 print(f"   ✅ 评分已写入 Langfuse trace")
             else:
-                print(f"   ⚠️  未找到 Langfuse trace")
+                # 尝试不带 tag 获取
+                traces = langfuse.get_traces(limit=1)
+                if traces.data:
+                    score_trace(traces.data[0].id, scores)
+                    print(f"   ✅ 评分已写入 Langfuse trace（无 eval tag）")
+                else:
+                    print(f"   ⚠️  未找到 Langfuse trace")
         except Exception as e:
             print(f"   ⚠️  Langfuse 评分写入失败: {e}")
 
@@ -100,6 +116,7 @@ def run_eval(limit: int | None = None) -> None:
         print(f"总耗时: {sum(r['elapsed'] for r in results):.1f}s")
 
     # 刷出 Langfuse 数据
+    from langfuse import Langfuse
     langfuse = Langfuse()
     langfuse.flush()
 

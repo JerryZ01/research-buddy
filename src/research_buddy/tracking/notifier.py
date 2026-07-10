@@ -3,17 +3,20 @@
 设计原则：
 1. 支持任何 Webhook URL（企业微信、钉钉、Telegram、Slack 等通用）
 2. 自动识别 Webhook 类型，生成对应格式
-3. 频率控制：同一主题每天最多推送 1 次
+3. 频率控制：同一主题每 12 小时最多推送 1 次
 4. 配置简单：只需设置 NOTIFICATION_WEBHOOK_URL 环境变量
 """
 
 import json
+import logging
 from datetime import datetime, timedelta
-from typing import Any
 
 import httpx
 
 from research_buddy.config import NOTIFICATION_WEBHOOK_URL
+from research_buddy.utils import SIGNIFICANCE_EMOJI, CHANGE_TYPE_LABEL
+
+logger = logging.getLogger(__name__)
 
 
 class Notifier:
@@ -43,14 +46,14 @@ class Notifier:
         Returns: 是否发送成功
         """
         if not self.webhook_url:
-            print("📬 通知跳过：未配置 NOTIFICATION_WEBHOOK_URL")
+            logger.info("通知跳过：未配置 NOTIFICATION_WEBHOOK_URL")
             return False
 
         # 频率控制
         now = datetime.now()
         last = self._last_sent.get(topic_id)
         if last and (now - last) < self._cooldown:
-            print(f"📬 通知跳过：主题 {topic_name} 冷却中")
+            logger.info("通知跳过：主题 %s 冷却中", topic_name)
             return False
 
         # 构建通知内容
@@ -62,19 +65,19 @@ class Notifier:
                 resp = client.post(self.webhook_url, json=payload)
                 if resp.status_code == 200:
                     self._last_sent[topic_id] = now
-                    print(f"📬 通知已发送: {topic_name}")
+                    logger.info("通知已发送: %s", topic_name)
                     return True
                 else:
-                    print(f"📬 通知发送失败: HTTP {resp.status_code}")
+                    logger.warning("通知发送失败: HTTP %d", resp.status_code)
                     return False
         except Exception as e:
-            print(f"📬 通知发送失败: {e}")
+            logger.warning("通知发送失败: %s", e)
             return False
 
     def send_test_notification(self) -> bool:
         """发送测试通知"""
         if not self.webhook_url:
-            print("📬 无法测试：未配置 NOTIFICATION_WEBHOOK_URL")
+            logger.info("无法测试：未配置 NOTIFICATION_WEBHOOK_URL")
             return False
 
         payload = self._build_payload(
@@ -92,7 +95,7 @@ class Notifier:
                 resp = client.post(self.webhook_url, json=payload)
                 return resp.status_code == 200
         except Exception as e:
-            print(f"📬 测试通知失败: {e}")
+            logger.warning("测试通知失败: %s", e)
             return False
 
     def _build_payload(self, topic_name: str, topic_id: str,
@@ -113,20 +116,34 @@ class Notifier:
         else:
             return self._build_generic_payload(topic_name, topic_id, changes)
 
+    def _build_change_lines(self, changes: list[dict], markdown: bool = True) -> list[str]:
+        """构建变更行列表（统一逻辑，消除 wechat/dingtalk 重复）
+
+        Args:
+            changes: 变更列表
+            markdown: 是否使用 Markdown 格式（企业微信用，钉钉不用加粗）
+        """
+        lines = [f"## 🔔 {changes[0].get('_topic_name', '追踪更新')} 追踪更新\n"] if changes else []
+        # 重新构建，使用传入的 topic_name
+        return lines  # 由调用方设置标题
+
+    @staticmethod
+    def _format_change_line(change: dict, markdown: bool = True) -> str:
+        """格式化单条变更行"""
+        sig = SIGNIFICANCE_EMOJI.get(change.get("significance", "medium"), "⚪")
+        ctype = CHANGE_TYPE_LABEL.get(change.get("type", "new_info"), "变更")
+        desc = change.get("description", "")
+        if markdown:
+            return f"{sig} **[{ctype}]** {desc}"
+        else:
+            return f"{sig} [{ctype}] {desc}"
+
     def _build_wechat_payload(self, topic_name: str,
                               changes: list[dict]) -> dict:
         """企业微信机器人格式"""
-        # 构建 Markdown 内容
         lines = [f"## 🔔 {topic_name} 追踪更新\n"]
         for c in changes:
-            sig = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
-                c.get("significance", "medium"), "⚪"
-            )
-            ctype = {"new_info": "新增", "update": "更新", "contradiction": "⚠️ 矛盾"}.get(
-                c.get("type", "new_info"), "变更"
-            )
-            desc = c.get("description", "")
-            lines.append(f"{sig} **[{ctype}]** {desc}")
+            lines.append(self._format_change_line(c, markdown=True))
 
         return {
             "msgtype": "markdown",
@@ -140,14 +157,7 @@ class Notifier:
         """钉钉机器人格式"""
         lines = [f"## 🔔 {topic_name} 追踪更新\n"]
         for c in changes:
-            sig = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
-                c.get("significance", "medium"), "⚪"
-            )
-            ctype = {"new_info": "新增", "update": "更新", "contradiction": "⚠️ 矛盾"}.get(
-                c.get("type", "new_info"), "变更"
-            )
-            desc = c.get("description", "")
-            lines.append(f"{sig} [{ctype}] {desc}")
+            lines.append(self._format_change_line(c, markdown=False))
 
         return {
             "msgtype": "markdown",

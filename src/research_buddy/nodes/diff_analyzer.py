@@ -1,32 +1,36 @@
 """变化分析节点 — 对比新旧搜索结果，用 LLM 识别语义变化"""
 
+import logging
+
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.tracking.diff import DiffAnalyzer
 from research_buddy.state import ResearchState
+from research_buddy.utils import SIGNIFICANCE_EMOJI, summarize_changes
+
+logger = logging.getLogger(__name__)
 
 
 def diff_analyzer(state: ResearchState) -> dict:
     """变化分析节点：对比新旧报告，识别语义变化
 
     工作流程：
-    1. 获取该主题的最新报告
+    1. 获取该主题的最新报告（通过 KnowledgeStore 门面）
     2. 如果有旧报告，用 DiffAnalyzer 分析差异
     3. 输出结构化的变更列表
     """
     topic_id = state.get("topic_id", "")
     new_report = state.get("report", "")
-    is_incremental = state.get("is_incremental", False)
 
     if not topic_id or not new_report:
-        print("📊 变化分析跳过：缺少报告或主题")
+        logger.info("变化分析跳过：缺少报告或主题")
         return {"detected_changes": [], "messages": ["📊 变化分析跳过"]}
 
     store = get_knowledge_store()
 
-    # 获取上一份报告
-    latest = store.db.get_latest_report(topic_id)
+    # 获取上一份报告（通过 KnowledgeStore 门面）
+    latest = store.get_latest_report(topic_id)
     if not latest:
-        print("📊 首次研究，无需对比")
+        logger.info("首次研究，无需对比")
         return {
             "detected_changes": [],
             "messages": ["📊 首次研究，无需对比"],
@@ -34,7 +38,7 @@ def diff_analyzer(state: ResearchState) -> dict:
 
     old_report = latest.get("report", "")
     if not old_report:
-        print("📊 旧报告为空，无需对比")
+        logger.info("旧报告为空，无需对比")
         return {
             "detected_changes": [],
             "messages": ["📊 旧报告为空，无需对比"],
@@ -51,7 +55,6 @@ def diff_analyzer(state: ResearchState) -> dict:
     similarity = result.get("similarity", 1.0)
 
     # 保存变更到数据库
-    # 创建 tracking_log
     log = store.create_tracking_log(topic_id, status="completed")
     for change in changes:
         store.create_change(
@@ -67,17 +70,17 @@ def diff_analyzer(state: ResearchState) -> dict:
     store.update_tracking_log(
         log["id"],
         changes_detected=len(changes),
-        change_summary=_summarize_changes(changes),
+        change_summary=summarize_changes(changes),
     )
 
-    print(f"📊 变化分析完成：相似度 {similarity:.1%}，检测到 {len(changes)} 项变化")
+    logger.info("变化分析完成：相似度 %.1f%%，检测到 %d 项变化", similarity * 100, len(changes))
 
     msgs = [
         f"📊 变化分析：相似度 {similarity:.1%}",
         f"   检测到 {len(changes)} 项变化",
     ]
     for c in changes[:5]:
-        sig = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(c.get("significance", "medium"), "⚪")
+        sig = SIGNIFICANCE_EMOJI.get(c.get("significance", "medium"), "⚪")
         msgs.append(f"   {sig} {c.get('description', '')[:60]}")
 
     return {
@@ -86,14 +89,3 @@ def diff_analyzer(state: ResearchState) -> dict:
         "tracking_log_id": log["id"],
         "messages": msgs,
     }
-
-
-def _summarize_changes(changes: list[dict]) -> str:
-    """生成变更摘要"""
-    if not changes:
-        return "无变化"
-    parts = []
-    for c in changes:
-        sig = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(c.get("significance", "medium"), "⚪")
-        parts.append(f"{sig} {c.get('description', '')}")
-    return "\n".join(parts)

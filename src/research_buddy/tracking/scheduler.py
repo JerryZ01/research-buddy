@@ -1,12 +1,16 @@
 """APScheduler 定时调度器 — 按主题配置的 cron 表达式自动触发追踪任务"""
 
 import asyncio
+import logging
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.memory import MemoryJobStore
 
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.config import DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 
 class TrackingScheduler:
@@ -41,14 +45,14 @@ class TrackingScheduler:
 
         self._scheduler.start()
         self._started = True
-        print(f"⏰ 追踪调度器已启动，共 {len(self._scheduler.get_jobs())} 个追踪任务")
+        logger.info("追踪调度器已启动，共 %d 个追踪任务", len(self._scheduler.get_jobs()))
 
     def stop(self) -> None:
         """停止调度器"""
         if self._started:
             self._scheduler.shutdown(wait=False)
             self._started = False
-            print("⏰ 追踪调度器已停止")
+            logger.info("追踪调度器已停止")
 
     def add_tracking_job(self, topic_id: str, cron_expression: str) -> bool:
         """为主题添加追踪任务
@@ -69,7 +73,7 @@ class TrackingScheduler:
             # 解析 cron 表达式
             parts = cron_expression.strip().split()
             if len(parts) != 5:
-                print(f"⚠️  无效的 cron 表达式: {cron_expression}")
+                logger.warning("无效的 cron 表达式: %s", cron_expression)
                 return False
 
             trigger = CronTrigger(
@@ -89,10 +93,10 @@ class TrackingScheduler:
                 replace_existing=True,
                 misfire_grace_time=300,
             )
-            print(f"⏰ 添加追踪任务: 主题 {topic_id}, cron: {cron_expression}")
+            logger.info("添加追踪任务: 主题 %s, cron: %s", topic_id, cron_expression)
             return True
         except Exception as e:
-            print(f"⚠️  添加追踪任务失败: {e}")
+            logger.warning("添加追踪任务失败: %s", e)
             return False
 
     def remove_tracking_job(self, topic_id: str) -> bool:
@@ -100,7 +104,7 @@ class TrackingScheduler:
         job_id = f"tracking_{topic_id}"
         try:
             self._scheduler.remove_job(job_id)
-            print(f"⏰ 移除追踪任务: 主题 {topic_id}")
+            logger.info("移除追踪任务: 主题 %s", topic_id)
             return True
         except Exception:
             return False
@@ -124,27 +128,28 @@ class TrackingScheduler:
 async def _run_tracking(topic_id: str) -> None:
     """执行一次追踪任务（由调度器调用）
 
-    1. 加载主题和最新报告
-    2. 执行追踪工作流（搜索 → diff → 通知）
-    3. 保存结果
+    使用 create_tracking_graph() 让内置的 diff_analyzer 和 change_notifier
+    节点执行变化分析和通知，避免重复实现同一逻辑。
+
+    由于 graph.stream() 是同步阻塞调用，使用 asyncio.to_thread()
+    避免阻塞 asyncio 事件循环。
     """
-    from research_buddy.graph import create_knowledge_research_graph
+    from research_buddy.graph import create_tracking_graph, get_langfuse_handler
     from research_buddy.knowledge.store import get_knowledge_store
-    from research_buddy.tracking.diff import DiffAnalyzer
-    from research_buddy.tracking.notifier import get_notifier
 
     store = get_knowledge_store()
     topic = store.get_topic(topic_id)
     if not topic:
-        print(f"⏰ 追踪任务跳过：主题 {topic_id} 不存在")
+        logger.warning("追踪任务跳过：主题 %s 不存在", topic_id)
         return
 
-    print(f"\n⏰ 执行追踪: {topic['name']} ({topic_id})")
+    logger.info("执行追踪: %s (%s)", topic['name'], topic_id)
 
     # 创建追踪记录
     log = store.create_tracking_log(topic_id, status="running")
 
-    try:
+    def _do_tracking() -> dict:
+        """同步执行追踪（在线程中运行）"""
         # 用追踪关键词搜索最新信息
         keywords = topic.get("tracking_keywords", [])
         if not keywords:
@@ -152,81 +157,46 @@ async def _run_tracking(topic_id: str) -> None:
 
         question = f"{topic['name']} 最新动态和变化"
 
-        # 执行追踪搜索
-        graph = create_knowledge_research_graph()
-        result = {}
-        for event in graph.stream({
+        # 使用 create_tracking_graph() — 内置 diff_analyzer + change_notifier
+        graph = create_tracking_graph()
+        langfuse_handler = get_langfuse_handler()
+
+        config = {}
+        if langfuse_handler:
+            config["callbacks"] = [langfuse_handler]
+
+        from research_buddy.utils import stream_and_accumulate
+        result = stream_and_accumulate(graph, {
             "question": question,
             "topic_id": topic_id,
             "is_incremental": True,
-        }):
-            if isinstance(event, dict):
-                for node_name, state_update in event.items():
-                    if isinstance(state_update, dict):
-                        for key, value in state_update.items():
-                            if isinstance(value, list) and key in result and isinstance(result[key], list):
-                                result[key].extend(value)
-                            else:
-                                result[key] = value
+        }, config)
 
-        # 分析变化
-        new_report = result.get("report", "")
-        latest = store.db.get_latest_report(topic_id)
+        if langfuse_handler:
+            langfuse_handler._langfuse_client.flush()
 
-        changes = []
-        if latest and new_report:
-            analyzer = DiffAnalyzer()
-            old_report = latest.get("report", "")
-            diff_result = analyzer.analyze(old_report, new_report, topic["name"])
-            changes = diff_result.get("changes", [])
+        return result
 
-            # 保存变更条目
-            for change in changes:
-                store.create_change(
-                    tracking_log_id=log["id"],
-                    change_type=change.get("type", "new_info"),
-                    description=change.get("description", ""),
-                    old_content=change.get("old_content", ""),
-                    new_content=change.get("new_content", ""),
-                    significance=change.get("significance", "medium"),
-                )
+    try:
+        # 在线程中执行同步的 graph.stream()，避免阻塞事件循环
+        result = await asyncio.to_thread(_do_tracking)
 
         # 更新追踪记录
+        changes = result.get("detected_changes", [])
+        from research_buddy.utils import summarize_changes
         store.update_tracking_log(
             log["id"],
             status="completed",
             changes_detected=len(changes),
-            change_summary=_summarize_changes(changes),
+            change_summary=summarize_changes(changes),
             report_id=result.get("saved_report_id", ""),
         )
 
-        # 如果有重要变化，发送通知
-        if changes:
-            high_changes = [c for c in changes if c.get("significance") == "high"]
-            if high_changes or len(changes) >= 2:
-                notifier = get_notifier()
-                notifier.send_change_notification(
-                    topic_name=topic["name"],
-                    topic_id=topic_id,
-                    changes=changes,
-                )
-
-        print(f"⏰ 追踪完成: {topic['name']}, 检测到 {len(changes)} 项变化")
+        logger.info("追踪完成: %s, 检测到 %d 项变化", topic['name'], len(changes))
 
     except Exception as e:
         store.update_tracking_log(log["id"], status="failed", change_summary=str(e))
-        print(f"⏰ 追踪失败: {topic['name']}, 错误: {e}")
-
-
-def _summarize_changes(changes: list[dict]) -> str:
-    """生成变更摘要"""
-    if not changes:
-        return "无变化"
-    parts = []
-    for c in changes:
-        sig = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(c.get("significance", "medium"), "⚪")
-        parts.append(f"{sig} {c.get('description', '')}")
-    return "\n".join(parts)
+        logger.error("追踪失败: %s, 错误: %s", topic['name'], e)
 
 
 # ── 全局单例 ────────────────────────────────────────────

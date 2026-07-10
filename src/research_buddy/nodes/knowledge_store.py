@@ -1,7 +1,12 @@
 """知识存储节点 — 将研究报告保存到知识库"""
 
+import logging
+
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.state import ResearchState
+from research_buddy.utils import parse_llm_json, create_llm, normalize_url
+
+logger = logging.getLogger(__name__)
 
 
 def knowledge_store(state: ResearchState) -> dict:
@@ -17,7 +22,7 @@ def knowledge_store(state: ResearchState) -> dict:
     is_incremental = state.get("is_incremental", False)
 
     if not report or not topic_id:
-        print("💾 无需存储（缺少报告或 topic_id）")
+        logger.info("无需存储（缺少报告或 topic_id）")
         return {"messages": ["💾 知识存储跳过：缺少报告或主题"]}
 
     store = get_knowledge_store()
@@ -28,10 +33,10 @@ def knowledge_store(state: ResearchState) -> dict:
     # 获取来源信息
     sources = _extract_sources(state)
 
-    # 找到上一份报告 ID（用于增量研究关联）
+    # 找到上一份报告 ID（用于增量研究关联）— 通过 KnowledgeStore 门面
     parent_report_id = ""
     if is_incremental:
-        latest = store.db.get_latest_report(topic_id)
+        latest = store.get_latest_report(topic_id)
         if latest:
             parent_report_id = latest["id"]
 
@@ -51,7 +56,7 @@ def knowledge_store(state: ResearchState) -> dict:
 
     report_id = report_record["id"]
     msg = f"💾 研究报告已保存到知识库（ID: {report_id}，{'增量' if is_incremental else '全新'}）"
-    print(msg)
+    logger.info(msg)
 
     return {
         "saved_report_id": report_id,
@@ -76,15 +81,7 @@ def _extract_key_facts(state: ResearchState) -> list[str]:
     # 2. 尝试用 LLM 从报告中提取关键事实
     if report and len(report) > 200:
         try:
-            from langchain_openai import ChatOpenAI
-            from research_buddy.config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL
-
-            llm = ChatOpenAI(
-                model=OPENAI_MODEL,
-                api_key=OPENAI_API_KEY,
-                base_url=OPENAI_API_BASE,
-                temperature=0,
-            )
+            llm = create_llm()
 
             prompt = f"""从以下研究报告中提取 5-8 个最关键的事实要点。
 每个要点用一句话概括，只陈述客观事实，不要评价。
@@ -98,18 +95,11 @@ def _extract_key_facts(state: ResearchState) -> list[str]:
 ```"""
 
             response = llm.invoke(prompt)
-            content = response.content
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-
-            import json
-            facts = json.loads(content.strip())
+            facts = parse_llm_json(response.content)
             if isinstance(facts, list) and facts:
                 return [str(f) for f in facts[:8]]
         except Exception:
-            pass  # fallback 到下面
+            logger.debug("LLM 关键事实提取失败，使用兜底策略", exc_info=True)
 
     # 3. 兜底：从搜索结果中截取第一句话
     facts = []
@@ -124,17 +114,19 @@ def _extract_key_facts(state: ResearchState) -> list[str]:
 
 
 def _extract_sources(state: ResearchState) -> list[dict]:
-    """从搜索结果中提取来源"""
+    """从搜索结果中提取来源（使用统一的 URL 规范化去重）"""
     sources = []
     seen_urls = set()
     for r in state.get("search_results", []):
         url = r.get("url", "")
-        if url and url not in seen_urls:
-            seen_urls.add(url)
-            sources.append({
-                "title": r.get("title", ""),
-                "url": url,
-            })
+        if url:
+            normalized = normalize_url(url)
+            if normalized not in seen_urls:
+                seen_urls.add(normalized)
+                sources.append({
+                    "title": r.get("title", ""),
+                    "url": url,
+                })
     return sources
 
 

@@ -1,18 +1,11 @@
 """综合节点 - 将搜索结果综合为结构化报告（支持流式输出）"""
 
-import sys
-from langchain_openai import ChatOpenAI
-from research_buddy.config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL
+import logging
+
 from research_buddy.state import ResearchState
+from research_buddy.utils import create_llm, get_prompt_from_langfuse
 
-
-def _get_prompt(name: str, fallback: str) -> str:
-    """获取 prompt 模板：优先从 Langfuse 拉取"""
-    try:
-        from research_buddy.eval.prompts import get_prompt
-        return get_prompt(name, fallback)
-    except ImportError:
-        return fallback
+logger = logging.getLogger(__name__)
 
 
 SYNTHESIZER_PROMPT = """你是一个研究综合专家。根据以下研究问题和搜索结果，生成一份结构化的研究报告。
@@ -100,18 +93,12 @@ def synthesizer(state: ResearchState) -> dict:
         formatted_results += f"- 内容：{r['content']}\n"
         formatted_results += f"- 相关度：{r['score']}\n"
 
-    llm = ChatOpenAI(
-        model=OPENAI_MODEL,
-        api_key=OPENAI_API_KEY,
-        base_url=OPENAI_API_BASE,
-        temperature=0,
-        streaming=True,
-    )
+    llm = create_llm(streaming=True)
 
     # 选择模式
     if feedback and report:
         # 改进模式（反思后重写）
-        prompt_template = _get_prompt("research-buddy-synthesizer-refine", SYNTHESIZER_REFINE_PROMPT)
+        prompt_template = get_prompt_from_langfuse("research-buddy-synthesizer-refine", SYNTHESIZER_REFINE_PROMPT)
         prompt = prompt_template.format(
             question=question,
             search_results=formatted_results,
@@ -120,8 +107,8 @@ def synthesizer(state: ResearchState) -> dict:
         )
         mode = "改进"
     elif is_incremental and has_knowledge and knowledge_context:
-        # 增量模式
-        prompt_template = SYNTHESIZER_INCREMENTAL_PROMPT
+        # 增量模式也走 Langfuse Prompt 管理
+        prompt_template = get_prompt_from_langfuse("research-buddy-synthesizer-incremental", SYNTHESIZER_INCREMENTAL_PROMPT)
         prompt = prompt_template.format(
             question=question,
             knowledge_context=knowledge_context,
@@ -130,14 +117,14 @@ def synthesizer(state: ResearchState) -> dict:
         mode = "增量"
     else:
         # 全新模式
-        prompt_template = _get_prompt("research-buddy-synthesizer", SYNTHESIZER_PROMPT)
+        prompt_template = get_prompt_from_langfuse("research-buddy-synthesizer", SYNTHESIZER_PROMPT)
         prompt = prompt_template.format(
             question=question,
             search_results=formatted_results,
         )
         mode = "全新"
 
-    print(f"📝 正在生成研究报告（{mode}模式）...")
+    logger.info("正在生成研究报告（%s模式）...", mode)
 
     # 流式输出
     full_report = ""
@@ -148,6 +135,6 @@ def synthesizer(state: ResearchState) -> dict:
             full_report += content
 
     print()  # 换行
-    print(f"📝 报告生成完成（{mode}模式）")
+    logger.info("报告生成完成（%s模式）", mode)
 
     return {"report": full_report, "messages": [f"📝 报告生成完成（{mode}模式）"]}

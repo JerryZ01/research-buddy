@@ -16,13 +16,14 @@ class TestShouldContinue:
         state = {"reflection_pass": False, "reflection_round": 99}
         assert should_continue(state) == "end"
 
-    def test_continue_returns_search_again(self):
+    def test_not_pass_and_not_max_rounds_returns_search_again(self):
         state = {"reflection_pass": False, "reflection_round": 0}
         assert should_continue(state) == "search_again"
 
-    def test_zero_round_not_pass_returns_search_again(self):
-        state = {"reflection_pass": False, "reflection_round": 0}
-        assert should_continue(state) == "search_again"
+    def test_pass_takes_priority_over_rounds(self):
+        """反思通过时，即使轮次未达上限也结束"""
+        state = {"reflection_pass": True, "reflection_round": 1}
+        assert should_continue(state) == "end"
 
 
 class TestShouldContinueToStore:
@@ -36,7 +37,7 @@ class TestShouldContinueToStore:
         state = {"reflection_pass": False, "reflection_round": 99}
         assert should_continue_to_store(state) == "knowledge_store"
 
-    def test_continue_returns_search_again(self):
+    def test_not_pass_and_not_max_rounds_returns_search_again(self):
         state = {"reflection_pass": False, "reflection_round": 0}
         assert should_continue_to_store(state) == "search_again"
 

@@ -4,7 +4,6 @@ import json
 import sqlite3
 import threading
 import uuid
-from datetime import datetime
 from pathlib import Path
 
 from research_buddy.config import DATA_DIR
@@ -136,8 +135,10 @@ class Database:
         if "tracking_keywords" in updates and isinstance(updates["tracking_keywords"], list):
             updates["tracking_keywords"] = json.dumps(updates["tracking_keywords"], ensure_ascii=False)
 
-        updates["updated_at"] = datetime.now().isoformat()
-        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        # 使用 SQLite datetime('now') 保持与 schema 默认值一致（UTC）
+        set_parts = [f"{k} = ?" for k in updates]
+        set_parts.append("updated_at = datetime('now')")
+        set_clause = ", ".join(set_parts)
         values = list(updates.values()) + [topic_id]
         self.conn.execute(f"UPDATE topics SET {set_clause} WHERE id = ?", values)
         self.conn.commit()

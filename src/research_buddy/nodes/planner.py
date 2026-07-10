@@ -1,9 +1,12 @@
 """规划节点 - 将研究问题拆解为子问题（支持增量模式）"""
 
-import json
-from langchain_openai import ChatOpenAI
+import logging
+
 from research_buddy.config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL
 from research_buddy.state import ResearchState
+from research_buddy.utils import parse_llm_json, create_llm, get_prompt_from_langfuse
+
+logger = logging.getLogger(__name__)
 
 
 PLANNER_PROMPT = """你是一个研究规划专家。给定一个研究问题，将其拆解为 3-5 个子问题，
@@ -59,15 +62,6 @@ INCREMENTAL_PLANNER_PROMPT = """你是一个研究规划专家。现在需要基
 ```"""
 
 
-def _get_prompt() -> str:
-    """获取 prompt 模板：优先从 Langfuse 拉取，fallback 到本地"""
-    try:
-        from research_buddy.eval.prompts import get_prompt
-        return get_prompt("research-buddy-planner", PLANNER_PROMPT)
-    except ImportError:
-        return PLANNER_PROMPT
-
-
 def planner(state: ResearchState) -> dict:
     """规划节点：拆解研究问题为子问题
 
@@ -82,40 +76,33 @@ def planner(state: ResearchState) -> dict:
 
     # 选择 prompt 模板
     if is_incremental and has_knowledge and knowledge_context:
-        prompt_template = INCREMENTAL_PLANNER_PROMPT
+        # 增量模式也走 Langfuse Prompt 管理
+        prompt_template = get_prompt_from_langfuse("research-buddy-planner-incremental", INCREMENTAL_PLANNER_PROMPT)
         prompt = prompt_template.format(
             question=question,
             knowledge_context=knowledge_context,
         )
         mode = "增量"
     else:
-        prompt_template = _get_prompt()
+        prompt_template = get_prompt_from_langfuse("research-buddy-planner", PLANNER_PROMPT)
         prompt = prompt_template.format(question=question)
         mode = "全新"
 
-    print(f"📝 正在规划子问题（{mode}模式）...")
+    logger.info("正在规划子问题（%s模式）...", mode)
 
-    llm = ChatOpenAI(
-        model=OPENAI_MODEL,
-        api_key=OPENAI_API_KEY,
-        base_url=OPENAI_API_BASE,
-        temperature=0,
-    )
-
+    llm = create_llm()
     response = llm.invoke(prompt)
 
-    # 解析 LLM 返回的 JSON
-    content = response.content
-    if "```json" in content:
-        content = content.split("```json")[1].split("```")[0]
-    elif "```" in content:
-        content = content.split("```")[1].split("```")[0]
+    # 解析 LLM 返回的 JSON（统一用 parse_llm_json，含 try/except）
+    try:
+        sub_questions = parse_llm_json(response.content)
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning("规划节点 JSON 解析失败: %s，返回空列表", e)
+        sub_questions = []
 
-    sub_questions = json.loads(content.strip())
-
-    print(f"📋 规划完成，拆解为 {len(sub_questions)} 个子问题（{mode}模式）")
+    logger.info("规划完成，拆解为 %d 个子问题（%s模式）", len(sub_questions), mode)
     for i, sq in enumerate(sub_questions, 1):
-        print(f"   {i}. {sq.get('question', '')[:40]}")
+        logger.debug("   %d. %s", i, sq.get('question', '')[:40])
 
     msgs = [f"📝 正在规划子问题（{mode}模式）...",
             f"📋 拆解为 {len(sub_questions)} 个子问题"]

@@ -7,8 +7,11 @@
 """
 
 import difflib
-from langchain_openai import ChatOpenAI
-from research_buddy.config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL
+import logging
+
+from research_buddy.utils import parse_llm_json, create_llm
+
+logger = logging.getLogger(__name__)
 
 
 DIFF_ANALYZER_PROMPT = """你是一个信息变化分析专家。请对比以下两份研究报告，识别有意义的信息变化。
@@ -103,8 +106,6 @@ class DiffAnalyzer:
     def _llm_analyze(self, old_report: str, new_report: str,
                      context: str) -> list[dict]:
         """使用 LLM 做语义变化分析"""
-        import json
-
         # 截断过长的报告（避免超出 token 限制）
         max_chars = 3000
         old_truncated = old_report[:max_chars] + ("..." if len(old_report) > max_chars else "")
@@ -116,22 +117,11 @@ class DiffAnalyzer:
         )
 
         try:
-            llm = ChatOpenAI(
-                model=OPENAI_MODEL,
-                api_key=OPENAI_API_KEY,
-                base_url=OPENAI_API_BASE,
-                temperature=0,
-            )
+            llm = create_llm()
             response = llm.invoke(prompt)
 
-            # 解析 JSON
-            content = response.content
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-
-            changes = json.loads(content.strip())
+            # 使用统一的 parse_llm_json
+            changes = parse_llm_json(response.content)
 
             # 验证格式
             if not isinstance(changes, list):
@@ -151,7 +141,7 @@ class DiffAnalyzer:
             return valid_changes
 
         except Exception as e:
-            print(f"⚠️  LLM 变化分析失败: {e}")
+            logger.warning("LLM 变化分析失败: %s", e)
             # fallback: 用 difflib 生成简单差异
             return self._difflib_fallback(old_report, new_report)
 

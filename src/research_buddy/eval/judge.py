@@ -1,9 +1,17 @@
 """LLM-as-Judge 自动评分 - 对研究报告进行多维度评估"""
 
-import json
-from langchain_openai import ChatOpenAI
+import logging
+
 from langfuse import Langfuse
-from research_buddy.config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL
+
+from research_buddy.utils import create_llm, parse_llm_json
+
+logger = logging.getLogger(__name__)
+
+# 评分维度和范围
+_SCORE_DIMENSIONS = ["relevance", "completeness", "accuracy"]
+_MIN_SCORE = 1
+_MAX_SCORE = 5
 
 JUDGE_PROMPT = """你是一个研究质量评估专家。请评估以下研究报告的质量。
 
@@ -56,16 +64,12 @@ def judge_report(question: str, expected_points: list[str], report: str) -> dict
         report: 实际生成的研究报告
 
     Returns:
-        评分字典 {"relevance": int, "completeness": int, "accuracy": int, "reasoning": str}
+        评分字典 {"relevance": int, "completeness": int, "accuracy": int, "reasoning": str, "parse_failed": bool}
+        parse_failed=True 表示解析失败，分数为默认值
     """
     points_text = "\n".join(f"- {p}" for p in expected_points)
 
-    llm = ChatOpenAI(
-        model=OPENAI_MODEL,
-        api_key=OPENAI_API_KEY,
-        base_url=OPENAI_API_BASE,
-        temperature=0,
-    )
+    llm = create_llm()
 
     response = llm.invoke(
         JUDGE_PROMPT.format(
@@ -75,24 +79,31 @@ def judge_report(question: str, expected_points: list[str], report: str) -> dict
         )
     )
 
-    # 解析 JSON
-    content = response.content
-    if "```json" in content:
-        content = content.split("```json")[1].split("```")[0]
-    elif "```" in content:
-        content = content.split("```")[1].split("```")[0]
-
+    # 使用统一的 parse_llm_json
     try:
-        scores = json.loads(content.strip())
-    except json.JSONDecodeError:
-        # 解析失败，给默认中等分
+        scores = parse_llm_json(response.content)
+    except (ValueError, Exception):
+        # 解析失败，给默认中等分，但标记 parse_failed 让调用方知道
+        logger.warning("Judge JSON 解析失败，使用默认分数")
         scores = {
             "relevance": 3,
             "completeness": 3,
             "accuracy": 3,
             "reasoning": "评分解析失败，使用默认分数",
+            "parse_failed": True,
         }
+        return scores
 
+    # 验证分数范围和维度完整性
+    for dim in _SCORE_DIMENSIONS:
+        val = scores.get(dim, 3)
+        if not isinstance(val, (int, float)) or val < _MIN_SCORE or val > _MAX_SCORE:
+            logger.warning("Judge 维度 %s 分数 %s 超出范围，修正为 3", dim, val)
+            scores[dim] = 3
+        else:
+            scores[dim] = int(val)
+
+    scores.setdefault("parse_failed", False)
     return scores
 
 
@@ -105,7 +116,7 @@ def score_trace(trace_id: str, scores: dict) -> None:
     """
     langfuse = Langfuse()
 
-    for dimension in ["relevance", "completeness", "accuracy"]:
+    for dimension in _SCORE_DIMENSIONS:
         if dimension in scores:
             langfuse.create_score(
                 trace_id=trace_id,
@@ -115,7 +126,7 @@ def score_trace(trace_id: str, scores: dict) -> None:
             )
 
     # 总分
-    total = scores.get("relevance", 0) + scores.get("completeness", 0) + scores.get("accuracy", 0)
+    total = sum(scores.get(d, 0) for d in _SCORE_DIMENSIONS)
     langfuse.create_score(
         trace_id=trace_id,
         name="total",

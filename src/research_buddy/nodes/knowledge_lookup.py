@@ -1,7 +1,11 @@
 """知识查询节点 — 从知识库检索历史报告和关键事实"""
 
+import logging
+
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.state import ResearchState
+
+logger = logging.getLogger(__name__)
 
 
 def knowledge_lookup(state: ResearchState) -> dict:
@@ -29,8 +33,7 @@ def knowledge_lookup(state: ResearchState) -> dict:
 
         if latest:
             msgs.append(f"   最新报告：{latest['question']}（{latest['created_at']}）")
-            # 追溯增量报告链：如果最新报告是基于另一份报告的增量，
-            # 也把 parent 报告摘要加入上下文，让 planner 看到更完整的历史
+            # 追溯增量报告链
             parent_summary = _get_parent_chain_summary(latest, store)
             if parent_summary:
                 msgs.append(f"   基于历史报告：{parent_summary[:60]}")
@@ -41,7 +44,7 @@ def knowledge_lookup(state: ResearchState) -> dict:
         msgs.append("📚 未找到历史知识，将进行全新研究")
         knowledge_context = ""
 
-    print(f"📚 知识查询完成：{'有历史知识' if result['has_knowledge'] else '全新研究'}")
+    logger.info("知识查询完成：%s", '有历史知识' if result['has_knowledge'] else '全新研究')
 
     return {
         "knowledge_context": knowledge_context,
@@ -62,14 +65,14 @@ def _build_context(lookup_result: dict, topic_id: str, store) -> str:
     """
     parts = []
 
-    # 1. 主题级摘要（最完整的信息源，取代原来只取 300 字的简陋摘要）
+    # 1. 主题级摘要
     if topic_id:
         summary = store.get_knowledge_summary(topic_id)
         if summary and summary != "该主题暂无历史研究记录。":
             parts.append(summary)
             parts.append("")
 
-    # 2. 增量报告链（追溯 parent，让 planner 看到研究演变过程）
+    # 2. 增量报告链（使用 KnowledgeStore 门面获取 parent report）
     latest = lookup_result.get("latest_report")
     if latest and latest.get("parent_report_id"):
         parent_chain = _get_parent_chain(latest, store)
@@ -80,7 +83,7 @@ def _build_context(lookup_result: dict, topic_id: str, store) -> str:
                 parts.append(f"{'  ' * i}→ {report_info['question']} {marker}（{report_info['created_at']}）")
             parts.append("")
 
-    # 3. 关键事实（向量检索，可能和摘要中有重叠但角度不同）
+    # 3. 关键事实
     facts = lookup_result.get("facts", [])
     if facts:
         parts.append("### 语义相关的关键事实")
@@ -88,7 +91,7 @@ def _build_context(lookup_result: dict, topic_id: str, store) -> str:
             parts.append(f"- {f['text']}")
         parts.append("")
 
-    # 4. 相关报告片段（向量检索，500 字保留更多上下文）
+    # 4. 相关报告片段
     chunks = lookup_result.get("chunks", [])
     if chunks:
         parts.append("### 语义相关的历史报告片段")
@@ -102,7 +105,8 @@ def _build_context(lookup_result: dict, topic_id: str, store) -> str:
 def _get_parent_chain(latest_report: dict, store, max_depth: int = 3) -> list[dict]:
     """追溯增量报告链，返回从最早到最新的报告信息列表
 
-    例如：[首次研究, 增量1, 增量2(=latest)]
+    通过 KnowledgeStore.get_report() 获取 parent report，
+    不直接访问 store.db。
     """
     chain = []
     current = latest_report
@@ -125,7 +129,7 @@ def _get_parent_chain(latest_report: dict, store, max_depth: int = 3) -> list[di
         if not parent_id:
             break
 
-        parent = store.db.get_report(parent_id)
+        parent = store.get_report(parent_id)
         if not parent:
             break
         current = parent

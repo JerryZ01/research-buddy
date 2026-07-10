@@ -1,8 +1,13 @@
 """搜索节点 - 并行搜索各子问题，支持补充搜索"""
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from research_buddy.state import ResearchState, SearchResult
 from research_buddy.tools.search import search
+from research_buddy.utils import normalize_url
+
+logger = logging.getLogger(__name__)
 
 
 def _search_one(task: dict) -> list[SearchResult]:
@@ -29,6 +34,7 @@ def searcher(state: ResearchState) -> dict:
     """搜索节点：并行搜索各子问题，支持补充搜索
 
     增量模式下，会过滤掉与已有知识来源 URL 重复的搜索结果。
+    使用统一的 normalize_url 进行 URL 去重。
     """
     sub_questions = list(state.get("sub_questions", []))
     validation_gaps = state.get("validation_gaps", [])
@@ -40,12 +46,11 @@ def searcher(state: ResearchState) -> dict:
     for r in existing_results:
         searched_questions.add(r.get("sub_question", ""))
 
-    # 增量模式：收集已有知识的来源 URL，用于去重
+    # 增量模式：收集已有知识的来源 URL，用于去重（使用统一 normalize_url）
     known_urls: set[str] = set()
     if is_incremental:
         for url in state.get("known_source_urls", []):
-            # 规范化：去掉协议和末尾斜杠
-            known_urls.add(url.replace("https://", "").replace("http://", "").rstrip("/"))
+            known_urls.add(normalize_url(url))
 
     # 合并搜索任务：补充搜索 + 未搜索的原始子问题
     search_tasks = []
@@ -60,11 +65,11 @@ def searcher(state: ResearchState) -> dict:
             search_tasks.append(sq)
 
     if not search_tasks:
-        print("🔍 无需搜索（所有子问题已有结果）")
+        logger.info("无需搜索（所有子问题已有结果）")
         return {"search_results": [], "validation_gaps": []}
 
     total = len(search_tasks)
-    print(f"🔍 开始并行搜索 {total} 个子问题...")
+    logger.info("开始并行搜索 %d 个子问题...", total)
 
     all_results: list[SearchResult] = []
     done_count = 0
@@ -82,30 +87,24 @@ def searcher(state: ResearchState) -> dict:
                 all_results.extend(results)
             except Exception as e:
                 query = task.get("search_query", "")
-                print(f"   ⚠️  搜索失败: {query[:30]}... ({e})")
+                logger.warning("搜索失败: %s... (%s)", query[:30], e)
 
             done_count += 1
-            print(f"   搜索进度: {done_count}/{total}")
+            logger.debug("搜索进度: %d/%d", done_count, total)
 
-    # 增量模式去重：过滤已知 URL 的搜索结果
+    # 增量模式去重：过滤已知 URL 的搜索结果（使用统一 normalize_url）
     if is_incremental and known_urls:
         before = len(all_results)
-        all_results = [r for r in all_results if _normalize_url(r.get("url", "")) not in known_urls]
+        all_results = [r for r in all_results if normalize_url(r.get("url", "")) not in known_urls]
         deduped = before - len(all_results)
         if deduped > 0:
-            print(f"🔍 增量去重：过滤 {deduped} 条与已有知识重复的搜索结果")
+            logger.info("增量去重：过滤 %d 条与已有知识重复的搜索结果", deduped)
 
-    print(f"🔍 搜索完成，共获取 {len(all_results)} 条结果")
+    logger.info("搜索完成，共获取 %d 条结果", len(all_results))
 
     # 清空 validation_gaps（已处理）
     msgs = [
         f"🔍 开始并行搜索 {total} 个子问题...",
-        *[f"   搜索进度: {i+1}/{total}" for i in range(done_count)],
         f"🔍 搜索完成，共获取 {len(all_results)} 条结果",
     ]
     return {"search_results": all_results, "validation_gaps": [], "messages": msgs}
-
-
-def _normalize_url(url: str) -> str:
-    """URL 规范化：去掉协议和末尾斜杠，用于去重比较"""
-    return url.replace("https://", "").replace("http://", "").rstrip("/")

@@ -1,6 +1,10 @@
 """Langfuse Dataset 构建 - 创建测试用例"""
 
+import logging
+
 from langfuse import Langfuse
+
+logger = logging.getLogger(__name__)
 
 DATASET_NAME = "research-buddy-eval"
 
@@ -81,7 +85,7 @@ TEST_CASES = [
 
 
 def create_dataset() -> None:
-    """创建或更新 Langfuse Dataset"""
+    """创建或更新 Langfuse Dataset（幂等：已存在的 item 不会重复添加）"""
     langfuse = Langfuse()
 
     # 创建 Dataset（如已存在则复用）
@@ -90,16 +94,31 @@ def create_dataset() -> None:
         description="Research Buddy 评估测试集",
     )
 
-    # 逐条添加测试用例（用 langfuse.create_dataset_item）
+    # 获取已有 items，避免重复添加
+    existing_items = set()
+    try:
+        for item in dataset.items:
+            if hasattr(item, 'input') and item.input:
+                existing_items.add(item.input)
+    except Exception:
+        pass  # 首次创建时可能没有 items
+
+    added = 0
     for i, case in enumerate(TEST_CASES):
+        # 幂等检查：跳过已存在的 item
+        if case["input"] in existing_items:
+            continue
+
         langfuse.create_dataset_item(
             dataset_name=DATASET_NAME,
             input=case["input"],
             expected_output=case["expected_output"],
             metadata={"index": i},
         )
+        added += 1
 
-    print(f"✅ Dataset '{DATASET_NAME}' 创建完成，共 {len(TEST_CASES)} 条测试用例")
+    logger.info("Dataset '%s' 处理完成，新增 %d 条（共 %d 条测试用例）",
+                DATASET_NAME, added, len(TEST_CASES))
 
 
 def get_dataset():
