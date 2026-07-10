@@ -149,11 +149,19 @@ class ResearchState(TypedDict):
 
 最简单的线性图，无知识层，全自动：
 
-```
-START → planner → searcher → validator → synthesizer → reflector
-                                                          ↓
-                                              ┌─── pass ──→ END
-                                              └─ not pass ─→ searcher（循环）
+```mermaid
+flowchart TD
+    START((START)) --> planner
+    planner --> searcher
+    searcher --> validator
+    validator --> synthesizer
+    synthesizer --> reflector
+    reflector -->|pass ✅| END((END))
+    reflector -->|not pass ⚠️| searcher
+
+    style START fill:#4CAF50,color:#fff
+    style END fill:#f44336,color:#fff
+    style reflector fill:#FF9800,color:#fff
 ```
 
 **路由函数** `should_continue`：
@@ -165,11 +173,23 @@ START → planner → searcher → validator → synthesizer → reflector
 
 带知识层，支持增量研究：
 
-```
-START → knowledge_lookup → planner → searcher → validator → synthesizer → reflector
-                                                                          ↓
-                                                              ┌─── pass ──→ knowledge_store → END
-                                                              └─ not pass ─→ searcher（循环）
+```mermaid
+flowchart TD
+    START((START)) --> knowledge_lookup
+    knowledge_lookup --> planner
+    planner --> searcher
+    searcher --> validator
+    validator --> synthesizer
+    synthesizer --> reflector
+    reflector -->|pass ✅| knowledge_store
+    reflector -->|not pass ⚠️| searcher
+    knowledge_store --> END((END))
+
+    style START fill:#4CAF50,color:#fff
+    style END fill:#f44336,color:#fff
+    style reflector fill:#FF9800,color:#fff
+    style knowledge_lookup fill:#2196F3,color:#fff
+    style knowledge_store fill:#2196F3,color:#fff
 ```
 
 **路由函数** `should_continue_to_store`：
@@ -180,13 +200,27 @@ START → knowledge_lookup → planner → searcher → validator → synthesize
 
 在知识研究图基础上，增加变化检测和通知：
 
-```
-START → knowledge_lookup → planner → searcher → validator → synthesizer → reflector
-                                                                          ↓
-                                                              ┌─── pass ──→ knowledge_store
-                                                              └─ not pass ─→ searcher
-                                                                          ↓
-                                                              knowledge_store → diff_analyzer → change_notifier → END
+```mermaid
+flowchart TD
+    START((START)) --> knowledge_lookup
+    knowledge_lookup --> planner
+    planner --> searcher
+    searcher --> validator
+    validator --> synthesizer
+    synthesizer --> reflector
+    reflector -->|pass ✅| knowledge_store
+    reflector -->|not pass ⚠️| searcher
+    knowledge_store --> diff_analyzer
+    diff_analyzer --> change_notifier
+    change_notifier --> END((END))
+
+    style START fill:#4CAF50,color:#fff
+    style END fill:#f44336,color:#fff
+    style reflector fill:#FF9800,color:#fff
+    style knowledge_lookup fill:#2196F3,color:#fff
+    style knowledge_store fill:#2196F3,color:#fff
+    style diff_analyzer fill:#9C27B0,color:#fff
+    style change_notifier fill:#9C27B0,color:#fff
 ```
 
 **新增两个节点**：
@@ -197,8 +231,21 @@ START → knowledge_lookup → planner → searcher → validator → synthesize
 
 带人机交互，使用 MemorySaver Checkpointer：
 
-```
-START → planner ──[interrupt]──→ searcher → validator → synthesizer ──[interrupt]──→ reflector → END
+```mermaid
+flowchart TD
+    START((START)) --> planner
+    planner -->|⏸ interrupt| USER1[👤 用户确认/调整子问题]
+    USER1 --> searcher
+    searcher --> validator
+    validator --> synthesizer
+    synthesizer -->|⏸ interrupt| USER2[👤 用户查看报告/补充要求]
+    USER2 --> reflector
+    reflector --> END((END))
+
+    style START fill:#4CAF50,color:#fff
+    style END fill:#f44336,color:#fff
+    style USER1 fill:#FFEB3B,color:#000
+    style USER2 fill:#FFEB3B,color:#000
 ```
 
 - `interrupt_before=["searcher", "reflector"]`：在搜索前和反思前暂停
@@ -311,12 +358,32 @@ START → planner ──[interrupt]──→ searcher → validator → synthesi
 
 ### 3.1 三层结构
 
-```
-上层代码（nodes/）
-    ↓ 只调用 KnowledgeStore
-KnowledgeStore（store.py）  ← 统一门面
-    ↓ 委托
-Database（db.py）+ VectorStore（vector.py）  ← 底层实现
+```mermaid
+flowchart TB
+    subgraph 上层代码
+        nodes["nodes/*.py<br/>planner / knowledge_lookup / ..."]
+        api["api.py"]
+        scheduler["scheduler.py"]
+    end
+
+    subgraph 知识层门面
+        ks["KnowledgeStore<br/>统一 API 入口"]
+    end
+
+    subgraph 底层实现
+        db["Database (SQLite)<br/>4 张表: topics / reports /<br/>tracking_logs / changes"]
+        vec["VectorStore (ChromaDB)<br/>2 集合: report_chunks /<br/>key_facts"]
+    end
+
+    nodes -->|只调用 KnowledgeStore| ks
+    api --> ks
+    scheduler --> ks
+    ks -->|委托| db
+    ks -->|委托| vec
+
+    style ks fill:#2196F3,color:#fff
+    style db fill:#FF9800,color:#fff
+    style vec fill:#9C27B0,color:#fff
 ```
 
 **设计原则**：上层代码只通过 `KnowledgeStore` 访问知识层，不直接使用 `Database` 或 `VectorStore`。`knowledge/__init__.py` 只导出 `KnowledgeStore` 和 `get_knowledge_store`。
@@ -374,14 +441,22 @@ Database（db.py）+ VectorStore（vector.py）  ← 底层实现
 
 **两层变化检测**：
 
-```
-旧报告 + 新报告
-    ↓
-[第一层] difflib.SequenceMatcher → 计算文本相似度
-    ↓ similarity < threshold (0.85)
-[第二层] LLM 语义分析 → 识别有意义的信息变更
-    ↓ LLM 失败
-[fallback] difflib 行级差异 → 简单变更列表
+```mermaid
+flowchart TD
+    INPUT["旧报告 + 新报告"] --> L1["第一层：difflib.SequenceMatcher<br/>计算文本相似度"]
+    L1 -->|similarity ≥ 0.85| NO_CHANGE["无显著变化<br/>返回 has_changes=false"]
+    L1 -->|similarity < 0.85| L2["第二层：LLM 语义分析<br/>识别有意义的信息变更"]
+
+    L2 -->|LLM 成功| RESULT["结构化变更列表<br/>type + description + significance"]
+    L2 -->|LLM 失败| FALLBACK["Fallback：difflib 行级差异<br/>简单变更列表"]
+
+    RESULT --> OUTPUT
+    FALLBACK --> OUTPUT["返回 changes 列表"]
+
+    style L1 fill:#2196F3,color:#fff
+    style L2 fill:#FF9800,color:#fff
+    style FALLBACK fill:#9E9E9E,color:#fff
+    style NO_CHANGE fill:#4CAF50,color:#fff
 ```
 
 **变更类型**：`new_info`（新增）、`update`（更新）、`contradiction`（矛盾）
@@ -405,18 +480,22 @@ Database（db.py）+ VectorStore（vector.py）  ← 底层实现
 
 **APScheduler 定时调度器**：
 
-```
-FastAPI lifespan 启动
-    ↓
-TrackingScheduler.start()
-    ↓ 加载所有 tracking_enabled 的主题
-为每个主题添加 CronTrigger 定时任务
-    ↓ cron 触发
-_run_tracking(topic_id)
-    ↓ asyncio.to_thread() 避免阻塞
-create_tracking_graph().stream()  ← 使用追踪图（内置 diff_analyzer + change_notifier）
-    ↓
-结果自动保存到知识库 + 变化检测 + 通知
+```mermaid
+flowchart TD
+    LIFESPAN["FastAPI lifespan 启动"] --> START["TrackingScheduler.start()"]
+    START --> LOAD["加载所有 tracking_enabled 的主题"]
+    LOAD --> ADD["为每个主题添加 CronTrigger 定时任务"]
+
+    ADD --> CRON["APScheduler cron 触发<br/>e.g. '0 9 * * 1-5' 工作日 9 点"]
+    CRON --> ASYNC["_run_tracking(topic_id)<br/>async 函数"]
+    ASYNC --> THREAD["asyncio.to_thread()<br/>避免阻塞事件循环"]
+    THREAD --> GRAPH["create_tracking_graph().stream()<br/>使用追踪图（内置 diff_analyzer + change_notifier）"]
+    GRAPH --> AUTO["结果自动保存到知识库<br/>+ 变化检测 + 通知"]
+
+    style LIFESPAN fill:#4CAF50,color:#fff
+    style CRON fill:#FF9800,color:#fff
+    style THREAD fill:#2196F3,color:#fff
+    style GRAPH fill:#9C27B0,color:#fff
 ```
 
 **关键设计**：
@@ -481,10 +560,16 @@ create_tracking_graph().stream()  ← 使用追踪图（内置 diff_analyzer + c
 
 ### 7.1 FastAPI 应用
 
-```
-FastAPI lifespan
-    ├── startup: TrackingScheduler.start()
-    └── shutdown: TrackingScheduler.stop()
+```mermaid
+flowchart LR
+    START["应用启动"] --> SCHEDULER["TrackingScheduler.start()<br/>加载定时任务"]
+    SCHEDULER --> RUNNING["FastAPI 运行中<br/>处理 HTTP/SSE 请求"]
+    RUNNING --> SHUTDOWN["应用停止"]
+    SHUTDOWN --> STOP["TrackingScheduler.stop()"]
+
+    style START fill:#4CAF50,color:#fff
+    style RUNNING fill:#2196F3,color:#fff
+    style STOP fill:#f44336,color:#fff
 ```
 
 ### 7.2 API 端点
@@ -514,16 +599,23 @@ FastAPI lifespan
 
 **架构**：`asyncio.Queue + asyncio.to_thread`
 
-```
-客户端 EventSource
-    ↓ SSE 连接
-EventSourceResponse(_event_generator)
-    ↓ async inner()
-asyncio.Queue
-    ↑ queue.get()
-asyncio.to_thread(_run_graph)  ← 同步 graph.stream() 在线程中执行
-    ↓ queue.put_nowait()
-事件推送到客户端
+```mermaid
+flowchart LR
+    CLIENT["客户端<br/>EventSource"] <-->|SSE 连接| SSE["EventSourceResponse<br/>_event_generator()"]
+    SSE <-->|queue.get()| QUEUE["asyncio.Queue"]
+    QUEUE <-->|queue.put_nowait()| THREAD["asyncio.to_thread()<br/>_run_graph()"]
+    THREAD --> GRAPH["graph.stream()<br/>同步在线程中执行"]
+
+    GRAPH --> |progress| QUEUE
+    GRAPH --> |message| QUEUE
+    GRAPH --> |report| QUEUE
+    GRAPH --> |done| QUEUE
+    GRAPH --> |error| QUEUE
+
+    style CLIENT fill:#4CAF50,color:#fff
+    style QUEUE fill:#2196F3,color:#fff
+    style THREAD fill:#FF9800,color:#fff
+    style GRAPH fill:#9C27B0,color:#fff
 ```
 
 **事件类型**：
@@ -559,89 +651,207 @@ asyncio.to_thread(_run_graph)  ← 同步 graph.stream() 在线程中执行
 
 ### 9.1 全新研究流程
 
-```
-用户输入: "Python GIL 是什么？"
-    ↓
-[planner] LLM 拆解为子问题:
-    [
-      {"question": "GIL 的定义和原理", "search_query": "Python GIL global interpreter lock definition"},
-      {"question": "GIL 对性能的影响", "search_query": "Python GIL performance impact multicore"},
-      {"question": "绕过 GIL 的方法", "search_query": "Python bypass GIL multiprocessing alternative"}
-    ]
-    ↓
-[searcher] ThreadPoolExecutor 并行搜索 3 个子问题
-    ↓ Tavily API × 3
-    返回 15 条搜索结果（每个子问题 5 条）
-    ↓
-[validator] 检查每个子问题是否有 ≥ 2 条有效结果
-    ↓ 全部充足
-    ↓
-[synthesizer] LLM 流式生成结构化报告:
-    "# Python GIL 研究\n## 概述\n..."
-    ↓
-[reflector] LLM 自评:
-    {"completeness": 4, "accuracy": 4, "clarity": 4, "total_score": 12, "pass": true}
-    ↓ 通过
-输出: 报告 + 来源引用 + 置信度
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant P as planner
+    participant S as searcher
+    participant V as validator
+    participant Syn as synthesizer
+    participant R as reflector
+
+    U->>P: "Python GIL 是什么？"
+    P->>P: LLM 拆解为 3 个子问题
+    P-->>S: sub_questions
+
+    par 并行搜索
+        S->>S: Tavily API: "Python GIL definition"
+        S->>S: Tavily API: "Python GIL performance impact"
+        S->>S: Tavily API: "Python bypass GIL"
+    end
+    S-->>V: 15 条搜索结果
+
+    V->>V: 检查每个子问题 ≥ 2 条有效结果
+    V-->>Syn: 全部充足 ✅
+
+    Syn->>Syn: LLM 流式生成结构化报告
+    Syn-->>R: report
+
+    R->>R: LLM 自评: completeness=4, accuracy=4, clarity=4
+    R-->>U: 总分 12/15, 通过 ✅ → 输出报告
 ```
 
 ### 9.2 循环修正流程
 
-```
-[reflector] 评分 9/15, pass: false
-    ↓
-    supplement_queries: ["Python GIL PEP 703", "Python free-threaded"]
-    ↓
-[searcher] 补充搜索 2 个查询
-    ↓
-[synthesizer] 重新生成报告
-    ↓
-[reflector] 评分 13/15, pass: true
-    ↓
-输出: 改进后的报告
+```mermaid
+sequenceDiagram
+    participant R as reflector
+    participant S as searcher
+    participant Syn as synthesizer
+
+    R->>R: 评分 9/15, pass: false ⚠️
+    R-->>S: supplement_queries: ["Python GIL PEP 703", "Python free-threaded"]
+
+    S->>S: 补充搜索 2 个查询
+    S-->>Syn: 新增搜索结果
+
+    Syn->>Syn: 根据反馈重新生成报告
+    Syn-->>R: 改进后的报告
+
+    R->>R: 评分 13/15, pass: true ✅
+    R-->>R: 输出改进后的报告
+
+    Note over R,Syn: 最多循环 MAX_REFLECTION_ROUNDS=2 次
 ```
 
 ### 9.3 增量研究流程
 
-```
-用户输入: "Python GIL 最新进展" (topic_id=xxx, is_incremental=True)
-    ↓
-[knowledge_lookup] 查询知识库:
-    - 向量检索: 5 个相关 chunk + 10 条关键事实
-    - 结构化查表: 最新报告 + 增量链
-    - 构建 knowledge_context
-    ↓
-[planner] 增量模式: 只规划缺失的 2-3 个子问题
-    ↓
-[searcher] 搜索 + 增量去重（过滤已知 URL）
-    ↓
-[synthesizer] 增量综合: 在已有知识上补充更新
-    ↓
-[reflector] 评估
-    ↓
-[knowledge_store] 保存到知识库 (SQLite + ChromaDB)
-    ↓
-输出: 更新后的报告
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant KL as knowledge_lookup
+    participant P as planner
+    participant S as searcher
+    participant Syn as synthesizer
+    participant R as reflector
+    participant KS as knowledge_store
+    participant DB as SQLite + ChromaDB
+
+    U->>KL: "Python GIL 最新进展" (topic_id=xxx, is_incremental=true)
+
+    par 查询知识库
+        KL->>DB: 向量检索: 5 chunks + 10 facts
+        KL->>DB: 结构化查表: 最新报告 + 增量链
+    end
+    KL-->>P: knowledge_context
+
+    P->>P: 增量模式: 只规划缺失的 2-3 个子问题
+    P-->>S: sub_questions
+
+    S->>S: 搜索 + 增量去重（过滤已知 URL）
+    S-->>Syn: 搜索结果
+
+    Syn->>Syn: 增量综合: 在已有知识上补充更新<br/>标注 🆕 新增 / ⚠️ 矛盾
+    Syn-->>R: report
+
+    R->>R: 评估通过 ✅
+    R-->>KS: 保存到知识库
+
+    par 双写
+        KS->>DB: SQLite: 元数据 + 关键事实
+        KS->>DB: ChromaDB: 报告分块 + 事实向量
+    end
+    KS-->>U: 更新后的报告
 ```
 
 ### 9.4 定时追踪流程
 
+```mermaid
+sequenceDiagram
+    participant CRON as APScheduler cron
+    participant T as _run_tracking
+    participant G as tracking_graph
+    participant DA as diff_analyzer
+    participant CN as change_notifier
+    participant N as Notifier
+
+    CRON->>T: 触发 (e.g. 工作日 9 点)
+    T->>T: asyncio.to_thread() 避免阻塞
+
+    T->>G: create_tracking_graph().stream()
+    Note over G: knowledge_lookup → planner → searcher<br/>→ validator → synthesizer → reflector<br/>→ knowledge_store
+
+    G-->>DA: 新报告已保存
+    DA->>DA: 对比新旧报告
+    DA-->>CN: 3 项变化 (1 high 🔴, 2 medium 🟡)
+
+    CN->>CN: 通知策略判断
+    CN->>CN: high > 0 → 需要通知 ✅
+    CN->>N: 发送通知
+
+    N->>N: 检测 Webhook 类型
+    N-->>N: 推送到企业微信/钉钉/Telegram
 ```
-APScheduler cron 触发 (e.g. "0 9 * * 1-5" 工作日 9 点)
-    ↓
-_run_tracking(topic_id)
-    ↓ asyncio.to_thread()
-[create_tracking_graph].stream()
-    ↓
-    knowledge_lookup → planner → searcher → validator → synthesizer → reflector
-    ↓ 通过
-    knowledge_store → diff_analyzer → change_notifier
-    ↓
-    diff_analyzer: 对比新旧报告, 检测到 3 项变化 (1 high, 2 medium)
-    ↓
-    change_notifier: high > 0 → 发送通知
-    ↓
-通知推送到企业微信/钉钉/Telegram
+
+### 9.5 人机交互流程
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant G as HITL Graph
+    participant CP as MemorySaver
+
+    U->>G: 输入研究问题
+    G->>G: planner 执行
+    G-->>CP: ⏸ 暂停 (interrupt_before=searcher)
+    CP-->>U: 展示子问题，等待确认
+
+    U->>G: Command(resume={"sub_questions": [...]})
+    G->>G: searcher → validator → synthesizer
+    G-->>CP: ⏸ 暂停 (interrupt_before=reflector)
+    CP-->>U: 展示报告，等待反馈
+
+    U->>G: Command(resume={"user_feedback": "补充..."})
+    G->>G: reflector → END
+    G-->>U: 最终报告
+```
+
+### 9.6 通知策略决策流程
+
+```mermaid
+flowchart TD
+    CHANGES["检测到变更列表"] --> CHECK_HIGH{"有 high 级别变化？"}
+    CHECK_HIGH -->|是| NOTIFY["发送通知 🔔"]
+    CHECK_HIGH -->|否| CHECK_MEDIUM{"有 ≥ 2 条 medium 变化？"}
+    CHECK_MEDIUM -->|是| NOTIFY
+    CHECK_MEDIUM -->|否| SKIP["跳过通知<br/>只有 low 变化"]
+
+    NOTIFY --> COOLDOWN{"主题在冷却期内？<br/>(12 小时)"}
+    COOLDOWN -->|是| SKIP_COOLDOWN["跳过通知<br/>冷却中"]
+    COOLDOWN -->|否| WEBHOOK{"检测 Webhook 类型"}
+    WEBHOOK -->|qyapi.weixin.qq.com| WECHAT["企业微信格式<br/>Markdown + **加粗**"]
+    WEBHOOK -->|oapi.dingtalk.com| DINGTALK["钉钉格式<br/>Markdown 无加粗"]
+    WEBHOOK -->|其他| GENERIC["通用 JSON 格式"]
+
+    style NOTIFY fill:#4CAF50,color:#fff
+    style SKIP fill:#9E9E9E,color:#fff
+    style SKIP_COOLDOWN fill:#9E9E9E,color:#fff
+    style WECHAT fill:#2196F3,color:#fff
+    style DINGTALK fill:#2196F3,color:#fff
+    style GENERIC fill:#2196F3,color:#fff
+```
+
+### 9.7 Langfuse 可观测性流程
+
+```mermaid
+flowchart LR
+    subgraph Research Buddy
+        GRAPH["graph.stream()"] -->|CallbackHandler| LANGFUSE["Langfuse"]
+    end
+
+    subgraph Langfuse
+        LANGFUSE --> TRACE["Trace<br/>每次研究执行"]
+        TRACE --> SPAN1["Span: planner"]
+        TRACE --> SPAN2["Span: searcher"]
+        TRACE --> SPAN3["Span: synthesizer"]
+        SPAN1 --> GEN1["Generation: LLM 调用"]
+        SPAN3 --> GEN2["Generation: LLM 调用"]
+        TRACE --> SCORE["Score: LLM-as-Judge<br/>relevance / completeness / accuracy"]
+    end
+
+    subgraph Prompt 管理
+        PROMPTS["Prompt 列表"] --> P1["research-buddy-planner"]
+        PROMPTS --> P2["research-buddy-planner-incremental"]
+        PROMPTS --> P3["research-buddy-synthesizer"]
+        PROMPTS --> P4["research-buddy-synthesizer-incremental"]
+        PROMPTS --> P5["research-buddy-synthesizer-refine"]
+        PROMPTS --> P6["research-buddy-reflector"]
+    end
+
+    style LANGFUSE fill:#FF9800,color:#fff
+    style TRACE fill:#2196F3,color:#fff
+    style SCORE fill:#4CAF50,color:#fff
+    style PROMPTS fill:#9C27B0,color:#fff
 ```
 
 ---
@@ -717,7 +927,76 @@ _run_tracking(topic_id)
 
 ## 十一、部署架构
 
-### 11.1 本地开发
+### 11.1 整体系统架构
+
+```mermaid
+flowchart TB
+    subgraph 客户端
+        BROWSER["Web UI<br/>index.html (深色主题)"]
+        API_CLIENT["API 客户端<br/>curl / SDK"]
+    end
+
+    subgraph FastAPI 服务
+        HTTP["HTTP 端点<br/>research / topics / tracking"]
+        SSE["SSE 流式端点<br/>research/stream"]
+        STATIC["静态文件<br/>Web UI"]
+    end
+
+    subgraph LangGraph 工作流
+        CORE["核心研究图<br/>planner → searcher → validator<br/>→ synthesizer → reflector"]
+        KNOWLEDGE_G["知识研究图<br/>+ knowledge_lookup/store"]
+        TRACKING_G["追踪图<br/>+ diff_analyzer/change_notifier"]
+        HITL_G["HITL 图<br/>+ interrupt + resume"]
+    end
+
+    subgraph 知识层
+        SQLITE["SQLite<br/>topics / reports /<br/>tracking_logs / changes"]
+        CHROMA["ChromaDB<br/>report_chunks / key_facts"]
+    end
+
+    subgraph 外部服务
+        LLM["LLM API<br/>(OpenAI 中转站)"]
+        TAVILY["Tavily<br/>搜索 API"]
+        LANGFUSE["Langfuse<br/>可观测性"]
+        WEBHOOK["Webhook<br/>企业微信/钉钉/Telegram"]
+    end
+
+    BROWSER --> SSE
+    BROWSER --> STATIC
+    API_CLIENT --> HTTP
+
+    HTTP --> CORE
+    HTTP --> KNOWLEDGE_G
+    HTTP --> TRACKING_G
+    SSE --> CORE
+    SSE --> KNOWLEDGE_G
+
+    CORE --> LLM
+    CORE --> TAVILY
+    KNOWLEDGE_G --> LLM
+    KNOWLEDGE_G --> TAVILY
+    KNOWLEDGE_G --> SQLITE
+    KNOWLEDGE_G --> CHROMA
+    TRACKING_G --> LLM
+    TRACKING_G --> TAVILY
+    TRACKING_G --> SQLITE
+    TRACKING_G --> CHROMA
+    TRACKING_G --> WEBHOOK
+
+    CORE --> LANGFUSE
+    KNOWLEDGE_G --> LANGFUSE
+    TRACKING_G --> LANGFUSE
+
+    style BROWSER fill:#4CAF50,color:#fff
+    style LLM fill:#FF9800,color:#fff
+    style TAVILY fill:#FF9800,color:#fff
+    style LANGFUSE fill:#9C27B0,color:#fff
+    style WEBHOOK fill:#E91E63,color:#fff
+    style SQLITE fill:#2196F3,color:#fff
+    style CHROMA fill:#2196F3,color:#fff
+```
+
+### 11.2 本地开发
 
 ```bash
 # 方式 1: dev.sh 脚本
