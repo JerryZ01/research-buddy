@@ -1,0 +1,4052 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Research Buddy</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+/* ═══════════════════════════════════════════════
+   Reset & Variables
+   ═══════════════════════════════════════════════ */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* Backgrounds — from dead black to deep space */
+  --bg: #09090b;
+  --bg2: #0f0f14;
+  --surface: #161620;
+  --surface2: #1e1e2e;
+  --surface-hover: #1c1c2a;
+
+  /* Borders — neutral white tint, not purple */
+  --border: rgba(255, 255, 255, .06);
+  --border2: rgba(255, 255, 255, .1);
+
+  /* Text */
+  --text: #fafafa;
+  --text2: #a1a1aa;
+  --text3: #71717a;
+
+  /* Purple */
+  --purple: #8b5cf6;
+  --purple2: #a78bfa;
+  --purple-g: rgba(139, 92, 246, .12);
+
+  /* Cyan */
+  --cyan: #22d3ee;
+  --cyan2: #67e8f9;
+  --cyan-g: rgba(34, 211, 238, .08);
+
+  /* Green */
+  --green: #4ade80;
+  --green-g: rgba(74, 222, 128, .1);
+
+  /* Amber */
+  --amber: #fbbf24;
+  --amber-g: rgba(251, 191, 36, .1);
+
+  /* Red */
+  --red: #f87171;
+  --red-g: rgba(248, 113, 113, .1);
+
+  /* Pink */
+  --pink: #f472b6;
+  --pink-g: rgba(244, 114, 182, .1);
+
+  /* Aliases — fix all broken variable references */
+  --v: var(--purple);
+  --v2: var(--purple2);
+  --vb: var(--purple-g);
+  --c: var(--cyan);
+  --g: var(--green);
+  --gb: var(--green-g);
+  --a: var(--amber);
+  --ab: var(--amber-g);
+  --Rs: var(--rs);
+  --bd3: var(--border2);
+
+  /* Gradients */
+  --gradient-purple: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  --gradient-cyan: linear-gradient(135deg, #22d3ee, #0891b2);
+
+  /* Shadows — crisp depth, not glow */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, .4);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, .5);
+
+  /* Radius */
+  --r: 12px;
+  --r2: 16px;
+  --rs: 8px;
+
+  /* Easing */
+  --ease: cubic-bezier(.4, 0, .2, 1);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+  line-height: 1.6;
+}
+
+/* ═══════════════════════════════════════════════
+   Particle Canvas — REMOVED for premium look
+   ═══════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════
+   Scan Line — REMOVED for premium look
+   ═══════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════
+   Layout
+   ═══════════════════════════════════════════════ */
+.app {
+  display: flex;
+  min-height: 100vh;
+  position: relative;
+  z-index: 2;
+}
+
+.sidebar {
+  width: 240px;
+  background: #0c0c12;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 50;
+}
+
+.sidebar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .08), transparent 30%, transparent 70%, rgba(255, 255, 255, .04));
+}
+
+.sidebar-brand {
+  padding: 24px 16px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+.brand-title {
+  font-size: 1rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+}
+
+.brand-logo {
+  width: 32px;
+  height: 32px;
+  background: var(--gradient-purple);
+  border-radius: var(--rs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .9rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.brand-sub {
+  font-size: .7rem;
+  color: var(--text3);
+  margin-top: 4px;
+  letter-spacing: .05em;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.nav-sec {
+  margin-bottom: 12px;
+}
+
+.nav-sec-title {
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--text3);
+  padding: 12px 16px 4px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: var(--rs);
+  font-size: .84rem;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all .2s var(--ease);
+  border: 1px solid transparent;
+  position: relative;
+}
+
+.nav-item:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, .04);
+}
+
+.nav-item.active {
+  color: var(--purple2);
+  background: var(--purple-g);
+  border-color: rgba(139, 92, 246, .12);
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--purple);
+  border-radius: 2px;
+}
+
+.nav-icon {
+  width: 18px;
+  text-align: center;
+  font-size: .82rem;
+  flex-shrink: 0;
+}
+
+.nav-badge {
+  margin-left: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 1px 8px;
+  font-size: .7rem;
+  color: var(--text3);
+  font-weight: 600;
+}
+
+.nav-item.active .nav-badge {
+  background: var(--purple-g);
+  color: var(--purple2);
+  border-color: rgba(139, 92, 246, .12);
+}
+
+.sidebar-footer {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.sidebar-footer span {
+  font-size: .7rem;
+  color: var(--text3);
+  letter-spacing: .02em;
+}
+
+.shortcuts-hint {
+  font-size: .65rem;
+  color: var(--text3);
+  margin-top: 8px;
+  opacity: .6;
+}
+
+.shortcuts-hint kbd {
+  display: inline-block;
+  padding: 1px 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: .65rem;
+}
+
+.main {
+  margin-left: 240px;
+  flex: 1;
+  min-height: 100vh;
+}
+
+.main-inner {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 32px 48px;
+}
+
+/* ═══════════════════════════════════════════════
+   Breadcrumb
+   ═══════════════════════════════════════════════ */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .76rem;
+  color: var(--text3);
+  margin-bottom: 20px;
+  min-height: 20px;
+}
+
+.breadcrumb-sep {
+  color: var(--text3);
+  opacity: .4;
+}
+
+.breadcrumb-link {
+  color: var(--text2);
+  cursor: pointer;
+  transition: color .2s;
+  text-decoration: none;
+}
+
+.breadcrumb-link:hover {
+  color: var(--purple2);
+}
+
+.breadcrumb-current {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* ═══════════════════════════════════════════════
+   Page Header
+   ═══════════════════════════════════════════════ */
+.page-header {
+  margin-bottom: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.page-header h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -.5px;
+}
+
+.page-header p {
+  color: var(--text2);
+  font-size: .88rem;
+  margin-top: 4px;
+}
+
+/* ═══════════════════════════════════════════════
+   Cards — premium elevation
+   ═══════════════════════════════════════════════ */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  transition: all .2s var(--ease);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r2);
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, .06), transparent 50%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.card:hover {
+  border-color: var(--border2);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.card-body {
+  padding: 24px;
+}
+
+/* ═══════════════════════════════════════════════
+   Buttons — premium with depth
+   ═══════════════════════════════════════════════ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--rs);
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .2s var(--ease);
+  background: var(--surface);
+  color: var(--text2);
+  white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn:hover {
+  color: var(--text);
+  border-color: var(--border2);
+  background: var(--surface-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: var(--gradient-purple);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 2px 12px rgba(139, 92, 246, .25);
+}
+
+.btn-primary:hover {
+  box-shadow: 0 4px 20px rgba(139, 92, 246, .35);
+  transform: translateY(-2px);
+}
+
+.btn-primary:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, .04);
+}
+
+.btn-danger {
+  color: var(--red);
+}
+
+.btn-danger:hover {
+  background: var(--red-g);
+  border-color: rgba(248, 113, 113, .2);
+}
+
+.btn-sm {
+  padding: 5px 11px;
+  font-size: .76rem;
+}
+
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--rs);
+}
+
+/* ═══════════════════════════════════════════════
+   Form — brighter inputs, clearer focus
+   ═══════════════════════════════════════════════ */
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-label {
+  display: block;
+  font-size: .76rem;
+  font-weight: 600;
+  color: var(--text2);
+  margin-bottom: 6px;
+  letter-spacing: .02em;
+}
+
+.form-hint {
+  font-size: .72rem;
+  color: var(--text3);
+  margin-top: 4px;
+}
+
+.input {
+  width: 100%;
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid var(--border);
+  border-radius: var(--rs);
+  padding: 10px 12px;
+  font-size: .84rem;
+  color: var(--text);
+  outline: none;
+  transition: all .2s var(--ease);
+  font-family: inherit;
+}
+
+.input:focus {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, .15), 0 0 20px rgba(139, 92, 246, .08);
+}
+
+.input::placeholder {
+  color: var(--text3);
+}
+
+textarea.input {
+  resize: vertical;
+  min-height: 70px;
+  line-height: 1.6;
+}
+
+select.input {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%239898b0' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.tag-input-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid var(--border);
+  border-radius: var(--rs);
+  padding: 8px 12px;
+  cursor: text;
+  transition: all .2s var(--ease);
+}
+
+.tag-input-wrap:focus-within {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, .15);
+}
+
+.tag-input-wrap .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  background: var(--purple-g);
+  color: var(--purple2);
+  border-radius: 99px;
+  font-size: .72rem;
+  font-weight: 600;
+  border: 1px solid var(--border2);
+}
+
+.tag-input-wrap .tag .tag-remove {
+  cursor: pointer;
+  opacity: .5;
+  font-size: .65rem;
+}
+
+.tag-input-wrap .tag .tag-remove:hover {
+  opacity: 1;
+}
+
+.tag-input-wrap input {
+  border: none;
+  background: none;
+  outline: none;
+  color: var(--text);
+  font-size: .82rem;
+  min-width: 70px;
+  flex: 1;
+}
+
+.toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.toggle input {
+  display: none;
+}
+
+.toggle .slider {
+  position: absolute;
+  inset: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  transition: all .2s var(--ease);
+}
+
+.toggle .slider::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 2px;
+  bottom: 2px;
+  background: var(--text3);
+  border-radius: 50%;
+  transition: all .2s var(--ease);
+}
+
+.toggle input:checked + .slider {
+  background: var(--purple);
+  border-color: var(--purple);
+  box-shadow: 0 0 12px var(--purple-g);
+}
+
+.toggle input:checked + .slider::before {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+/* ═══════════════════════════════════════════════
+   Badges — cleaner with white tint borders
+   ═══════════════════════════════════════════════ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+}
+
+.badge-accent {
+  background: var(--purple-g);
+  color: var(--purple2);
+  border: 1px solid rgba(139, 92, 246, .15);
+}
+
+.badge-cyan {
+  background: var(--cyan-g);
+  color: var(--cyan);
+  border: 1px solid rgba(34, 211, 238, .2);
+}
+
+.badge-green {
+  background: var(--green-g);
+  color: var(--green);
+  border: 1px solid rgba(74, 222, 128, .2);
+}
+
+.badge-amber {
+  background: var(--amber-g);
+  color: var(--amber);
+  border: 1px solid rgba(251, 191, 36, .2);
+}
+
+.badge-red {
+  background: var(--red-g);
+  color: var(--red);
+  border: 1px solid rgba(248, 113, 113, .2);
+}
+
+.badge-pink {
+  background: var(--pink-g);
+  color: var(--pink);
+  border: 1px solid rgba(244, 114, 182, .2);
+}
+
+.badge-muted {
+  background: rgba(255, 255, 255, .04);
+  color: var(--text3);
+  border: 1px solid var(--border);
+}
+
+/* ═══════════════════════════════════════════════
+   Utility Classes
+   ═══════════════════════════════════════════════ */
+.text-cyan { color: var(--cyan); }
+.text-green { color: var(--green); }
+.text-amber { color: var(--amber); }
+.text-red { color: var(--red); }
+.text-purple2 { color: var(--purple2); }
+.text-muted { color: var(--text3); }
+.text-secondary { color: var(--text2); }
+.font-mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+.section-title {
+  font-size: .92rem;
+  font-weight: 600;
+  margin-bottom: 20px;
+  color: var(--text);
+}
+.source-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rs);
+  color: var(--text2);
+  font-size: .8rem;
+  text-decoration: none;
+  transition: all .2s;
+  border-left: 2px solid transparent;
+}
+
+.source-link:hover {
+  border-color: var(--border2);
+  background: var(--surface-hover);
+  border-left-color: var(--purple);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.source-link .source-icon {
+  color: var(--cyan);
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════
+   Research Page — hero with substance
+   ═══════════════════════════════════════════════ */
+.research-hero {
+  background: linear-gradient(180deg, rgba(139, 92, 246, .08) 0%, rgba(34, 211, 238, .03) 40%, transparent 100%);
+  margin: -32px -48px 0;
+  padding: 40px 48px 28px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+.research-hero::before {
+  content: '';
+  position: absolute;
+  top: -100px;
+  right: -100px;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(139, 92, 246, .1), transparent 70%);
+  pointer-events: none;
+}
+
+.research-hero::after {
+  content: '';
+  position: absolute;
+  bottom: -80px;
+  left: -80px;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(34, 211, 238, .06), transparent 70%);
+  pointer-events: none;
+}
+
+.research-input-wrap {
+  position: relative;
+  z-index: 1;
+}
+
+.research-input-wrap textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px 20px;
+  font-size: 1rem;
+  color: var(--text);
+  resize: none;
+  outline: none;
+  transition: all .2s var(--ease);
+  min-height: 100px;
+  line-height: 1.6;
+  font-family: inherit;
+  box-shadow: var(--shadow-sm);
+}
+
+.research-input-wrap textarea:focus {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, .15), var(--shadow-md);
+}
+
+.research-input-wrap textarea::placeholder {
+  color: var(--text3);
+}
+
+.research-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.research-actions select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rs);
+  padding: 8px 26px 8px 10px;
+  font-size: .78rem;
+  color: var(--text2);
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%239898b0' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+
+/* ── Step Pipeline ── */
+.step-pipeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 24px 0 0;
+  overflow-x: auto;
+  position: relative;
+  z-index: 1;
+  scroll-snap-type: x mandatory;
+}
+
+.step-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 99px;
+  font-size: .76rem;
+  font-weight: 600;
+  color: var(--text3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: all .3s var(--ease);
+  white-space: nowrap;
+  scroll-snap-align: start;
+}
+
+.step-node.active {
+  color: var(--purple2);
+  background: var(--purple-g);
+  border-color: rgba(139, 92, 246, .2);
+}
+
+.step-node.done {
+  color: var(--green);
+  background: var(--green-g);
+  border-color: rgba(74, 222, 128, .2);
+}
+
+.step-conn {
+  width: 24px;
+  height: 2px;
+  background: var(--border);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.step-conn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  transition: background .3s;
+}
+
+.step-conn.done::after {
+  background: var(--green);
+}
+
+.step-conn.active::after {
+  background: var(--purple);
+  animation: dataPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes dataPulse {
+  0%, 100% { opacity: .4; }
+  50% { opacity: 1; }
+}
+
+/* ── Terminal Log ── */
+.terminal {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  margin-top: 20px;
+  display: none;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+}
+
+.terminal.visible {
+  display: block;
+  animation: slideUp .3s var(--ease);
+}
+
+.terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.terminal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.terminal-dot.r { background: #ff5f57; }
+.terminal-dot.y { background: #febc2e; }
+.terminal-dot.g { background: #28c840; }
+
+.terminal-title {
+  font-size: .7rem;
+  color: var(--text3);
+  margin-left: 8px;
+  font-family: monospace;
+  letter-spacing: .05em;
+}
+
+.terminal-body {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 12px 16px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.t-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: .76rem;
+  animation: slideUp .15s var(--ease);
+}
+
+.t-prompt {
+  color: var(--purple);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.t-text {
+  color: var(--text2);
+  line-height: 1.5;
+  flex: 1;
+}
+
+.t-text strong {
+  color: var(--cyan2);
+  font-weight: 500;
+}
+
+.t-time {
+  color: var(--text3);
+  font-size: .64rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ── Node Detail Panel (kept for alias compatibility) ── */
+.node-detail {
+  margin-top: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  animation: slideUp .3s var(--ease);
+  position: relative;
+  box-shadow: var(--shadow-sm);
+}
+
+.node-detail::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--purple), var(--cyan));
+  opacity: .8;
+}
+
+/* ── Step Cards: accumulated detail history ── */
+.step-cards {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.step-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  animation: slideUp .3s var(--ease);
+  box-shadow: var(--shadow-sm);
+  position: relative;
+}
+
+.step-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+
+.step-card.sc-purple::before { background: var(--gradient-purple); }
+.step-card.sc-cyan::before { background: var(--gradient-cyan); }
+.step-card.sc-green::before { background: linear-gradient(135deg, #4ade80, #22c55e); }
+.step-card.sc-amber::before { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
+.step-card.sc-red::before { background: linear-gradient(135deg, #f87171, #ef4444); }
+
+.sc-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sc-header .sc-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .82rem;
+  flex-shrink: 0;
+}
+
+.sc-purple .sc-icon { background: var(--purple-g); color: var(--purple2); }
+.sc-cyan .sc-icon { background: var(--cyan-g); color: var(--cyan); }
+.sc-green .sc-icon { background: var(--green-g); color: var(--green); }
+.sc-amber .sc-icon { background: var(--amber-g); color: var(--amber); }
+.sc-red .sc-icon { background: var(--red-g); color: var(--red); }
+
+.sc-header .sc-title {
+  font-size: .84rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sc-header .sc-badge {
+  margin-left: auto;
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--text3);
+}
+
+.sc-body {
+  padding: 14px 16px;
+}
+
+.nd-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(90deg, var(--vb), transparent);
+}
+
+.nd-header .nd-icon {
+  font-size: .8rem;
+  color: var(--v2);
+}
+
+.nd-header .nd-title {
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--v2);
+}
+
+.nd-header .nd-badge {
+  margin-left: auto;
+  font-size: .66rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: var(--c);
+  opacity: .8;
+}
+
+.nd-body {
+  padding: 12px 14px;
+}
+
+.nd-body:empty {
+  display: none;
+}
+
+/* Sub-question cards */
+.nd-sq {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.nd-sq:last-child {
+  border-bottom: none;
+}
+
+.nd-sq-num {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--vb);
+  color: var(--v2);
+  font-size: .64rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  border: 1px solid var(--bd3);
+}
+
+.nd-sq-q {
+  font-size: .78rem;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.nd-sq-kw {
+  font-size: .66rem;
+  color: var(--c);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  margin-top: 1px;
+}
+
+/* Search result mini cards */
+.nd-sr-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.nd-sr {
+  padding: 6px 8px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--Rs);
+  overflow: hidden;
+}
+
+.nd-sr-title {
+  font-size: .7rem;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nd-sr-url {
+  font-size: .6rem;
+  color: var(--text3);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.nd-sr-score {
+  font-size: .58rem;
+  color: var(--c);
+  float: right;
+}
+
+/* Validation gap */
+.nd-gap {
+  padding: 6px 8px;
+  background: var(--ab);
+  border: 1px solid rgba(255, 176, 32, .12);
+  border-radius: var(--Rs);
+  margin-bottom: 4px;
+}
+
+.nd-gap-q {
+  font-size: .76rem;
+  color: var(--a);
+}
+
+.nd-gap-kw {
+  font-size: .64rem;
+  color: var(--text3);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Reflection detail */
+.nd-refl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  font-size: .78rem;
+}
+
+.nd-refl dt {
+  color: var(--text3);
+  font-weight: 500;
+}
+
+.nd-refl dd {
+  color: var(--text2);
+}
+
+/* Knowledge lookup */
+.nd-kl {
+  display: flex;
+  gap: 12px;
+  font-size: .78rem;
+}
+
+.nd-kl-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nd-kl-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.nd-kl-dot.yes {
+  background: var(--g);
+  box-shadow: 0 0 6px var(--gb);
+}
+
+.nd-kl-dot.no {
+  background: var(--text3);
+}
+
+/* Node detail utility classes */
+.nd-info {
+  font-size: .76rem;
+  color: var(--text2);
+  margin-bottom: 6px;
+}
+
+.nd-ok {
+  font-size: .76rem;
+  color: var(--green);
+}
+
+.nd-warn {
+  font-size: .76rem;
+  color: var(--amber);
+}
+
+/* ── Report ── */
+.report-view {
+  margin-top: 24px;
+  display: none;
+  position: relative;
+  z-index: 1;
+}
+
+.report-view.visible {
+  display: block;
+  animation: slideUp .4s var(--ease);
+}
+
+.report-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.report-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.meta-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  font-size: .74rem;
+  color: var(--text2);
+  box-shadow: var(--shadow-sm);
+}
+
+.meta-chip .mv {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.report-body {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 36px;
+  position: relative;
+  box-shadow: var(--shadow-lg);
+}
+
+.report-body::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--purple), var(--cyan), var(--purple));
+  border-radius: var(--r2) var(--r2) 0 0;
+}
+
+.report-body h1 {
+  font-size: 1.6rem;
+  margin-bottom: 16px;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px;
+  letter-spacing: -.5px;
+}
+
+.report-body h2 {
+  font-size: 1.15rem;
+  margin: 24px 0 10px;
+  color: var(--text);
+}
+
+.report-body h3 {
+  font-size: .98rem;
+  margin: 20px 0 8px;
+  color: #c8c8dc;
+}
+
+.report-body p {
+  margin: 8px 0;
+  line-height: 1.8;
+  color: var(--text2);
+}
+
+.report-body ul,
+.report-body ol {
+  margin: 5px 0 5px 20px;
+  color: var(--text2);
+}
+
+.report-body li {
+  margin: 2px 0;
+  line-height: 1.7;
+}
+
+.report-body strong {
+  color: var(--text);
+}
+
+.report-body a {
+  color: var(--cyan);
+  text-decoration: none;
+}
+
+.report-body a:hover {
+  text-decoration: underline;
+}
+
+.report-body code {
+  background: rgba(139, 92, 246, .08);
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: .86em;
+  color: var(--purple2);
+}
+
+.report-body pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--rs);
+  padding: 14px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+
+.report-body pre code {
+  background: none;
+  padding: 0;
+  color: var(--text2);
+}
+
+.report-body blockquote {
+  border-left: 2px solid var(--purple);
+  padding-left: 14px;
+  margin: 10px 0;
+  color: var(--text3);
+}
+
+.report-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+}
+
+.report-body th,
+.report-body td {
+  border: 1px solid var(--border);
+  padding: 7px 10px;
+  text-align: left;
+  font-size: .82rem;
+}
+
+.report-body th {
+  background: rgba(139, 92, 246, .04);
+  color: var(--text);
+}
+
+.typing::after {
+  content: '▊';
+  animation: blink .7s step-end infinite;
+  color: var(--purple);
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* ═══════════════════════════════════════════════
+   Dashboard Page — premium stat cards
+   ═══════════════════════════════════════════════ */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 36px;
+}
+
+.stat-card {
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card .stat-accent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+
+.stat-card .stat-value {
+  font-size: 2.2rem;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 8px;
+  letter-spacing: -.5px;
+}
+
+.stat-card .stat-label {
+  font-size: .82rem;
+  color: var(--text3);
+  font-weight: 500;
+}
+
+.stat-card .stat-icon {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  font-size: 2rem;
+  opacity: .12;
+}
+
+.stat-value.text-purple2 { color: var(--purple2); }
+.stat-value.text-cyan { color: var(--cyan); }
+.stat-value.text-green { color: var(--green); }
+.stat-value.text-amber { color: var(--amber); }
+
+/* Stat card accent colors */
+.stat-accent.accent-purple { background: var(--gradient-purple); }
+.stat-accent.accent-cyan { background: var(--gradient-cyan); }
+.stat-accent.accent-green { background: linear-gradient(135deg, #4ade80, #22c55e); }
+.stat-accent.accent-amber { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
+
+/* Subtle tinted backgrounds per card */
+.stat-card.tint-purple { background: linear-gradient(180deg, rgba(139, 92, 246, .04), var(--surface)); }
+.stat-card.tint-cyan { background: linear-gradient(180deg, rgba(34, 211, 238, .04), var(--surface)); }
+.stat-card.tint-green { background: linear-gradient(180deg, rgba(74, 222, 128, .04), var(--surface)); }
+.stat-card.tint-amber { background: linear-gradient(180deg, rgba(251, 191, 36, .04), var(--surface)); }
+
+.recent-activity {
+  margin-top: 8px;
+}
+
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background .2s;
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+}
+
+.activity-item:hover {
+  background: rgba(255, 255, 255, .02);
+}
+
+.activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.activity-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-question {
+  font-size: .88rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-meta {
+  font-size: .72rem;
+  color: var(--text3);
+  margin-top: 2px;
+}
+
+/* ═══════════════════════════════════════════════
+   Topics Page — spacious grid
+   ═══════════════════════════════════════════════ */
+.topic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.topic-card {
+  padding: 20px;
+  cursor: pointer;
+}
+
+.topic-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--purple), var(--cyan));
+  transform: scaleX(0);
+  transition: transform .3s var(--ease);
+  transform-origin: left;
+}
+
+.topic-card:hover::after {
+  transform: scaleX(1);
+}
+
+.topic-name {
+  font-size: .98rem;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.topic-desc {
+  font-size: .78rem;
+  color: var(--text3);
+  line-height: 1.5;
+  margin-bottom: 10px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.topic-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.topic-actions {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  gap: 3px;
+  opacity: .35;
+  transition: opacity .2s;
+}
+
+.topic-card:hover .topic-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .topic-actions {
+    opacity: 1;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Topic Detail — elevated header
+   ═══════════════════════════════════════════════ */
+.topic-detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.topic-icon {
+  width: 48px;
+  height: 48px;
+  background: var(--gradient-purple);
+  border-radius: var(--r);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-md);
+}
+
+.topic-info {
+  flex: 1;
+}
+
+.topic-info h2 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -.3px;
+}
+
+.topic-info p {
+  color: var(--text2);
+  font-size: .86rem;
+  margin-top: 4px;
+}
+
+.topic-actions-bar {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* ── Tabs ── */
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.tab {
+  padding: 10px 18px;
+  font-size: .84rem;
+  font-weight: 500;
+  color: var(--text3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all .2s var(--ease);
+}
+
+.tab:hover {
+  color: var(--text2);
+}
+
+.tab.active {
+  color: var(--purple2);
+  border-bottom-color: var(--purple);
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+  animation: slideUp .2s var(--ease);
+}
+
+/* ── Timeline ── */
+.timeline {
+  position: relative;
+  padding-left: 28px;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: linear-gradient(180deg, var(--purple), var(--border) 30%, var(--border) 70%, var(--cyan));
+}
+
+.timeline-item {
+  position: relative;
+  padding-bottom: 24px;
+}
+
+.timeline-item:last-child {
+  padding-bottom: 0;
+}
+
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: -24px;
+  top: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--purple);
+}
+
+.timeline-item.incremental::before {
+  border-color: var(--cyan);
+}
+
+.tl-date {
+  font-size: .7rem;
+  color: var(--text3);
+  margin-bottom: 3px;
+  font-family: monospace;
+}
+
+.tl-title {
+  font-size: .88rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color .2s;
+}
+
+.tl-title:hover {
+  color: var(--purple2);
+}
+
+.tl-badges {
+  display: flex;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.tl-preview {
+  margin-top: 6px;
+  font-size: .78rem;
+  color: var(--text3);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Changes ── */
+.change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.change-item {
+  padding: 14px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.change-item .change-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.change-item .change-desc {
+  font-size: .84rem;
+  color: var(--text2);
+  line-height: 1.5;
+}
+
+.change-item .change-diff {
+  margin-top: 6px;
+  font-size: .76rem;
+  display: flex;
+  gap: 10px;
+}
+
+.change-item .change-diff .diff-old {
+  color: var(--red);
+  background: var(--red-g);
+  padding: 3px 8px;
+  border-radius: var(--rs);
+}
+
+.change-item .change-diff .diff-new {
+  color: var(--green);
+  background: var(--green-g);
+  padding: 3px 8px;
+  border-radius: var(--rs);
+}
+
+/* ═══════════════════════════════════════════════
+   Tracking Page
+   ═══════════════════════════════════════════════ */
+.tracking-log-item {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  transition: background .2s, border-color .2s;
+  border-left: 2px solid transparent;
+}
+
+.tracking-log-item:hover {
+  background: rgba(139, 92, 246, .06);
+  border-left-color: var(--purple);
+}
+
+.tracking-log-item:last-child {
+  border-bottom: none;
+}
+
+.log-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.log-status.running {
+  background: var(--amber);
+  animation: blink 1.5s step-end infinite;
+}
+
+.log-status.completed {
+  background: var(--green);
+}
+
+.log-status.failed {
+  background: var(--red);
+}
+
+.log-info {
+  flex: 1;
+}
+
+.log-info .log-time {
+  font-size: .84rem;
+  font-weight: 500;
+}
+
+.log-info .log-summary {
+  font-size: .72rem;
+  color: var(--text3);
+  margin-top: 1px;
+}
+
+.log-changes {
+  font-size: .78rem;
+  font-weight: 700;
+  color: var(--purple2);
+}
+
+/* ═══════════════════════════════════════════════
+   Modal
+   ═══════════════════════════════════════════════ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .7);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  z-index: 100;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-overlay.visible {
+  display: flex;
+  animation: fadeIn .2s var(--ease);
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  width: 100%;
+  max-width: 500px;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  position: relative;
+}
+
+.modal::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--purple), var(--cyan), var(--purple));
+}
+
+.modal-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-header h3 {
+  font-size: .98rem;
+  font-weight: 600;
+}
+
+.modal-body {
+  padding: 22px;
+}
+
+.modal-footer {
+  padding: 14px 22px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ═══════════════════════════════════════════════
+   Confirm Dialog
+   ═══════════════════════════════════════════════ */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .7);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  z-index: 150;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.confirm-overlay.visible {
+  display: flex;
+  animation: fadeIn .2s var(--ease);
+}
+
+.confirm-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  width: 100%;
+  max-width: 400px;
+  padding: 28px;
+  box-shadow: var(--shadow-lg);
+}
+
+.confirm-title {
+  font-size: .98rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.confirm-message {
+  font-size: .84rem;
+  color: var(--text2);
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ═══════════════════════════════════════════════
+   Toast Notifications
+   ═══════════════════════════════════════════════ */
+.toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-md);
+  font-size: .84rem;
+  color: var(--text);
+  pointer-events: auto;
+  animation: toastIn .3s var(--ease);
+  position: relative;
+  overflow: hidden;
+  min-width: 280px;
+  max-width: 420px;
+}
+
+.toast.removing {
+  animation: toastOut .25s var(--ease) forwards;
+}
+
+.toast-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.toast-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast-title {
+  font-weight: 600;
+  font-size: .8rem;
+  margin-bottom: 1px;
+}
+
+.toast-message {
+  color: var(--text2);
+  font-size: .76rem;
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  color: var(--text3);
+  cursor: pointer;
+  font-size: .8rem;
+  padding: 2px;
+  flex-shrink: 0;
+  transition: color .2s;
+}
+
+.toast-close:hover {
+  color: var(--text);
+}
+
+.toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  border-radius: 0 0 var(--r) var(--r);
+  animation: toastProgress 4s linear forwards;
+}
+
+.toast-success .toast-icon { color: var(--green); }
+.toast-success .toast-progress { background: var(--green); }
+
+.toast-error .toast-icon { color: var(--red); }
+.toast-error .toast-progress { background: var(--red); }
+
+.toast-warning .toast-icon { color: var(--amber); }
+.toast-warning .toast-progress { background: var(--amber); }
+
+.toast-info .toast-icon { color: var(--cyan); }
+.toast-info .toast-progress { background: var(--cyan); }
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(40px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(40px); }
+}
+
+@keyframes toastProgress {
+  from { width: 100%; }
+  to { width: 0%; }
+}
+
+/* ═══════════════════════════════════════════════
+   Skeleton Loading
+   ═══════════════════════════════════════════════ */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface2);
+  border-radius: var(--rs);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .04), transparent);
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.skeleton-card {
+  height: 120px;
+  border-radius: var(--r2);
+  border: 1px solid var(--border);
+}
+
+.skeleton-line {
+  height: 12px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+}
+
+.skeleton-line.w60 { width: 60%; }
+.skeleton-line.w80 { width: 80%; }
+.skeleton-line.w40 { width: 40%; }
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+/* ═══════════════════════════════════════════════
+   Empty State — elevated with gradient icon
+   ═══════════════════════════════════════════════ */
+.empty-state {
+  text-align: center;
+  padding: 64px 24px;
+}
+
+.empty-state .empty-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 20px;
+  background: var(--gradient-purple);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  opacity: 1;
+  box-shadow: var(--shadow-md);
+}
+
+.empty-state .empty-text {
+  color: var(--text2);
+  font-size: .92rem;
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+
+/* ═══════════════════════════════════════════════
+   Animations
+   ═══════════════════════════════════════════════ */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, .25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .5s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════════════════════════════
+   Scrollbar — neutral white tint
+   ═══════════════════════════════════════════════ */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, .1);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, .2);
+}
+
+/* ═══════════════════════════════════════════════
+   Mobile
+   ═══════════════════════════════════════════════ */
+.mobile-header {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: #0c0c12;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+  align-items: center;
+  gap: 10px;
+}
+
+.mobile-header .menu-btn {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 4px;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-header .brand-text {
+  font-weight: 600;
+  font-size: .86rem;
+  color: var(--purple2);
+}
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .5);
+  z-index: 40;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    transform: translateX(-100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay.open {
+    display: block;
+  }
+
+  .mobile-header {
+    display: flex;
+  }
+
+  .main {
+    margin-left: 0;
+  }
+
+  .main-inner {
+    padding: 64px 16px 32px;
+    padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .research-hero {
+    margin: -32px -16px 0;
+    padding: 24px 16px 20px;
+  }
+
+  .topic-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .research-actions {
+    position: static;
+    margin-top: 10px;
+  }
+
+  .step-node {
+    padding: 4px 7px;
+    font-size: .66rem;
+  }
+
+  .step-conn {
+    width: 10px;
+  }
+
+  .toast-container {
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+  }
+
+  .toast {
+    min-width: auto;
+    max-width: none;
+  }
+
+  .nd-sr-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Reduced Motion
+   ═══════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .toast-progress {
+    animation: none;
+    width: 100%;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- No particle canvas or scanline — clean professional look -->
+
+<!-- Mobile Header -->
+<div class="mobile-header">
+  <button class="menu-btn" onclick="toggleSidebar()" aria-label="打开菜单">☰</button>
+  <span class="brand-text">⬡ Research Buddy</span>
+</div>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+<div class="app">
+<!-- ═══════════ Sidebar ═══════════ -->
+<aside class="sidebar" id="sidebar" role="navigation" aria-label="主导航">
+  <div class="sidebar-brand">
+    <div class="brand-title"><span class="brand-logo" aria-hidden="true">⬡</span> Research Buddy</div>
+    <div class="brand-sub">AI-Powered Deep Research Agent</div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-sec">
+      <div class="nav-sec-title">Research</div>
+      <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')" role="link" tabindex="0" aria-label="概览">
+        <span class="nav-icon" aria-hidden="true">⬡</span>概览
+      </div>
+      <div class="nav-item" data-page="research" onclick="navigate('research')" role="link" tabindex="0" aria-label="新建研究">
+        <span class="nav-icon" aria-hidden="true">◈</span>新建研究
+      </div>
+    </div>
+    <div class="nav-sec">
+      <div class="nav-sec-title">Knowledge</div>
+      <div class="nav-item" data-page="topics" onclick="navigate('topics')" role="link" tabindex="0" aria-label="研究主题">
+        <span class="nav-icon" aria-hidden="true">◫</span>研究主题
+        <span class="nav-badge" id="topicCount">0</span>
+      </div>
+    </div>
+    <div class="nav-sec">
+      <div class="nav-sec-title">Tracking</div>
+      <div class="nav-item" data-page="tracking" onclick="navigate('tracking')" role="link" tabindex="0" aria-label="追踪任务">
+        <span class="nav-icon" aria-hidden="true">◉</span>追踪任务
+        <span class="nav-badge" id="trackingCount">0</span>
+      </div>
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <span class="status-dot" aria-hidden="true"></span><span>System Online · LangGraph + Langfuse</span>
+    <div class="shortcuts-hint"><kbd>Ctrl</kbd>+<kbd>K</kbd> 聚焦搜索 · <kbd>Esc</kbd> 关闭</div>
+  </div>
+</aside>
+
+<!-- ═══════════ Main ═══════════ -->
+<main class="main" role="main">
+<div class="main-inner">
+
+<!-- Breadcrumb -->
+<div class="breadcrumb" id="breadcrumb" aria-label="面包屑导航"></div>
+
+<!-- ── Page: Dashboard ── -->
+<div id="page-dashboard" class="page">
+  <div class="page-header">
+    <div><h2>⬡ 概览</h2><p>研究活动一览</p></div>
+  </div>
+  <div class="dashboard-grid" id="dashboardStats"></div>
+  <div class="recent-activity" id="dashboardActivity">
+    <h3 class="section-title">最近研究</h3>
+    <div id="activityList"></div>
+  </div>
+</div>
+
+<!-- ── Page: Research ── -->
+<div id="page-research" class="page" style="display:none">
+  <div class="research-hero">
+    <div class="research-input-wrap">
+      <textarea id="question" placeholder="输入研究问题，AI 将自动拆解、搜索、验证、生成结构化报告..." rows="3" aria-label="研究问题"></textarea>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding:0 2px">
+        <span class="text-muted" style="font-size:.72rem">选择主题即启用知识研究（自动查历史+增量搜索+保存报告）</span>
+        <span class="text-muted" style="font-size:.72rem"><kbd style="background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:.68rem">Ctrl+Enter</kbd> 开始</span>
+      </div>
+      <div class="research-actions">
+        <select id="researchMode" aria-label="研究模式"><option value="normal">◈ 常规研究</option></select>
+        <button class="btn btn-primary" id="submitBtn" onclick="startResearch()" aria-label="开始研究">
+          <div class="spinner" id="spinner" style="display:none"></div>
+          <span id="btnText">开始研究</span>
+        </button>
+        <button class="btn btn-danger" id="cancelBtn" onclick="cancelResearch()" style="display:none" aria-label="取消研究">
+          取消研究
+        </button>
+      </div>
+    </div>
+    <div class="step-pipeline" id="stepPipeline" style="display:none">
+      <div class="step-node" data-step="knowledge_lookup"><span aria-hidden="true">◎</span>知识查询</div>
+      <div class="step-conn"></div>
+      <div class="step-node" data-step="planner"><span aria-hidden="true">◈</span>规划</div>
+      <div class="step-conn"></div>
+      <div class="step-node" data-step="searcher"><span aria-hidden="true">◉</span>搜索</div>
+      <div class="step-conn"></div>
+      <div class="step-node" data-step="validator"><span aria-hidden="true">✓</span>验证</div>
+      <div class="step-conn"></div>
+      <div class="step-node" data-step="synthesizer"><span aria-hidden="true">▯</span>综合</div>
+      <div class="step-conn"></div>
+      <div class="step-node" data-step="reflector"><span aria-hidden="true">↻</span>反思</div>
+      <div class="step-conn"></div>
+      <div class="step-node" data-step="diff_analyzer"><span aria-hidden="true">⇄</span>变化分析</div>
+      <div class="step-conn"></div>
+      <div class="step-node" data-step="knowledge_store"><span aria-hidden="true">◈</span>存储</div>
+      <div class="step-conn"></div>
+      <div class="step-node" data-step="change_notifier"><span aria-hidden="true">◉</span>通知</div>
+    </div>
+  </div>
+
+  <div class="terminal" id="progressLog" role="log" aria-label="研究进度日志" aria-live="polite">
+    <div class="terminal-bar">
+      <div class="terminal-dot r" aria-hidden="true"></div><div class="terminal-dot y" aria-hidden="true"></div><div class="terminal-dot g" aria-hidden="true"></div>
+      <span class="terminal-title">research-buddy — process log</span>
+    </div>
+    <div class="terminal-body" id="logContent"></div>
+  </div>
+
+  <!-- Step Cards: one card per completed node, shows full detail history -->
+  <div class="step-cards" id="stepCards"></div>
+
+  <div class="report-view" id="reportView">
+    <div class="report-header">
+      <div></div>
+      <button class="btn btn-sm" id="copyReportBtn" onclick="copyReport()" aria-label="复制报告">
+        📋 复制
+      </button>
+    </div>
+    <div class="report-meta" id="reportMeta"></div>
+    <div class="report-body" id="reportBody"></div>
+  </div>
+
+  <div class="empty-state" id="emptyState">
+    <div class="empty-icon" aria-hidden="true">⬡</div>
+    <div class="empty-text">输入问题，AI 自动拆解、搜索、验证、生成结构化研究报告</div>
+  </div>
+</div>
+
+<!-- ── Page: Topics ── -->
+<div id="page-topics" class="page" style="display:none">
+  <div class="page-header">
+    <div><h2>◫ 研究主题</h2><p>管理和浏览你的研究领域</p></div>
+    <button class="btn btn-primary" onclick="showModal('createTopic')" aria-label="新建主题">+ 新建主题</button>
+  </div>
+  <div id="topicsList"></div>
+</div>
+
+<!-- ── Page: Topic Detail ── -->
+<div id="page-topic-detail" class="page" style="display:none">
+  <div class="topic-detail-header" id="topicDetailHeader"></div>
+  <div class="tabs" id="topicTabs" role="tablist">
+    <div class="tab active" data-tab="reports" onclick="switchTab(this,'reports')" role="tab" aria-selected="true" aria-controls="panel-reports" tabindex="0">◫ 报告历史</div>
+    <div class="tab" data-tab="tracking" onclick="switchTab(this,'tracking')" role="tab" aria-selected="false" aria-controls="panel-tracking" tabindex="-1">◉ 追踪配置</div>
+    <div class="tab" data-tab="changes" onclick="switchTab(this,'changes')" role="tab" aria-selected="false" aria-controls="panel-changes" tabindex="-1">↻ 变更记录</div>
+  </div>
+  <div class="tab-panel active" id="panel-reports" role="tabpanel"></div>
+  <div class="tab-panel" id="panel-tracking" role="tabpanel"></div>
+  <div class="tab-panel" id="panel-changes" role="tabpanel"></div>
+</div>
+
+<!-- ── Page: Tracking ── -->
+<div id="page-tracking" class="page" style="display:none">
+  <div class="page-header">
+    <div><h2>◉ 追踪任务</h2><p>自动监控领域变化，不遗漏重要更新</p></div>
+  </div>
+  <div id="trackingList"></div>
+</div>
+
+<!-- ── Page: Report Detail ── -->
+<div id="page-report-detail" class="page" style="display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <button class="btn btn-ghost btn-sm" onclick="goBack()" aria-label="返回">← 返回</button>
+    <button class="btn btn-sm" style="color:var(--red);border:1px solid rgba(248,113,113,.2)" onclick="deleteReport()" aria-label="删除报告">🗑 删除报告</button>
+  </div>
+  <div id="reportDetailContent"></div>
+</div>
+
+</div>
+</main>
+</div>
+
+<!-- ═══════════ Modals ═══════════ -->
+<div class="modal-overlay" id="modal-createTopic" role="dialog" aria-modal="true" aria-label="新建研究主题">
+  <div class="modal">
+    <div class="modal-header"><h3>新建研究主题</h3><button class="btn btn-ghost btn-icon" onclick="hideModal('createTopic')" aria-label="关闭">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label class="form-label" for="topicName">主题名称</label><input class="input" id="topicName" placeholder="如：中国新能源汽车市场"></div>
+      <div class="form-group"><label class="form-label" for="topicDesc">描述（可选）</label><textarea class="input" id="topicDesc" rows="2" placeholder="简要描述这个研究主题"></textarea></div>
+      <div class="form-group"><label class="form-label" for="topicKwInput">追踪关键词（回车添加）</label>
+        <div class="tag-input-wrap" id="topicKwWrap" onclick="document.getElementById('topicKwInput').focus()"><input id="topicKwInput" placeholder="输入关键词后回车"></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn" onclick="hideModal('createTopic')">取消</button><button class="btn btn-primary" onclick="createTopic()">创建</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-trackingConfig" role="dialog" aria-modal="true" aria-label="追踪配置">
+  <div class="modal">
+    <div class="modal-header"><h3>追踪配置</h3><button class="btn btn-ghost btn-icon" onclick="hideModal('trackingConfig')" aria-label="关闭">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label class="form-label" for="trackKwInput">追踪关键词</label>
+        <div class="tag-input-wrap" id="trackKwWrap" onclick="document.getElementById('trackKwInput').focus()"><input id="trackKwInput" placeholder="输入关键词后回车"></div>
+      </div>
+      <div class="form-group"><label class="form-label" for="trackCron">Cron 表达式</label><input class="input" id="trackCron" placeholder="0 9 * * 1-5（工作日9点）"><div class="form-hint">格式：分 时 日 月 周 · 示例：0 9 * * * = 每天9点</div></div>
+      <div class="form-group" style="display:flex;align-items:center;justify-content:space-between"><label class="form-label" style="margin:0">启用追踪</label><label class="toggle"><input type="checkbox" id="trackEnabled"><span class="slider"></span></label></div>
+    </div>
+    <div class="modal-footer"><button class="btn" onclick="hideModal('trackingConfig')">取消</button><button class="btn btn-ghost" onclick="testNotification()" style="margin-right:auto">🔔 测试通知</button><button class="btn btn-primary" onclick="saveTrackingConfig()">保存</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-incrementalResearch" role="dialog" aria-modal="true" aria-label="增量研究">
+  <div class="modal">
+    <div class="modal-header"><h3>增量研究</h3><button class="btn btn-ghost btn-icon" onclick="hideModal('incrementalResearch')" aria-label="关闭">✕</button></div>
+    <div class="modal-body">
+      <div id="incrementalContext" class="card" style="padding:16px;margin-bottom:16px;font-size:.8rem;color:var(--text2);max-height:140px;overflow-y:auto"></div>
+      <div class="form-group"><label class="form-label" for="incrementalQuestion">研究问题</label><input class="input" id="incrementalQuestion" placeholder="基于已有知识，你想补充研究什么？"></div>
+    </div>
+    <div class="modal-footer"><button class="btn" onclick="hideModal('incrementalResearch')">取消</button><button class="btn btn-primary" onclick="startIncrementalResearch()">开始增量研究</button></div>
+  </div>
+</div>
+
+<!-- Confirm Dialog -->
+<div class="confirm-overlay" id="confirmOverlay" role="alertdialog" aria-modal="true" aria-label="确认操作">
+  <div class="confirm-dialog">
+    <div class="confirm-title" id="confirmTitle"></div>
+    <div class="confirm-message" id="confirmMessage"></div>
+    <div class="confirm-actions">
+      <button class="btn" id="confirmCancel" onclick="resolveConfirm(false)">取消</button>
+      <button class="btn btn-danger" id="confirmOk" onclick="resolveConfirm(true)">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer" aria-live="polite" aria-label="通知"></div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   DOM Helpers
+   ═══════════════════════════════════════════════ */
+function $(id) {
+  return document.getElementById(id);
+}
+
+function $$(sel) {
+  return document.querySelectorAll(sel);
+}
+
+/* ═══════════════════════════════════════════════
+   App State
+   ═══════════════════════════════════════════════ */
+const appState = {
+  currentPage: 'dashboard',
+  currentTopicId: null,
+  currentReportId: null,
+  isResearchRunning: false,
+  researchStartTime: 0,
+  navHistory: [],
+  currentTopic: null,
+  trackingTopicId: null,
+  incrementalTopicId: null,
+  abortController: null,
+  eventSource: null,
+  lastReportText: '',
+  confirmResolver: null,
+};
+
+const STEPS = [
+  'knowledge_lookup', 'planner', 'searcher',
+  'validator', 'synthesizer', 'reflector',
+  'diff_analyzer', 'knowledge_store', 'change_notifier'
+];
+
+/* ═══════════════════════════════════════════════
+   Toast Notification System
+   ═══════════════════════════════════════════════ */
+const TOAST_ICONS = {
+  success: '✓',
+  error: '✕',
+  warning: '⚠',
+  info: 'ℹ',
+};
+
+function toast(message, type = 'info', title = '', duration = 4000) {
+  const container = $('toastContainer');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.innerHTML = `
+    <span class="toast-icon" aria-hidden="true">${TOAST_ICONS[type]}</span>
+    <div class="toast-body">
+      ${title ? `<div class="toast-title">${esc(title)}</div>` : ''}
+      <div class="toast-message">${esc(message)}</div>
+    </div>
+    <button class="toast-close" onclick="this.parentElement.remove()" aria-label="关闭通知">✕</button>
+    <div class="toast-progress" style="animation-duration:${duration}ms"></div>
+  `;
+  container.appendChild(el);
+
+  setTimeout(() => {
+    el.classList.add('removing');
+    setTimeout(() => el.remove(), 250);
+  }, duration);
+}
+
+/* ═══════════════════════════════════════════════
+   Confirm Dialog
+   ═══════════════════════════════════════════════ */
+function showConfirm(title, message) {
+  return new Promise(resolve => {
+    appState.confirmResolver = resolve;
+    $('confirmTitle').textContent = title;
+    $('confirmMessage').textContent = message;
+    $('confirmOverlay').classList.add('visible');
+    $('confirmOk').focus();
+  });
+}
+
+function resolveConfirm(result) {
+  $('confirmOverlay').classList.remove('visible');
+  if (appState.confirmResolver) {
+    appState.confirmResolver(result);
+    appState.confirmResolver = null;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Clipboard Helper
+   ═══════════════════════════════════════════════ */
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('已复制到剪贴板', 'success');
+  } catch {
+    toast('复制失败', 'error');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Navigation
+   ═══════════════════════════════════════════════ */
+function navigate(page, opts = {}) {
+  if (page === 'topic-detail' && opts.topicId) {
+    appState.currentTopicId = opts.topicId;
+    appState.navHistory.push(appState.currentPage);
+  } else if (page === 'report-detail' && opts.reportId) {
+    appState.currentReportId = opts.reportId;
+    appState.navHistory.push(appState.currentPage);
+  }
+
+  appState.currentPage = page;
+
+  // Hide all pages
+  $$('.page').forEach(p => p.style.display = 'none');
+  const pageEl = $('page-' + page);
+  if (pageEl) pageEl.style.display = '';
+
+  // Update nav active state
+  $$('.nav-item').forEach(n => n.classList.remove('active'));
+  const navMap = {
+    'dashboard': 'dashboard',
+    'research': 'research',
+    'topics': 'topics',
+    'topic-detail': 'topics',
+    'tracking': 'tracking',
+    'report-detail': 'topics',
+  };
+  const activeNav = document.querySelector(`.nav-item[data-page="${navMap[page] || page}"]`);
+  if (activeNav) activeNav.classList.add('active');
+
+  // Load page data
+  if (page === 'dashboard') loadDashboard();
+  if (page === 'topics') loadTopics();
+  if (page === 'topic-detail') loadTopicDetail(opts.topicId);
+  if (page === 'tracking') loadTrackingPage();
+  if (page === 'report-detail') loadReportDetail(opts.reportId);
+  if (page === 'research') refreshResearchModes();
+
+  // Update breadcrumb
+  updateBreadcrumb();
+
+  // Close mobile sidebar
+  $('sidebar').classList.remove('open');
+  $('sidebarOverlay').classList.remove('open');
+}
+
+function goBack() {
+  navigate(appState.navHistory.pop() || 'topics');
+}
+
+function toggleSidebar() {
+  $('sidebar').classList.toggle('open');
+  $('sidebarOverlay').classList.toggle('open');
+}
+
+function showModal(n) {
+  const overlay = $('modal-' + n);
+  overlay.classList.add('visible');
+  // Focus first input
+  const firstInput = overlay.querySelector('.input, textarea');
+  if (firstInput) setTimeout(() => firstInput.focus(), 100);
+}
+
+function hideModal(n) {
+  $('modal-' + n).classList.remove('visible');
+}
+
+/* ═══════════════════════════════════════════════
+   Breadcrumb
+   ═══════════════════════════════════════════════ */
+function updateBreadcrumb() {
+  const bc = $('breadcrumb');
+  const page = appState.currentPage;
+  const crumbs = [];
+
+  if (page === 'dashboard') {
+    bc.innerHTML = '';
+    return;
+  }
+
+  crumbs.push({ label: '概览', page: 'dashboard' });
+
+  if (page === 'research') {
+    crumbs.push({ label: '新建研究', current: true });
+  } else if (page === 'topics') {
+    crumbs.push({ label: '研究主题', current: true });
+  } else if (page === 'topic-detail') {
+    crumbs.push({ label: '研究主题', page: 'topics' });
+    if (appState.currentTopic) {
+      crumbs.push({ label: appState.currentTopic.name, current: true });
+    } else {
+      crumbs.push({ label: '主题详情', current: true });
+    }
+  } else if (page === 'report-detail') {
+    crumbs.push({ label: '研究主题', page: 'topics' });
+    crumbs.push({ label: '报告详情', current: true });
+  } else if (page === 'tracking') {
+    crumbs.push({ label: '追踪任务', current: true });
+  }
+
+  bc.innerHTML = crumbs.map((c, i) => {
+    if (c.current) {
+      return `<span class="breadcrumb-current">${esc(c.label)}</span>`;
+    }
+    return `<a class="breadcrumb-link" onclick="navigate('${c.page}')">${esc(c.label)}</a>` +
+      (i < crumbs.length - 1 ? '<span class="breadcrumb-sep">›</span>' : '');
+  }).join('');
+}
+
+/* ═══════════════════════════════════════════════
+   Tag Input
+   ═══════════════════════════════════════════════ */
+function initTagInput(wId, iId) {
+  const w = $(wId);
+  const i = $(iId);
+  i.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const v = i.value.trim();
+      if (!v) return;
+      const t = document.createElement('span');
+      t.className = 'tag';
+      t.innerHTML = `${esc(v)} <span class="tag-remove" onclick="this.parentElement.remove()">✕</span>`;
+      w.insertBefore(t, i);
+      i.value = '';
+    }
+  });
+}
+
+function getTags(wId) {
+  return Array.from($(wId).querySelectorAll('.tag'))
+    .map(t => t.textContent.replace('✕', '').trim());
+}
+
+function setTags(wId, iId, tags) {
+  const w = $(wId);
+  const i = $(iId);
+  w.querySelectorAll('.tag').forEach(t => t.remove());
+  tags.forEach(v => {
+    const t = document.createElement('span');
+    t.className = 'tag';
+    t.innerHTML = `${esc(v)} <span class="tag-remove" onclick="this.parentElement.remove()">✕</span>`;
+    w.insertBefore(t, i);
+  });
+}
+
+initTagInput('topicKwWrap', 'topicKwInput');
+initTagInput('trackKwWrap', 'trackKwInput');
+
+/* ═══════════════════════════════════════════════
+   API
+   ═══════════════════════════════════════════════ */
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({ error: r.statusText }));
+    throw new Error(e.error || r.statusText);
+  }
+  return r.json();
+}
+
+/* ═══════════════════════════════════════════════
+   Dashboard
+   ═══════════════════════════════════════════════ */
+async function loadDashboard() {
+  try {
+    const [topics, jobs] = await Promise.all([
+      api('/topics'),
+      api('/tracking/jobs'),
+    ]);
+
+    // Collect all reports across topics
+    let allReports = [];
+    for (const t of topics) {
+      try {
+        const reports = await api(`/topics/${t.id}/reports?limit=5`);
+        reports.forEach(r => { r.topic_name = t.name; r.topic_id = t.id; });
+        allReports.push(...reports);
+      } catch { /* skip */ }
+    }
+
+    // Sort by date, take latest 5
+    allReports.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const recent = allReports.slice(0, 5);
+
+    const activeTracking = topics.filter(t => t.tracking_enabled).length;
+    const totalReports = allReports.length;
+
+    // Stats
+    $('dashboardStats').innerHTML = `
+      <div class="card stat-card tint-purple">
+        <div class="stat-accent accent-purple"></div>
+        <div class="stat-icon" aria-hidden="true">◫</div>
+        <div class="stat-value text-purple2">${topics.length}</div>
+        <div class="stat-label">研究主题</div>
+      </div>
+      <div class="card stat-card tint-cyan">
+        <div class="stat-accent accent-cyan"></div>
+        <div class="stat-icon" aria-hidden="true">▯</div>
+        <div class="stat-value text-cyan">${totalReports}</div>
+        <div class="stat-label">研究报告</div>
+      </div>
+      <div class="card stat-card tint-green">
+        <div class="stat-accent accent-green"></div>
+        <div class="stat-icon" aria-hidden="true">◉</div>
+        <div class="stat-value text-green">${activeTracking}</div>
+        <div class="stat-label">活跃追踪</div>
+      </div>
+      <div class="card stat-card tint-amber">
+        <div class="stat-accent accent-amber"></div>
+        <div class="stat-icon" aria-hidden="true">⬡</div>
+        <div class="stat-value text-amber">${jobs.length}</div>
+        <div class="stat-label">调度任务</div>
+      </div>
+    `;
+
+    // Recent activity
+    if (recent.length === 0) {
+      $('activityList').innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon" aria-hidden="true">⬡</div>
+          <div class="empty-text">还没有研究记录，开始你的第一次研究吧</div>
+          <button class="btn btn-primary" onclick="navigate('research')">开始研究</button>
+        </div>
+      `;
+    } else {
+      $('activityList').innerHTML = recent.map(r => {
+        const d = new Date(r.created_at).toLocaleString('zh-CN');
+        const dotColor = r.is_incremental ? 'var(--cyan)' : 'var(--purple)';
+        return `
+          <div class="activity-item" onclick="navigate('report-detail',{reportId:'${r.id}'})">
+            <div class="activity-dot" style="background:${dotColor}"></div>
+            <div class="activity-info">
+              <div class="activity-question">${esc(r.question)}</div>
+              <div class="activity-meta">${esc(r.topic_name || '')} · ${d}</div>
+            </div>
+            <span class="badge ${r.is_incremental ? 'badge-cyan' : 'badge-accent'}">${r.is_incremental ? '增量' : '全新'}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Update sidebar badges
+    $('topicCount').textContent = topics.length;
+    $('trackingCount').textContent = jobs.length;
+  } catch (e) {
+    $('dashboardStats').innerHTML = `
+      <div class="empty-state" style="grid-column:1/-1;padding:30px">
+        <div class="empty-icon" aria-hidden="true">⚠</div>
+        <div class="empty-text">加载失败: ${esc(e.message)}</div>
+      </div>
+    `;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Research
+   ═══════════════════════════════════════════════ */
+function elapsed() {
+  const s = Math.floor((Date.now() - appState.researchStartTime) / 1000);
+  return s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+}
+
+function addLog(html) {
+  const c = $('logContent');
+  const l = document.createElement('div');
+  l.className = 't-line';
+  l.innerHTML = `<span class="t-prompt" aria-hidden="true">▸</span><span class="t-text">${html}</span><span class="t-time">${elapsed()}</span>`;
+  c.appendChild(l);
+  const body = $('progressLog').querySelector('.terminal-body');
+  body.scrollTop = body.scrollHeight;
+}
+
+function setStep(node) {
+  const idx = STEPS.indexOf(node);
+  if (idx < 0) return;
+
+  $$('.step-node').forEach((el, i) => {
+    if (i < idx) {
+      el.classList.add('done');
+      el.classList.remove('active');
+    } else if (i === idx) {
+      el.classList.add('active');
+      el.classList.remove('done');
+    } else {
+      el.classList.remove('done', 'active');
+    }
+  });
+
+  $$('.step-conn').forEach((el, i) => {
+    el.classList.remove('done', 'active');
+    if (i < idx) el.classList.add('done');
+    else if (i === idx) el.classList.add('active');
+  });
+}
+
+function setAllDone() {
+  $$('.step-node').forEach(el => {
+    el.classList.add('done');
+    el.classList.remove('active');
+  });
+  $$('.step-conn').forEach(el => {
+    el.classList.add('done');
+    el.classList.remove('active');
+  });
+}
+
+function startResearch(topicId, isIncremental) {
+  const question = $('question').value.trim();
+  if (!question) {
+    $('question').focus();
+    return;
+  }
+  if (appState.isResearchRunning) return;
+
+  appState.isResearchRunning = true;
+  appState.researchStartTime = Date.now();
+
+  const mode = $('researchMode').value;
+  const useTopic = topicId || (mode !== 'normal' ? mode : '');
+
+  // Update UI
+  $('submitBtn').disabled = true;
+  $('spinner').style.display = 'block';
+  $('btnText').textContent = '研究中...';
+  $('cancelBtn').style.display = 'inline-flex';
+  $('emptyState').style.display = 'none';
+  $('stepPipeline').style.display = 'flex';
+  $('progressLog').classList.add('visible');
+  $('logContent').innerHTML = '';
+  $('stepCards').innerHTML = '';
+  $('reportView').classList.remove('visible');
+
+  // Reset steps
+  $$('.step-node').forEach(el => el.classList.remove('done', 'active'));
+  $$('.step-conn').forEach(el => el.classList.remove('done', 'active'));
+
+  addLog(`启动研究: <strong>${esc(question)}</strong>${isIncremental ? ' <span class="text-cyan">[增量模式]</span>' : ''}`);
+
+  if (useTopic) {
+    startKnowledgeResearchSSE(question, useTopic, isIncremental);
+    return;
+  }
+
+  // Create abort controller
+  appState.abortController = new AbortController();
+  const es = new EventSource('/research/stream?question=' + encodeURIComponent(question));
+  appState.eventSource = es;
+  setupSSEHandlers(es);
+}
+
+function cancelResearch() {
+  if (appState.eventSource) {
+    appState.eventSource.close();
+    appState.eventSource = null;
+  }
+  if (appState.abortController) {
+    appState.abortController.abort();
+    appState.abortController = null;
+  }
+  addLog('<span class="text-amber">研究已取消</span>');
+  finishResearch();
+  toast('研究已取消', 'warning');
+}
+
+function startKnowledgeResearchSSE(question, topicId, isIncremental) {
+  appState.abortController = new AbortController();
+
+  fetch('/research/knowledge/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      question,
+      topic_id: topicId,
+      is_incremental: isIncremental !== false,
+    }),
+    signal: appState.abortController.signal,
+  })
+    .then(res => {
+      if (!res.ok) throw new Error('Request failed');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let retryCount = 0;
+
+      function read() {
+        reader.read()
+          .then(({ done, value }) => {
+            if (done) {
+              finishResearch();
+              return;
+            }
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split('\n');
+            buf = lines.pop() || '';
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].startsWith('event: ')) {
+                const ev = lines[i].slice(7).trim();
+                const dl = lines[i + 1];
+                if (dl && dl.startsWith('data: ')) {
+                  handleSSEEvent(ev, dl.slice(6));
+                }
+              }
+            }
+            read();
+          })
+          .catch(err => {
+            if (err.name === 'AbortError') return;
+            if (retryCount < 2) {
+              retryCount++;
+              addLog(`<span class="text-amber">连接中断，重试中 (${retryCount}/2)...</span>`);
+              setTimeout(read, 3000);
+            } else {
+              addLog(`<span class="text-red">连接失败: ${esc(err.message)}</span>`);
+              finishResearch();
+            }
+          });
+      }
+
+      read();
+    })
+    .catch(err => {
+      if (err.name === 'AbortError') return;
+      addLog(`<span class="text-red">连接失败: ${esc(err.message)}</span>`);
+      finishResearch();
+    });
+}
+
+function setupSSEHandlers(es) {
+  let retryCount = 0;
+
+  es.addEventListener('progress', e => handleSSEEvent('progress', e.data));
+  es.addEventListener('message', e => handleSSEEvent('message', e.data));
+  es.addEventListener('report', e => handleSSEEvent('report', e.data));
+  es.addEventListener('done', () => {
+    es.close();
+    appState.eventSource = null;
+    finishResearch();
+  });
+  es.addEventListener('error', () => {
+    // Don't immediately close on transient errors
+    if (es.readyState === EventSource.CLOSED) {
+      appState.eventSource = null;
+      finishResearch();
+    } else if (retryCount < 2) {
+      retryCount++;
+      addLog(`<span class="text-amber">SSE 重连中 (${retryCount}/2)...</span>`);
+    } else {
+      es.close();
+      appState.eventSource = null;
+      finishResearch();
+    }
+  });
+  es.onerror = () => {
+    if (es.readyState === EventSource.CLOSED) {
+      appState.eventSource = null;
+      finishResearch();
+    }
+  };
+}
+
+function handleSSEEvent(type, raw) {
+  try {
+    const d = JSON.parse(raw);
+
+    if (type === 'progress') {
+      if (STEPS.includes(d.node)) setStep(d.node);
+      if (d.summary) {
+        const nodeMeta = NODE_META[d.node];
+        const label = nodeMeta ? `<strong style="color:var(--${nodeMeta.color})">${nodeMeta.title}</strong> ` : '';
+        addLog(`${label}${esc(d.summary)}`);
+      }
+      if (d.detail) showNodeDetail(d.node, d.detail);
+    } else if (type === 'message') {
+      if (d.text) addLog(esc(d.text));
+    } else if (type === 'report') {
+      showReport(d);
+      setAllDone();
+      addLog('<span class="text-green">研究报告生成完成</span>');
+    } else if (type === 'error') {
+      addLog(`<span class="text-red">错误: ${esc(d.message || '未知')}</span>`);
+      toast(d.message || '研究出错', 'error', '研究错误');
+    }
+  } catch (e) {
+    // Partial JSON — ignore
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Node Detail Rendering — step card history
+   ═══════════════════════════════════════════════ */
+const NODE_META = {
+  knowledge_lookup: { icon: '◎', title: '知识查询', color: 'cyan' },
+  planner: { icon: '◈', title: '问题规划', color: 'purple' },
+  searcher: { icon: '◉', title: '并行搜索', color: 'purple' },
+  validator: { icon: '✓', title: '结果验证', color: 'green' },
+  synthesizer: { icon: '▯', title: '报告综合', color: 'purple' },
+  reflector: { icon: '↻', title: '质量反思', color: 'amber' },
+  knowledge_store: { icon: '◈', title: '知识存储', color: 'green' },
+  diff_analyzer: { icon: '⇄', title: '变化分析', color: 'amber' },
+  change_notifier: { icon: '◉', title: '变更通知', color: 'green' },
+};
+
+function showNodeDetail(node, detail) {
+  if (!detail || Object.keys(detail).length === 0) return;
+
+  const meta = NODE_META[node] || { icon: '●', title: node, color: 'purple' };
+  let body = '';
+  let badge = '';
+
+  // ── Knowledge Lookup ──
+  if (node === 'knowledge_lookup') {
+    const has = detail.has_knowledge;
+    body = `
+      <div class="nd-kl">
+        <div class="nd-kl-item">
+          <div class="nd-kl-dot ${has ? 'yes' : 'no'}"></div>
+          <span class="${has ? 'text-green' : 'text-muted'}">${has ? '发现历史知识' : '全新研究'}</span>
+        </div>
+        <div class="nd-kl-item text-muted">${detail.knowledge_context_length || 0} chars context</div>
+      </div>
+    `;
+    badge = has ? '发现历史知识' : '全新研究';
+  }
+
+  // ── Planner ──
+  if (node === 'planner' && detail.sub_questions) {
+    badge = `${detail.sub_questions.length} 个子问题`;
+    body = detail.sub_questions.map((sq, i) => `
+      <div class="nd-sq">
+        <div class="nd-sq-num">${i + 1}</div>
+        <div>
+          <div class="nd-sq-q">${esc(sq.question)}</div>
+          <div class="nd-sq-kw">▸ ${esc(sq.search_query)}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // ── Searcher ──
+  if (node === 'searcher') {
+    const count = detail.results_count || 0;
+    badge = `${count} 条结果`;
+    body = `<div class="nd-info">找到 <strong class="text-cyan">${count}</strong> 条搜索结果</div>`;
+    if (detail.results_preview && detail.results_preview.length) {
+      body += '<div class="nd-sr-grid">' +
+        detail.results_preview.map(r => `
+          <div class="nd-sr">
+            <div class="nd-sr-title">${esc(r.title || 'Untitled')}</div>
+            <div class="nd-sr-url">${esc((r.url || '').replace(/^https?:\/\//, '').slice(0, 40))}</div>
+          </div>
+        `).join('') + '</div>';
+    }
+  }
+
+  // ── Validator ──
+  if (node === 'validator') {
+    const gc = detail.gaps_count || 0;
+    badge = gc > 0 ? `${gc} 个不足` : '✓ 充足';
+    if (gc > 0) {
+      body = `<div class="nd-warn">⚠ ${gc} 个子问题需要补充搜索</div>`;
+      if (detail.gaps) {
+        body += detail.gaps.map(g => `
+          <div class="nd-gap">
+            <div class="nd-gap-q">${esc(g.question)}</div>
+            <div class="nd-gap-kw">▸ ${esc(g.search_query)}</div>
+          </div>
+        `).join('');
+      }
+    } else {
+      body = `<div class="nd-ok">✓ 所有子问题搜索结果充足</div>`;
+    }
+  }
+
+  // ── Synthesizer ──
+  if (node === 'synthesizer') {
+    const len = detail.report_length || 0;
+    badge = `${len > 1000 ? (len / 1000).toFixed(1) + 'k' : len} 字符`;
+    body = `<div class="nd-info">报告长度: <strong class="text-purple2">${len > 1000 ? (len / 1000).toFixed(1) + 'k' : len}</strong> 字符</div>`;
+  }
+
+  // ── Reflector ──
+  if (node === 'reflector') {
+    const passed = detail.reflection_pass;
+    const round = detail.reflection_round || 0;
+    badge = `第${round}轮 · ${passed ? '✓ 通过' : '✗ 修正'}`;
+    body = `
+      <div class="nd-refl">
+        <dt>轮次</dt><dd>${round}</dd>
+        <dt>判定</dt><dd class="${passed ? 'text-green' : 'text-amber'}">${passed ? '✓ 通过' : '✗ 需修正'}</dd>
+    `;
+    if (detail.reflection_feedback) {
+      body += `<dt>反馈</dt><dd>${esc(detail.reflection_feedback)}</dd>`;
+    }
+    if (detail.supplement_queries) {
+      body += `<dt>补充</dt><dd class="text-cyan">${detail.supplement_queries.map(esc).join(', ')}</dd>`;
+    }
+    body += '</div>';
+  }
+
+  // ── Knowledge Store ──
+  if (node === 'knowledge_store') {
+    const rid = detail.saved_report_id || '';
+    badge = rid ? rid.slice(0, 8) + '…' : '✓ 已保存';
+    body = `<div class="nd-ok">✓ 报告已保存${rid ? ` <span class="text-muted font-mono">(${rid.slice(0, 8)}…)</span>` : ''}</div>`;
+  }
+
+  // ── Diff Analyzer ──
+  if (node === 'diff_analyzer') {
+    const cc = detail.changes_count || 0;
+    const sim = detail.similarity || 0;
+    badge = `${(sim * 100).toFixed(1)}% · ${cc} 变化`;
+    body = `<div class="nd-info">相似度: <strong class="text-cyan">${(sim * 100).toFixed(1)}%</strong> · 变更: <strong class="${cc ? 'text-amber' : 'text-green'}">${cc} 项</strong></div>`;
+  }
+
+  // ── Change Notifier ──
+  if (node === 'change_notifier') {
+    badge = detail.notification_sent ? '✓ 已发送' : '— 无需通知';
+    body = `<div class="${detail.notification_sent ? 'nd-ok' : 'text-muted'}" style="font-size:.76rem">${detail.notification_sent ? '✓ 通知已发送' : '— 无需通知'}</div>`;
+  }
+
+  if (!body) return;
+
+  // Append a step card to the history
+  const container = $('stepCards');
+  const card = document.createElement('div');
+  card.className = `step-card sc-${meta.color}`;
+  card.innerHTML = `
+    <div class="sc-header">
+      <div class="sc-icon">${meta.icon}</div>
+      <span class="sc-title">${meta.title}</span>
+      ${badge ? `<span class="sc-badge">${esc(badge)}</span>` : ''}
+    </div>
+    <div class="sc-body">${body}</div>
+  `;
+  container.appendChild(card);
+
+  // Scroll into view smoothly
+  setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+}
+
+function showReport(data) {
+  const v = $('reportView');
+  v.classList.add('visible');
+
+  const m = $('reportMeta');
+  const items = [
+    data.topic_id ? { l: '主题', v: '已关联', c: 'badge-cyan' } : null,
+    data.is_incremental ? { l: '模式', v: '增量', c: 'badge-amber' } : null,
+    { l: '子问题', v: (data.sub_questions || []).length },
+    { l: '来源', v: data.search_results_count || 0 },
+    { l: '反思', v: data.reflection_round || 0 },
+    { l: '通过', v: data.reflection_pass ? '✓' : '↻' },
+    { l: '耗时', v: elapsed() },
+  ].filter(Boolean);
+
+  m.innerHTML = items.map(i => `
+    <div class="meta-chip">
+      ${i.c ? `<span class="badge ${i.c}">${i.v}</span>` : `<span class="mv">${i.v}</span>`} ${i.l}
+    </div>
+  `).join('');
+
+  // Store report text for copy
+  appState.lastReportText = data.report || '';
+
+  // Render markdown with error handling
+  try {
+    $('reportBody').innerHTML = marked.parse(data.report || '');
+  } catch (e) {
+    $('reportBody').innerHTML = `<p class="text-red">报告渲染失败: ${esc(e.message)}</p><pre>${esc(data.report || '')}</pre>`;
+  }
+  $('reportBody').classList.add('typing');
+}
+
+function finishResearch() {
+  appState.isResearchRunning = false;
+  $('submitBtn').disabled = false;
+  $('spinner').style.display = 'none';
+  $('btnText').textContent = '开始研究';
+  $('cancelBtn').style.display = 'none';
+  appState.abortController = null;
+  appState.eventSource = null;
+  setTimeout(() => $('reportBody')?.classList.remove('typing'), 1500);
+}
+
+function copyReport() {
+  if (appState.lastReportText) {
+    copyToClipboard(appState.lastReportText);
+  } else {
+    toast('没有可复制的报告', 'warning');
+  }
+}
+
+// Keyboard shortcuts
+$('question').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    startResearch();
+  }
+});
+
+document.addEventListener('keydown', e => {
+  // Ctrl/Cmd + K — focus research input
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    navigate('research');
+    setTimeout(() => $('question').focus(), 100);
+  }
+  // Escape — close modal or cancel research
+  if (e.key === 'Escape') {
+    if (appState.isResearchRunning) {
+      cancelResearch();
+    } else {
+      // Close any visible modal
+      $$('.modal-overlay.visible').forEach(m => m.classList.remove('visible'));
+      if ($('confirmOverlay').classList.contains('visible')) {
+        resolveConfirm(false);
+      }
+    }
+  }
+});
+
+/* ═══════════════════════════════════════════════
+   Research Mode Refresh
+   ═══════════════════════════════════════════════ */
+async function refreshResearchModes() {
+  const sel = $('researchMode');
+  const currentVal = sel.value;
+
+  // Remove all options except the first (normal)
+  while (sel.options.length > 1) {
+    sel.remove(1);
+  }
+
+  try {
+    const topics = await api('/topics');
+    topics.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t.id;
+      o.textContent = '◫ ' + t.name;
+      sel.appendChild(o);
+    });
+
+    // Restore selection if still valid
+    if (currentVal && Array.from(sel.options).some(o => o.value === currentVal)) {
+      sel.value = currentVal;
+    }
+  } catch { /* ignore */ }
+}
+
+/* ═══════════════════════════════════════════════
+   Topics
+   ═══════════════════════════════════════════════ */
+async function loadTopics() {
+  const l = $('topicsList');
+  l.innerHTML = '<div class="skeleton-grid"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>';
+
+  try {
+    const topics = await api('/topics');
+    $('topicCount').textContent = topics.length;
+
+    if (!topics.length) {
+      l.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon" aria-hidden="true">◫</div>
+          <div class="empty-text">还没有研究主题，创建一个开始吧</div>
+          <button class="btn btn-primary" onclick="showModal('createTopic')">+ 新建主题</button>
+        </div>
+      `;
+      return;
+    }
+
+    l.innerHTML = '<div class="topic-grid">' + topics.map(t => {
+      const kw = (t.tracking_keywords || []).map(k => `<span class="badge badge-muted">${esc(k)}</span>`).join('');
+      const tb = t.tracking_enabled ? '<span class="badge badge-green">追踪中</span>' : '';
+      return `
+        <div class="card topic-card" onclick="navigate('topic-detail',{topicId:'${t.id}'})">
+          <div class="topic-actions">
+            <button class="btn btn-ghost btn-sm btn-danger" onclick="event.stopPropagation();deleteTopic('${t.id}')">删除</button>
+          </div>
+          <div class="topic-name">${esc(t.name)}</div>
+          <div class="topic-desc">${esc(t.description || '暂无描述')}</div>
+          <div class="topic-meta">${kw}${tb}<span class="badge badge-muted">${new Date(t.created_at).toLocaleDateString('zh-CN')}</span></div>
+        </div>
+      `;
+    }).join('') + '</div>';
+  } catch (e) {
+    l.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon" aria-hidden="true">⚠</div>
+        <div class="empty-text">加载失败: ${esc(e.message)}</div>
+      </div>
+    `;
+  }
+}
+
+async function createTopic() {
+  const n = $('topicName').value.trim();
+  if (!n) return;
+
+  const d = $('topicDesc').value.trim();
+  const k = getTags('topicKwWrap');
+
+  try {
+    await api('/topics', {
+      method: 'POST',
+      body: { name: n, description: d, tracking_keywords: k },
+    });
+    hideModal('createTopic');
+    $('topicName').value = '';
+    $('topicDesc').value = '';
+    setTags('topicKwWrap', 'topicKwInput', []);
+    loadTopics();
+    toast('主题创建成功', 'success');
+  } catch (e) {
+    toast('创建失败: ' + e.message, 'error');
+  }
+}
+
+async function deleteTopic(id) {
+  const confirmed = await showConfirm('删除主题', '确定删除此主题及其所有报告？此操作不可撤销。');
+  if (!confirmed) return;
+
+  try {
+    await api('/topics/' + id, { method: 'DELETE' });
+    loadTopics();
+    toast('主题已删除', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Topic Detail
+   ═══════════════════════════════════════════════ */
+async function loadTopicDetail(topicId) {
+  const h = $('topicDetailHeader');
+
+  try {
+    const t = await api('/topics/' + topicId);
+    appState.currentTopic = t;
+
+    h.innerHTML = `
+      <div class="topic-icon" aria-hidden="true">◫</div>
+      <div class="topic-info">
+        <h2>${esc(t.name)}</h2>
+        <p>${esc(t.description || '暂无描述')}</p>
+      </div>
+      <div class="topic-actions-bar">
+        <button class="btn btn-sm" onclick="startResearchForTopic('${topicId}')">◈ 新研究</button>
+        <button class="btn btn-sm" onclick="showIncrementalModal('${topicId}')">📈 增量</button>
+        <button class="btn btn-sm" onclick="openTrackingConfig('${topicId}')">◉ 追踪</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteTopicFromDetail('${topicId}')">删除</button>
+      </div>
+    `;
+
+    loadTopicReports(topicId);
+    loadTopicTrackingConfig(topicId);
+    loadTopicTrackingLogs(topicId);
+    updateBreadcrumb();
+  } catch (e) {
+    h.innerHTML = `<p class="text-red">加载失败: ${esc(e.message)}</p>`;
+  }
+}
+
+function switchTab(el, name) {
+  el.parentElement.querySelectorAll('.tab').forEach(t => {
+    t.classList.remove('active');
+    t.setAttribute('aria-selected', 'false');
+    t.setAttribute('tabindex', '-1');
+  });
+  el.classList.add('active');
+  el.setAttribute('aria-selected', 'true');
+  el.setAttribute('tabindex', '0');
+
+  $$('.tab-panel').forEach(p => p.classList.remove('active'));
+  $('panel-' + name).classList.add('active');
+}
+
+async function loadTopicReports(topicId) {
+  const p = $('panel-reports');
+  p.innerHTML = '<div class="skeleton" style="height:200px;border-radius:var(--r2)"></div>';
+
+  try {
+    const reports = await api('/topics/' + topicId + '/reports');
+    if (!reports.length) {
+      p.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon" aria-hidden="true">▯</div>
+          <div class="empty-text">暂无研究报告</div>
+        </div>
+      `;
+      return;
+    }
+
+    p.innerHTML = '<div class="timeline">' + reports.map(r => {
+      const d = new Date(r.created_at).toLocaleString('zh-CN');
+      const b = [
+        r.is_incremental ? '<span class="badge badge-cyan">增量</span>' : '<span class="badge badge-accent">全新</span>',
+        r.confidence ? `<span class="badge badge-${r.confidence === '高' ? 'green' : r.confidence === '中' ? 'amber' : 'red'}">${r.confidence}</span>` : '',
+        `<span class="badge badge-muted">${r.search_results_count || 0} src</span>`,
+      ].filter(Boolean).join('');
+      const pv = (r.report || '').slice(0, 150).replace(/[#*`]/g, '');
+      return `
+        <div class="timeline-item${r.is_incremental ? ' incremental' : ''}">
+          <div class="tl-date">${d}</div>
+          <div class="tl-title" onclick="navigate('report-detail',{reportId:'${r.id}'})">${esc(r.question)}</div>
+          <div class="tl-badges">${b}</div>
+          <div class="tl-preview">${esc(pv)}…</div>
+        </div>
+      `;
+    }).join('') + '</div>';
+  } catch (e) {
+    p.innerHTML = '<p class="text-muted">加载失败</p>';
+  }
+}
+
+async function loadTopicTrackingConfig(topicId) {
+  const p = $('panel-tracking');
+  const t = appState.currentTopic;
+  if (!t) return;
+
+  const en = t.tracking_enabled;
+  const cr = t.tracking_cron || '';
+  const kw = t.tracking_keywords || [];
+
+  p.innerHTML = `
+    <div class="card">
+      <div class="card-body">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+          <div>
+            <h3 style="font-size:.98rem;font-weight:700">${'自动追踪'}</h3>
+            <p class="text-muted" style="font-size:.8rem;margin-top:4px">定期自动搜索领域变化</p>
+          </div>
+          <span class="badge ${en ? 'badge-green' : 'badge-muted'}">${en ? '已启用' : '未启用'}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div>
+            <div class="form-label">Cron</div>
+            <div class="text-secondary font-mono" style="font-size:.86rem">${esc(cr || '未配置')}</div>
+          </div>
+          <div>
+            <div class="form-label">关键词</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              ${kw.map(k => `<span class="badge badge-accent">${esc(k)}</span>`).join('') || '<span class="text-muted" style="font-size:.82rem">未配置</span>'}
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-sm" onclick="openTrackingConfig('${topicId}')">✏ 编辑</button>
+        <button class="btn btn-sm" style="margin-left:8px" onclick="runTrackingNow('${topicId}')">▶ 立即追踪</button>
+      </div>
+    </div>
+  `;
+}
+
+async function loadTopicTrackingLogs(topicId) {
+  const p = $('panel-changes');
+
+  try {
+    const logs = await api('/topics/' + topicId + '/tracking-logs');
+    if (!logs.length) {
+      p.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon" aria-hidden="true">◉</div>
+          <div class="empty-text">暂无追踪记录</div>
+        </div>
+      `;
+      return;
+    }
+
+    let h = '<div class="card"><div style="overflow:hidden">';
+    for (const l of logs) {
+      const d = new Date(l.triggered_at).toLocaleString('zh-CN');
+      const sc = l.status === 'completed' ? 'completed' : l.status === 'failed' ? 'failed' : 'running';
+      h += `
+        <div class="tracking-log-item" onclick="loadChanges('${l.id}')">
+          <div class="log-status ${sc}"></div>
+          <div class="log-info">
+            <div class="log-time">${d}</div>
+            <div class="log-summary">${esc(l.change_summary || l.status)}</div>
+          </div>
+          <div class="log-changes">${l.changes_detected || 0} 项变化</div>
+        </div>
+      `;
+    }
+    h += '</div></div>';
+    p.innerHTML = h;
+  } catch (e) {
+    p.innerHTML = '<p class="text-muted">加载失败</p>';
+  }
+}
+
+async function loadChanges(logId) {
+  try {
+    const changes = await api('/tracking-logs/' + logId + '/changes');
+    if (!changes.length) return;
+
+    let h = '<div class="change-list">';
+    for (const c of changes) {
+      const tm = {
+        new_info: ['badge-green', '新增'],
+        contradiction: ['badge-red', '矛盾'],
+        update: ['badge-amber', '更新'],
+        removal: ['badge-muted', '删除'],
+      };
+      const [cl, lb] = tm[c.change_type] || ['badge-muted', c.change_type];
+      h += `
+        <div class="change-item">
+          <div class="change-header">
+            <span class="badge ${cl}">${lb}</span>
+            ${c.significance ? `<span class="badge badge-${c.significance === 'high' ? 'pink' : c.significance === 'medium' ? 'amber' : 'muted'}">${c.significance}</span>` : ''}
+          </div>
+          <div class="change-desc">${esc(c.description)}</div>
+          ${c.old_content || c.new_content ? `
+            <div class="change-diff">
+              ${c.old_content ? `<span class="diff-old">${esc(c.old_content.slice(0, 80))}</span>` : ''}
+              ${c.new_content ? `<span class="diff-new">${esc(c.new_content.slice(0, 80))}</span>` : ''}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+    h += '</div>';
+    $('panel-changes').innerHTML = `
+      <h3 class="section-title">变更详情</h3>
+      ${h}
+      <button class="btn btn-sm btn-ghost" onclick="loadTopicTrackingLogs('${appState.currentTopicId}')" style="margin-top:10px">← 返回列表</button>
+    `;
+  } catch (e) {
+    toast('加载变更失败', 'error');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Tracking Config
+   ═══════════════════════════════════════════════ */
+function openTrackingConfig(topicId) {
+  const t = appState.currentTopic;
+  if (t) {
+    setTags('trackKwWrap', 'trackKwInput', t.tracking_keywords || []);
+    $('trackCron').value = t.tracking_cron || '';
+    $('trackEnabled').checked = !!t.tracking_enabled;
+  }
+  appState.trackingTopicId = topicId;
+  showModal('trackingConfig');
+}
+
+async function saveTrackingConfig() {
+  const tid = appState.trackingTopicId;
+  const kw = getTags('trackKwWrap');
+  // 清洗 cron：只取前 5 段，忽略用户可能附加的注释（如 "0 9 * * * == 每天9点"）
+  let cr = $('trackCron').value.trim().split(/\s+/).slice(0, 5).join(' ');
+  const en = $('trackEnabled').checked;
+
+  if (cr && cr.split(/\s+/).length !== 5) {
+    toast('Cron 表达式格式错误，应为 5 段：分 时 日 月 周', 'warning');
+    return;
+  }
+
+  try {
+    await api('/topics/' + tid, {
+      method: 'PUT',
+      body: { tracking_keywords: kw, tracking_cron: cr, tracking_enabled: en },
+    });
+    hideModal('trackingConfig');
+    loadTopicDetail(tid);
+    toast('追踪配置已保存', 'success');
+  } catch (e) {
+    toast('保存失败: ' + e.message, 'error');
+  }
+}
+
+async function testNotification() {
+  try {
+    const r = await api('/tracking/test-notification', { method: 'POST' });
+    if (r.sent) {
+      toast('测试通知已发送，请检查接收端', 'success');
+    } else {
+      toast('通知未发送：请检查通知配置（环境变量）', 'warning');
+    }
+  } catch (e) {
+    toast('测试通知失败: ' + e.message, 'error');
+  }
+}
+
+async function runTrackingNow(topicId) {
+  const btn = event.target;
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ 追踪中…';
+  try {
+    const r = await api('/tracking/run', {
+      method: 'POST',
+      body: { topic_id: topicId },
+    });
+    toast(`追踪完成：检测到 ${r.changes_detected} 项变化${r.notification_sent ? '，已发送通知' : ''}`, 'info');
+    loadTopicDetail(topicId);
+  } catch (e) {
+    toast('追踪失败: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Incremental Research
+   ═══════════════════════════════════════════════ */
+function startResearchForTopic(topicId) {
+  navigate('research');
+  $('researchMode').value = topicId;
+  $('question').focus();
+}
+
+async function showIncrementalModal(topicId) {
+  try {
+    const s = await api('/topics/' + topicId + '/reports');
+    const l = s && s[0];
+    $('incrementalContext').innerHTML = l
+      ? `<strong>最近研究：</strong>${esc(l.question)}<br><span class="text-muted">${new Date(l.created_at).toLocaleString('zh-CN')} · ${l.is_incremental ? '增量' : '全新'} · ${l.confidence || '未知'}</span>`
+      : '暂无历史研究记录';
+    $('incrementalQuestion').value = '';
+    appState.incrementalTopicId = topicId;
+    showModal('incrementalResearch');
+  } catch (e) {
+    toast('加载历史研究失败', 'error');
+  }
+}
+
+function startIncrementalResearch() {
+  const q = $('incrementalQuestion').value.trim();
+  if (!q) {
+    $('incrementalQuestion').focus();
+    return;
+  }
+  hideModal('incrementalResearch');
+  navigate('research');
+  $('question').value = q;
+  $('researchMode').value = appState.incrementalTopicId;
+  startResearch(appState.incrementalTopicId, true);
+}
+
+/* ═══════════════════════════════════════════════
+   Report Detail
+   ═══════════════════════════════════════════════ */
+async function loadReportDetail(reportId) {
+  const c = $('reportDetailContent');
+  c.innerHTML = '<div class="skeleton" style="height:300px;border-radius:var(--r2)"></div>';
+
+  try {
+    const r = await api('/reports/' + reportId);
+    const d = new Date(r.created_at).toLocaleString('zh-CN');
+    const b = [
+      r.is_incremental ? '<span class="badge badge-cyan">增量</span>' : '<span class="badge badge-accent">全新</span>',
+      r.confidence ? `<span class="badge badge-${r.confidence === '高' ? 'green' : r.confidence === '中' ? 'amber' : 'red'}">${r.confidence}</span>` : '',
+      `<span class="badge badge-muted">${r.search_results_count || 0} src</span>`,
+      `<span class="badge badge-muted">${r.reflection_rounds || 0} rounds</span>`,
+    ].filter(Boolean).join('');
+
+    // Store for copy
+    appState.lastReportText = r.report || '';
+
+    let reportHtml = '';
+    try {
+      reportHtml = marked.parse(r.report || '');
+    } catch (e) {
+      reportHtml = `<p class="text-red">报告渲染失败</p><pre>${esc(r.report || '')}</pre>`;
+    }
+
+    c.innerHTML = `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${b}</div>
+      <h2 style="font-size:1.2rem;font-weight:700;margin-bottom:3px">${esc(r.question)}</h2>
+      <div class="text-muted font-mono" style="font-size:.74rem;margin-bottom:20px">${d}</div>
+      <div class="report-body">${reportHtml}</div>
+      ${r.sources && r.sources.length ? `
+        <div style="margin-top:20px">
+          <h3 class="section-title">📎 参考来源</h3>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            ${r.sources.map(s => `
+              <a href="${esc(s.url)}" target="_blank" class="source-link">
+                <span class="source-icon" aria-hidden="true">◈</span>${esc(s.title || s.url)}
+              </a>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+    `;
+  } catch (e) {
+    c.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon" aria-hidden="true">⚠</div>
+        <div class="empty-text">加载失败: ${esc(e.message)}</div>
+      </div>
+    `;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Delete Topic From Detail
+   ═══════════════════════════════════════════════ */
+async function deleteTopicFromDetail(id) {
+  const confirmed = await showConfirm('删除主题', '确定删除此主题及其所有报告？此操作不可撤销。');
+  if (!confirmed) return;
+
+  try {
+    await api('/topics/' + id, { method: 'DELETE' });
+    toast('主题已删除', 'success');
+    navigate('topics');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Delete Report
+   ═══════════════════════════════════════════════ */
+async function deleteReport() {
+  const id = appState.currentReportId;
+  if (!id) return;
+  const confirmed = await showConfirm('删除报告', '确定删除此报告？此操作不可撤销。');
+  if (!confirmed) return;
+
+  try {
+    await api('/reports/' + id, { method: 'DELETE' });
+    toast('报告已删除', 'success');
+    goBack();
+  } catch (e) {
+    toast('删除失败: ' + e.message, 'error');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Tracking Page
+   ═══════════════════════════════════════════════ */
+async function loadTrackingPage() {
+  const c = $('trackingList');
+  c.innerHTML = '<div class="skeleton" style="height:200px;border-radius:var(--r2)"></div>';
+
+  try {
+    const [topics, jobs] = await Promise.all([
+      api('/topics'),
+      api('/tracking/jobs'),
+    ]);
+
+    $('trackingCount').textContent = jobs.length;
+    const tr = topics.filter(t => t.tracking_enabled);
+
+    if (!tr.length && !jobs.length) {
+      c.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon" aria-hidden="true">◉</div>
+          <div class="empty-text">暂无追踪任务。在主题详情中启用追踪即可。</div>
+        </div>
+      `;
+      return;
+    }
+
+    let h = '';
+
+    if (tr.length) {
+      h += '<h3 class="section-title">正在追踪</h3><div class="topic-grid" style="margin-bottom:28px">';
+      for (const t of tr) {
+        const kw = (t.tracking_keywords || []).map(k => `<span class="badge badge-accent">${esc(k)}</span>`).join('');
+        h += `
+          <div class="card topic-card" onclick="navigate('topic-detail',{topicId:'${t.id}'})">
+            <div class="topic-name">${esc(t.name)}</div>
+            <div style="margin:6px 0;display:flex;gap:5px;flex-wrap:wrap">${kw}</div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <span class="badge badge-green">追踪中</span>
+              <span class="badge badge-muted font-mono">${esc(t.tracking_cron || '')}</span>
+            </div>
+          </div>
+        `;
+      }
+      h += '</div>';
+    }
+
+    if (jobs.length) {
+      h += '<h3 class="section-title">调度任务</h3><div class="card"><div style="overflow:hidden">';
+      for (const j of jobs) {
+        h += `
+          <div class="tracking-log-item">
+            <div class="log-status completed"></div>
+            <div class="log-info">
+              <div class="log-time">${esc(j.topic_name || j.topic_id || '未知')}</div>
+              <div class="log-summary">下次运行: ${esc(j.next_run || '未安排')}</div>
+            </div>
+          </div>
+        `;
+      }
+      h += '</div></div>';
+    }
+
+    c.innerHTML = h;
+  } catch (e) {
+    c.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon" aria-hidden="true">⚠</div>
+        <div class="empty-text">加载失败: ${esc(e.message)}</div>
+      </div>
+    `;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Utility
+   ═══════════════════════════════════════════════ */
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+/* ═══════════════════════════════════════════════
+   Init
+   ═══════════════════════════════════════════════ */
+async function init() {
+  // Load dashboard as landing page
+  loadDashboard();
+
+  // Populate research modes
+  refreshResearchModes();
+}
+
+init();
+</script>
+</body>
+</html>

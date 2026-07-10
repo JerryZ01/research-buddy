@@ -1,0 +1,112 @@
+"""Langfuse Dataset 构建 - 创建测试用例"""
+
+from langfuse import Langfuse
+
+DATASET_NAME = "research-buddy-eval"
+
+# 测试用例：研究问题 + 预期要点
+TEST_CASES = [
+    {
+        "input": "LangGraph 和 LangChain 的区别是什么？",
+        "expected_output": [
+            "LangChain 是线性链式工作流，LangGraph 是图结构工作流",
+            "LangGraph 支持循环和条件分支",
+            "LangGraph 有状态管理，LangChain 状态管理较弱",
+            "两者可以结合使用",
+        ],
+    },
+    {
+        "input": "Python 的 GIL 是什么？它有什么影响？",
+        "expected_output": [
+            "GIL 是全局解释器锁",
+            "GIL 阻止多线程真正并行执行 Python 字节码",
+            "GIL 对 CPU 密集型任务影响大",
+            "多进程可以绕过 GIL",
+        ],
+    },
+    {
+        "input": "Docker 和 Kubernetes 的区别是什么？",
+        "expected_output": [
+            "Docker 是容器运行时，Kubernetes 是容器编排平台",
+            "Kubernetes 管理 Docker 容器的部署和扩缩",
+            "Docker 适合单机，Kubernetes 适合集群",
+        ],
+    },
+    {
+        "input": "RAG 是什么？怎么实现？",
+        "expected_output": [
+            "RAG 是检索增强生成",
+            "RAG 结合了检索和生成两个步骤",
+            "RAG 需要向量数据库存储文档",
+            "RAG 可以减少 LLM 的幻觉",
+        ],
+    },
+    {
+        "input": "FastAPI 和 Flask 的区别是什么？",
+        "expected_output": [
+            "FastAPI 是异步框架，Flask 是同步框架",
+            "FastAPI 自带 API 文档（Swagger）",
+            "FastAPI 基于 ASGI，Flask 基于 WSGI",
+            "FastAPI 有类型校验，Flask 需要手动校验",
+        ],
+    },
+    {
+        "input": "Git rebase 和 merge 的区别是什么？",
+        "expected_output": [
+            "merge 保留分支历史，rebase 重写历史",
+            "rebase 产生线性提交记录",
+            "merge 会产生合并提交",
+            "rebase 不适合已推送到远程的分支",
+        ],
+    },
+    {
+        "input": "Transformer 的注意力机制原理是什么？",
+        "expected_output": [
+            "自注意力机制计算 Query、Key、Value",
+            "注意力权重通过 softmax 归一化",
+            "多头注意力并行计算多个注意力",
+            "位置编码补充序列位置信息",
+        ],
+    },
+    {
+        "input": "什么是微服务架构？和单体架构有什么区别？",
+        "expected_output": [
+            "微服务将应用拆分为独立服务",
+            "每个微服务可以独立部署",
+            "微服务之间通过 API 通信",
+            "单体架构所有功能在一个应用中",
+        ],
+    },
+]
+
+
+def create_dataset() -> None:
+    """创建或更新 Langfuse Dataset"""
+    langfuse = Langfuse()
+
+    # 创建 Dataset（如已存在则复用）
+    dataset = langfuse.create_dataset(
+        name=DATASET_NAME,
+        description="Research Buddy 评估测试集",
+    )
+
+    # 逐条添加测试用例（用 langfuse.create_dataset_item）
+    for i, case in enumerate(TEST_CASES):
+        langfuse.create_dataset_item(
+            dataset_name=DATASET_NAME,
+            input=case["input"],
+            expected_output=case["expected_output"],
+            metadata={"index": i},
+        )
+
+    print(f"✅ Dataset '{DATASET_NAME}' 创建完成，共 {len(TEST_CASES)} 条测试用例")
+
+
+def get_dataset():
+    """获取 Langfuse Dataset"""
+    langfuse = Langfuse()
+    return langfuse.get_dataset(DATASET_NAME)
+
+
+if __name__ == "__main__":
+    create_dataset()

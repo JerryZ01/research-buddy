@@ -1,0 +1,46 @@
+"""核心路由逻辑单元测试"""
+
+import pytest
+from research_buddy.graph import should_continue, should_continue_to_store
+from research_buddy.state import ResearchState
+
+
+class TestShouldContinue:
+    """测试核心图路由函数"""
+
+    def test_reflection_pass_returns_end(self):
+        state = {"reflection_pass": True, "reflection_round": 0}
+        assert should_continue(state) == "end"
+
+    def test_max_rounds_returns_end(self):
+        state = {"reflection_pass": False, "reflection_round": 99}
+        assert should_continue(state) == "end"
+
+    def test_continue_returns_search_again(self):
+        state = {"reflection_pass": False, "reflection_round": 0}
+        assert should_continue(state) == "search_again"
+
+    def test_zero_round_not_pass_returns_search_again(self):
+        state = {"reflection_pass": False, "reflection_round": 0}
+        assert should_continue(state) == "search_again"
+
+
+class TestShouldContinueToStore:
+    """测试知识/追踪图路由函数"""
+
+    def test_reflection_pass_returns_knowledge_store(self):
+        state = {"reflection_pass": True, "reflection_round": 0}
+        assert should_continue_to_store(state) == "knowledge_store"
+
+    def test_max_rounds_returns_knowledge_store(self):
+        state = {"reflection_pass": False, "reflection_round": 99}
+        assert should_continue_to_store(state) == "knowledge_store"
+
+    def test_continue_returns_search_again(self):
+        state = {"reflection_pass": False, "reflection_round": 0}
+        assert should_continue_to_store(state) == "search_again"
+
+    def test_pass_takes_priority_over_rounds(self):
+        """反思通过时，即使未达到上限也走知识存储"""
+        state = {"reflection_pass": True, "reflection_round": 0}
+        assert should_continue_to_store(state) == "knowledge_store"

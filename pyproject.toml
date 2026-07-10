@@ -1,0 +1,39 @@
+[project]
+name = "research-buddy"
+version = "0.1.0"
+description = "基于 LangGraph + Langfuse 的深度研究 Agent"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2",
+    "langchain-openai>=0.3",
+    "langfuse>=2.0",
+    "tavily-python>=0.5",
+    "python-dotenv>=1.0",
+    "langchain>=1.3.11",
+    "langchain-community>=0.4.2",
+    "fastapi>=0.139.0",
+    "uvicorn>=0.50.0",
+    "sse-starlette>=3.4.5",
+    "httpx>=0.28.1",
+    "chromadb>=1.5.9",
+    "onnxruntime>=1.18.0",
+    "apscheduler>=3.11.3",
+]
+
+[project.scripts]
+research-buddy = "research_buddy:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/research_buddy"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

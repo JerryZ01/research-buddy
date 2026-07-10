@@ -1,0 +1,212 @@
+# 🔍 Research Buddy
+
+基于 LangGraph + Langfuse 的深度研究 Agent。输入一个问题，自动拆解、搜索、验证、生成结构化研究报告。
+
+![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue) ![LangGraph](https://img.shields.io/badge/LangGraph-0.2+-green) ![License](https://img.shields.io/badge/License-MIT-yellow)
+
+## ✨ 功能特点
+
+- **智能拆解** — LLM 自动将研究问题拆解为 3-5 个子问题
+- **并行搜索** — Tavily API 并行搜索各子问题，中文搜索质量高
+- **交叉验证** — 规则引擎检查搜索结果充足性，不足时自动补充搜索
+- **结构化报告** — LLM 综合生成带来源引用、置信度评估的研究报告
+- **自我反思** — LLM 评估报告质量，不达标时自动修正并补充搜索
+- **流式输出** — SSE 实时推送研究进度和报告内容
+- **Web UI** — 深色主题界面，Markdown 报告渲染
+- **可观测性** — Langfuse 全链路 Trace、评分、Prompt 管理
+- **人机交互** — 支持规划后确认子问题、报告后补充要求
+
+## 🏗️ 架构
+
+```
+用户输入研究问题
+    ↓
+[规划] LLM 拆解为 3-5 个子问题
+    ↓
+[搜索] Tavily API 并行搜索各子问题
+    ↓
+[验证] 规则引擎检查搜索结果充足性 ──不足──→ 回到搜索
+    ↓ 通过
+[综合] LLM 生成结构化研究报告（流式输出）
+    ↓
+[反思] LLM 自评报告质量 ──不达标──→ 补充搜索 → 重新综合
+    ↓ 通过
+输出：结构化报告 + 来源引用 + 置信度
+```
+
+## 📁 项目结构
+
+```
+research-buddy/
+├── src/research_buddy/
+│   ├── __init__.py              # 包入口
+│   ├── state.py                 # State 定义（TypedDict + operator.add 追加语义）
+│   ├── config.py                # 环境变量配置
+│   ├── graph.py                 # LangGraph 工作流（节点、边、条件分支、HITL）
+│   ├── api.py                   # FastAPI 应用（HTTP + SSE + 静态文件）
+│   ├── nodes/                   # LangGraph 节点实现
+│   │   ├── planner.py           #   规划节点 — 拆解问题，生成英文搜索词
+│   │   ├── searcher.py          #   搜索节点 — 并行搜索，支持补充搜索
+│   │   ├── validator.py         #   验证节点 — 检查结果充足性
+│   │   ├── synthesizer.py       #   综合节点 — LLM 流式生成报告
+│   │   └── reflector.py         #   反思节点 — LLM 评估报告质量
+│   ├── tools/
+│   │   └── search.py            # Tavily API 搜索（专为 AI Agent 优化）
+│   ├── eval/                    # Langfuse 评估体系
+│   │   ├── dataset.py           #   测试数据集（8 个研究问题）
+│   │   ├── judge.py             #   LLM-as-Judge 自动评分
+│   │   └── prompts.py           #   Prompt 版本管理（Langfuse 远程 + 本地 fallback）
+│   └── static/
+│       └── index.html           # Web UI（深色主题，SSE 流式，Markdown 渲染）
+├── scripts/
+│   ├── dev.sh                   # 启动/停止/重启脚本（自动杀端口占用）
+│   ├── run_api.py               # 启动 API 服务
+│   ├── run_eval.py              # 运行评估
+│   ├── test_phase1.py           # 测试线性图
+│   ├── test_phase2.py           # 测试条件分支 + 循环修正
+│   └── test_phase3.py           # 测试人机交互
+├── tests/
+├── docs/
+│   └── learning-notes.md        # 学习笔记
+├── pyproject.toml               # 依赖管理（uv）
+├── Dockerfile                   # Docker 部署
+├── .env.example                 # 环境变量模板
+└── CLAUDE.md                    # 项目说明（AI 辅助开发）
+```
+
+## 🚀 快速开始
+
+### 1. 安装依赖
+
+```bash
+# 需要 Python 3.11+ 和 uv
+pip install uv
+
+# 克隆项目
+git clone <repo-url>
+cd research-buddy
+
+# 安装依赖
+uv sync
+```
+
+### 2. 配置环境变量
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env`，填入你的 API Key：
+
+```env
+# LLM — 支持 OpenAI 兼容的任何 API
+OPENAI_API_KEY=sk-xxx
+OPENAI_API_BASE=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o
+
+# 搜索 — Tavily（https://tavily.com 注册，免费 1000 次/月）
+TAVILY_API_KEY=tvly-xxx
+
+# Langfuse 可观测性（可选，https://cloud.langfuse.com 注册免费版）
+LANGFUSE_PUBLIC_KEY=pk-xxx
+LANGFUSE_SECRET_KEY=sk-xxx
+LANGFUSE_HOST=https://cloud.langfuse.com
+```
+
+> **提示**：LLM 支持任何 OpenAI 兼容 API，如讯飞 MaaS、硅基流动、DeepSeek 等。
+
+### 3. 启动服务
+
+```bash
+# 启动（自动杀旧进程，不报 Address already in use）
+./scripts/dev.sh
+
+# 其他命令
+./scripts/dev.sh stop      # 停止
+./scripts/dev.sh restart   # 重启
+./scripts/dev.sh status    # 查看状态
+```
+
+浏览器打开 http://localhost:8000 ，输入问题即可使用。
+
+## 🧪 测试
+
+```bash
+# 测试线性工作流（规划→搜索→综合）
+uv run python scripts/test_phase1.py
+
+# 测试条件分支 + 循环修正（验证→反思→补充搜索）
+uv run python scripts/test_phase2.py
+
+# 测试人机交互（规划后确认、报告后补充）
+uv run python scripts/test_phase3.py
+
+# 运行评估（LLM-as-Judge 评分）
+uv run python scripts/run_eval.py
+```
+
+## 🐳 Docker 部署
+
+```bash
+# 构建镜像
+docker build -t research-buddy .
+
+# 运行（需要传入环境变量）
+docker run -d \
+  -p 8000:8000 \
+  --env-file .env \
+  research-buddy
+```
+
+## 🔌 API 接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/health` | 健康检查 |
+| POST | `/research` | 同步研究（等待完整报告） |
+| GET | `/research/stream?question=xxx` | SSE 流式研究（实时进度） |
+| POST | `/research/stream` | SSE 流式研究（POST 请求体） |
+
+### SSE 事件类型
+
+| 事件 | 说明 |
+|------|------|
+| `progress` | 节点进度（当前执行到哪个节点） |
+| `message` | 详细进度消息 |
+| `report` | 研究报告（完整 Markdown） |
+| `done` | 研究完成 |
+| `error` | 发生错误 |
+
+### 示例：curl 流式研究
+
+```bash
+curl -N "http://localhost:8000/research/stream?question=LangGraph%20和%20LangChain%20的区别"
+```
+
+## 🛠️ 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| 工作流编排 | LangGraph（StateGraph、条件边、循环、HITL） |
+| LLM | langchain-openai（OpenAI 兼容 API） |
+| 搜索 | Tavily API（专为 AI Agent 优化） |
+| 可观测性 | Langfuse（Trace、Span、评分、Prompt 管理） |
+| Web 框架 | FastAPI + SSE |
+| 包管理 | uv |
+| 部署 | Docker |
+
+## 📖 学习路线
+
+本项目按 5 个阶段递进式构建，每阶段聚焦 LangGraph / Langfuse 的核心特性：
+
+| 阶段 | 内容 | 学到 |
+|------|------|------|
+| Phase 1 | 线性图 + Langfuse 接入 | StateGraph、Node、State、Trace/Span |
+| Phase 2 | 条件分支 + 循环修正 | Conditional Edge、Loop、验证/反思 |
+| Phase 3 | Human-in-the-loop | interrupt_before、Checkpoint、Command(resume=) |
+| Phase 4 | Langfuse 评估体系 | Dataset、LLM-as-Judge、Prompt Management |
+| Phase 5 | 生产化 | FastAPI、SSE 流式、Docker 部署 |
+
+## 📝 License
+
+MIT
