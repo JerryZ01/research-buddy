@@ -129,6 +129,23 @@ _PARALLEL_DENSITY_LIMIT = 4.0  # 每千字
 _FORMULA_TAIL_HEADING = re.compile(r"#{1,3}\s*[^#\n]{0,18}(?:总结|结论)")
 _FORMULA_TAIL_LIST = re.compile(r"(?:^|\n)\s*(?:1[.、．]|①)")
 
+# 自问自答句式：「……为什么如此重要？因为它……」「这意味着什么？对于……」
+_SELFQA_PATTERNS = [
+    r"[？?](?:因为|答案(?:是|在于)|关键在于|本质上是因为)",
+    r"[？?](?:对于|对一个)",
+]
+# 引导句/教学腔：「拆解这个定义需要一点耐心」「让我们先看看」
+_GUIDE_PATTERNS = [
+    r"拆解[^。]{0,20}需要一点耐心",
+    r"让我们(?:先|来看|回到)",
+    r"这里需要(?:先|明确|区分)",
+    r"先说(?:一个|个结论)",
+]
+# 自问自答 ≥2 处，或引导句 ≥3 处，或合计 ≥3 处 → 模板腔
+_SELFQA_LIMIT = 2
+_GUIDE_LIMIT = 3
+_GUIDE_OR_SELFQA_COMBINED_LIMIT = 3
+
 
 def _ai_flavor_issues(report: str) -> list[str]:
     """检测文章的 AI 模板痕迹，返回问题描述列表（空 = 通过）。
@@ -158,6 +175,16 @@ def _ai_flavor_issues(report: str) -> list[str]:
     if _FORMULA_TAIL_HEADING.search(tail) and _FORMULA_TAIL_LIST.search(tail):
         issues.append(
             "结尾是公式化的「…结论：1. 2. 3.」结构，请改用散文收束或按问题语义给出行之有效的建议"
+        )
+
+    selfqa_count = sum(len(re.findall(p, report)) for p in _SELFQA_PATTERNS)
+    guide_count = sum(len(re.findall(p, report)) for p in _GUIDE_PATTERNS)
+    if (selfqa_count >= _SELFQA_LIMIT or guide_count >= _GUIDE_LIMIT
+            or selfqa_count + guide_count >= _GUIDE_OR_SELFQA_COMBINED_LIMIT):
+        issues.append(
+            f"存在 {selfqa_count} 处自问自答句式（「这意味着什么？因为…」）和 "
+            f"{guide_count} 处引导/教学腔（「拆解这个定义需要一点耐心」「让我们先看看」），"
+            "请重写时直接陈述，不要自问自答、不要铺设引导句"
         )
 
     return issues

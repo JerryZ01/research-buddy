@@ -213,3 +213,26 @@ def test_search_failure_becomes_error_event_not_a_report(offline_graph, monkeypa
     assert "TAVILY_API_KEY" in errors[0]
     # 关键：不能在零证据的情况下还产出一份报告
     assert not [data for name, data in events if name == "report"]
+
+
+def test_stream_start_event_carries_run_id_and_recoverable(offline_graph):
+    """SSE 首个 progress 事件带 run_id；结束后 /research/run/{id} 可取回结果。"""
+    from research_buddy import api as api_module
+    events = _run_stream()
+    start = next(data for name, data in events if name == "progress" and data.get("node") == "start")
+    run_id = start.get("run_id")
+    assert run_id, "start 事件必须携带 run_id（断线恢复用）"
+
+    client = TestClient(api_module.app)
+    resp = client.get(f"/research/run/{run_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "done"
+    assert data["result"]["report"]
+    assert data["result"]["question"] == "测试研究问题"
+
+
+def test_research_run_unknown_id_returns_404(offline_graph):
+    from research_buddy import api as api_module
+    client = TestClient(api_module.app)
+    assert client.get("/research/run/nonexistent").status_code == 404

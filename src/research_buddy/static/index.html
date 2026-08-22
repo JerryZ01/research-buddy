@@ -2763,6 +2763,9 @@ select.input {
         <button class="btn btn-sm" id="copyReportBtn" onclick="copyReport()" aria-label="复制报告">
           📋 复制
         </button>
+        <button class="btn btn-sm" onclick="downloadReport()" aria-label="下载 Markdown">
+          ⬇ Markdown
+        </button>
       </div>
     </div>
     <div class="report-collapsed-info" id="reportCollapsedInfo" style="display:none" onclick="toggleReportCollapse()">
@@ -2904,6 +2907,9 @@ const appState = {
   currentTopicId: null,
   currentReportId: null,
   isResearchRunning: false,
+  runId: null,               // 本次研究的 run_id（断线恢复用）
+  userCancelled: false,      // 用户是否主动取消（主动取消不做断线轮询）
+  runPollTimer: null,
   researchStartTime: 0,
   navHistory: [],
   currentTopic: null,
@@ -3696,6 +3702,10 @@ function startResearch(topicId, isIncremental) {
 
   appState.isResearchRunning = true;
   appState.researchStartTime = Date.now();
+  appState.runId = null;
+  appState.userCancelled = false;
+  appState.reportShown = false;
+  stopPollRun();
   appState.activeSteps = useTopic ? KNOWLEDGE_RESEARCH_STEPS : CORE_RESEARCH_STEPS;
   appState.pipelineReached = -1;
   appState.nodeDetails = {};
@@ -3734,6 +3744,8 @@ function startResearch(topicId, isIncremental) {
 }
 
 function cancelResearch() {
+  appState.userCancelled = true;
+  stopPollRun();
   if (appState.eventSource) {
     appState.eventSource.close();
     appState.eventSource = null;
@@ -3799,7 +3811,7 @@ function startKnowledgeResearchSSE(question, topicId, isIncremental) {
               setTimeout(read, 3000);
             } else {
               addLog(`<span class="text-red">连接失败: ${esc(err.message)}</span>`);
-              finishResearch();
+              handleSSEConnectionLost();
             }
           });
       }
@@ -3809,7 +3821,7 @@ function startKnowledgeResearchSSE(question, topicId, isIncremental) {
     .catch(err => {
       if (err.name === 'AbortError') return;
       addLog(`<span class="text-red">连接失败: ${esc(err.message)}</span>`);
-      finishResearch();
+      handleSSEConnectionLost();
     });
 }
 
@@ -3840,22 +3852,74 @@ function setupSSEHandlers(es) {
     // Don't immediately close on transient errors
     if (es.readyState === EventSource.CLOSED) {
       appState.eventSource = null;
-      finishResearch();
+      handleSSEConnectionLost();
     } else if (retryCount < 2) {
       retryCount++;
       addLog(`<span class="text-amber">SSE 重连中 (${retryCount}/2)...</span>`);
     } else {
       es.close();
       appState.eventSource = null;
-      finishResearch();
+      handleSSEConnectionLost();
     }
   });
   es.onerror = () => {
     if (es.readyState === EventSource.CLOSED) {
       appState.eventSource = null;
-      finishResearch();
+      handleSSEConnectionLost();
     }
   };
+}
+
+/** SSE 意外断开：有 run_id 且未完成 → 后台线程仍在跑，轮询取回结果 */
+function handleSSEConnectionLost() {
+  if (appState.reportShown) { finishResearch(); return; }
+  if (appState.runId && !appState.userCancelled) {
+    addLog('<span class="text-amber">⚠ 连接中断，研究仍在后台进行，正在自动恢复结果…</span>');
+    $('foundryStatus').textContent = '连接中断，后台研究中…';
+    startPollRun();
+  } else {
+    finishResearch();
+  }
+}
+
+function startPollRun() {
+  if (!appState.runId) { finishResearch(); return; }
+  pollResearchRun();
+  appState.runPollTimer = setInterval(pollResearchRun, 5000);
+}
+
+function stopPollRun() {
+  if (appState.runPollTimer) {
+    clearInterval(appState.runPollTimer);
+    appState.runPollTimer = null;
+  }
+}
+
+async function pollResearchRun() {
+  const runId = appState.runId;
+  if (!runId || appState.userCancelled) { stopPollRun(); return; }
+  try {
+    const res = await fetch('/research/run/' + runId);
+    if (!res.ok) { stopPollRun(); finishResearch(); return; }
+    const data = await res.json();
+    if (data.status === 'done') {
+      stopPollRun();
+      if (data.result) {
+        showReport(data.result);
+        setAllDone();
+        addLog('<span class="text-green">✅ 连接中断后研究已在后台完成，结果已恢复</span>');
+        toast('研究已在后台完成，结果已恢复', 'success');
+      }
+      finishResearch();
+    } else if (data.status === 'error') {
+      stopPollRun();
+      addLog(`<span class="text-red">研究失败: ${esc(data.error || '未知')}</span>`);
+      finishResearch();
+    }
+    // running：保持轮询
+  } catch (e) {
+    // 网络暂不可用，保持轮询
+  }
 }
 
 /**
@@ -3871,6 +3935,7 @@ function handleSSEEvent(type, raw) {
     const d = JSON.parse(raw);
 
     if (type === 'progress') {
+      if (d.run_id) appState.runId = d.run_id;
       if (STEPS.includes(d.node)) {
         setStep(d.node, d.detail || {});
         rememberNodeDetail(d.node, d.detail || {});
@@ -4372,6 +4437,7 @@ function showNodeDetail(node, detail) {
 function showReport(data) {
   const v = $('reportView');
   v.classList.add('visible');
+  appState.reportShown = true;
 
   // 如果之前有实时渲染的原始文本，先保存
   if (appState.streamingReportText) {
@@ -4671,6 +4737,7 @@ function toggleReportCollapse() {
 }
 
 function finishResearch() {
+  stopPollRun();
   appState.isResearchRunning = false;
   if (researchViz) researchViz.running = false;
   document.body.classList.remove('research-active');
@@ -4697,6 +4764,26 @@ function copyReport() {
   } else {
     toast('没有可复制的报告', 'warning');
   }
+}
+
+/** 导出报告为 Markdown 文件（含问题标题 + 正文 + 参考文献） */
+function downloadReport() {
+  const text = appState.lastReportText || '';
+  if (!text) {
+    toast('没有可下载的报告', 'warning');
+    return;
+  }
+  const q = ($('foundryQuestion') && $('foundryQuestion').textContent) || '研究报告';
+  const title = q.trim().replace(/[\\/:*?"<>|\n]+/g, ' ').slice(0, 60);
+  const md = `# ${q.trim()}\n\n${text}`;
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (title || '研究报告') + '.md';
+  document.body.appendChild(a);
+  a.click();
+  URL.revokeObjectURL(a.href);
+  a.remove();
 }
 
 // Keyboard shortcuts

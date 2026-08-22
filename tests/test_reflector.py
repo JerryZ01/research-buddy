@@ -350,3 +350,23 @@ def test_ai_flavor_issues_force_rewrite(monkeypatch):
     result = _reflect(state, monkeypatch)
     assert result["reflection_pass"] is False
     assert "元评论" in result["reflection_feedback"]
+
+
+def test_ai_flavor_self_qa_detected():
+    report = ("这场争论为什么如此重要？因为它触及了根本问题。\n"
+              "这意味着什么？对于反欺诈系统而言……\n正常段落。")
+    issues = _ai_issues(report)
+    assert any("自问自答" in i for i in issues)
+
+
+def test_ai_flavor_guide_sentences_detected():
+    report = ("拆解这个定义需要一点耐心。\n让我们先看看背景。\n"
+              "这里需要先明确几个概念。\n先说一个结论。\n")
+    issues = _ai_issues(report)
+    assert any("引导" in i for i in issues)
+
+
+def test_single_self_qa_does_not_trigger():
+    """单处自问自答不误伤（阈值从宽）。"""
+    report = "这意味着什么？因为这关系到架构选择。\n正常正文。\n"
+    assert _ai_issues(report) == []

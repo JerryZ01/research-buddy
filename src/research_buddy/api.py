@@ -3,6 +3,8 @@
 import json
 import logging
 import os
+import time
+import uuid
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
@@ -62,6 +64,31 @@ app = FastAPI(
 # ── HITL 会话管理 ───────────────────────────────────────
 
 _hitl_sessions: dict[str, dict] = {}  # thread_id → {graph, config, memory}
+
+# 研究运行记录（断线恢复）：run_id → {status, question, style, result, error, created_at}
+# 客户端断开后后台线程继续跑完并写结果，前端可轮询 /research/run/{run_id} 取回。
+_research_runs: dict[str, dict] = {}
+_RUNS_MAX_ENTRIES = 50
+_RUNS_TTL_SECONDS = 30 * 60  # 30 分钟
+
+
+def _prune_research_runs() -> None:
+    """清理过期/超量运行记录（只清 done/error 的，running 保留）。"""
+    now = time.time()
+    done_ids = [
+        rid for rid, r in _research_runs.items()
+        if r["status"] in {"done", "error"}
+        and (now - r.get("created_at", now)) > _RUNS_TTL_SECONDS
+    ]
+    for rid in done_ids:
+        _research_runs.pop(rid, None)
+    # 数量上限：超了丢最旧的已完成记录
+    if len(_research_runs) > _RUNS_MAX_ENTRIES:
+        for rid in sorted(
+            (r for r in _research_runs.items() if r[1]["status"] != "running"),
+            key=lambda kv: kv[1].get("created_at", 0),
+        )[:len(_research_runs) - _RUNS_MAX_ENTRIES]:
+            _research_runs.pop(rid[0], None)
 
 
 # ── 请求/响应模型 ──────────────────────────────────────
@@ -201,6 +228,24 @@ async def research_stream_get(question: str = Query(..., description="研究问�
                               style: str = Query("tech-blog", description="写作风格 id")):
     """SSE 流式研究接口（GET）- 适合浏览器 EventSource"""
     return EventSourceResponse(_event_generator(question, style=style), ping=15)
+
+
+@app.get("/research/run/{run_id}")
+async def get_research_run(run_id: str):
+    """查询一次研究的运行状态/结果（断线恢复用）。
+
+    SSE 连接断开后，后台线程仍会跑完并把结果存进运行记录；
+    前端拿到 run_id（SSE 首个 progress 事件）后可轮询本接口取回。
+    """
+    run = _research_runs.get(run_id)
+    if not run:
+        return JSONResponse(status_code=404, content={"error": "运行记录不存在或已过期"})
+    resp: dict = {"status": run["status"], "question": run["question"]}
+    if run["status"] == "done":
+        resp["result"] = run["result"]
+    elif run["status"] == "error":
+        resp["error"] = run["error"]
+    return resp
 
 
 # ── HITL 研究接口（Phase 3）───────────────────────────────
@@ -555,13 +600,29 @@ def _event_generator(question: str, topic_id: str = "",
             config["callbacks"] = [langfuse_handler]
 
         queue: asyncio.Queue = asyncio.Queue()
+        run_id = uuid.uuid4().hex[:12]
+        # 断线恢复：run_id → 运行记录。客户端断开后线程继续跑完并把结果存进来，
+        # 客户端可轮询 /research/run/{run_id} 取回结果（研究动辄数分钟，断线即丢体验太差）。
+        _research_runs[run_id] = {
+            "status": "running",
+            "question": question,
+            "style": style,
+            "result": None,
+            "error": None,
+            "created_at": time.time(),
+        }
+        _prune_research_runs()
 
         def _run_graph():
             """在线程中运行 graph.stream()，将事件推入队列"""
             try:
                 queue.put_nowait({
                     "event": "progress",
-                    "data": json.dumps({"node": "start", "message": f"开始研究: {question}"}),
+                    "data": json.dumps({
+                        "node": "start",
+                        "message": f"开始研究: {question}",
+                        "run_id": run_id,
+                    }),
                 })
 
                 with track_run_tokens() as usage:
@@ -572,6 +633,10 @@ def _event_generator(question: str, topic_id: str = "",
 
                     result.setdefault("question", question)
                     result["token_usage"] = dict(usage)
+
+                # 存结果（即使客户端已断开，后台线程也会执行到这里）
+                _research_runs[run_id]["result"] = result
+                _research_runs[run_id]["status"] = "done"
 
                 queue.put_nowait({
                     "event": "report",
@@ -605,6 +670,8 @@ def _event_generator(question: str, topic_id: str = "",
 
             except Exception as e:
                 logger.error("SSE 图执行失败: %s", e)
+                _research_runs[run_id]["status"] = "error"
+                _research_runs[run_id]["error"] = str(e)
                 queue.put_nowait({
                     "event": "error",
                     "data": json.dumps({"message": str(e)}),
@@ -626,9 +693,9 @@ def _event_generator(question: str, topic_id: str = "",
                     break
                 yield item
         finally:
-            # 确保线程任务被清理
-            if not thread_task.done():
-                thread_task.cancel()
+            # 客户端断开时不取消后台线程：让它跑完并把结果写进 _research_runs，
+            # 供 /research/run/{run_id} 恢复。to_thread 的取消本也杀不掉线程。
+            pass
 
     return inner()
 
