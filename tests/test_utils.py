@@ -70,3 +70,25 @@ def test_mixed_update_mirrors_sse_behavior():
     assert result["search_results"] == [{"url": "old"}, {"url": "new"}]
     assert result["reflection_round"] == 2
     assert result["report"] == "generated"
+
+
+# ── Token 用量统计 ─────────────────────────────────────
+
+def test_track_run_tokens_accumulates_and_resets():
+    from research_buddy.utils import track_run_tokens, add_tokens, get_current_token_usage
+
+    # 无追踪上下文时 add_tokens 是空操作
+    add_tokens({"prompt_tokens": 99, "completion_tokens": 1, "total_tokens": 100})
+    assert get_current_token_usage() == {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+    with track_run_tokens() as usage:
+        add_tokens({"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})
+        add_tokens({"input_tokens": 2, "output_tokens": 3, "total_tokens": 5})  # 新命名兼容
+        add_tokens(None)  # 空 usage 忽略
+        add_tokens({"prompt_tokens": "bad", "completion_tokens": 1})  # 脏数据不炸
+        assert usage["total_tokens"] == 20
+        assert usage["input_tokens"] == 12
+        assert usage["output_tokens"] == 8
+
+    # 上下文退出后计数器复位（contextvar reset）
+    assert get_current_token_usage() == {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}

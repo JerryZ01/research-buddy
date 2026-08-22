@@ -22,12 +22,19 @@ def test_create_report_persists_research_notes(db):
         report="文章正文",
         confidence="中",
         research_notes=["语义证据评估不可用，仅做了机械校验"],
+        input_tokens=1200,
+        output_tokens=3400,
+        total_tokens=4600,
     )
     assert record["research_notes"] == ["语义证据评估不可用，仅做了机械校验"]
     assert record["confidence"] == "中"
+    assert record["input_tokens"] == 1200
+    assert record["output_tokens"] == 3400
+    assert record["total_tokens"] == 4600
 
     fetched = db.get_report(record["id"])
     assert fetched["research_notes"] == ["语义证据评估不可用，仅做了机械校验"]
+    assert fetched["total_tokens"] == 4600
 
 
 def test_research_notes_defaults_to_empty_list(db):
@@ -35,6 +42,7 @@ def test_research_notes_defaults_to_empty_list(db):
     topic = db.list_topics()[0]
     record = db.create_report(topic_id=topic["id"], question="问题", report="正文")
     assert record["research_notes"] == []
+    assert record["total_tokens"] == 0
 
 
 def test_old_schema_without_research_notes_is_migrated(tmp_path):
@@ -74,7 +82,8 @@ def test_old_schema_without_research_notes_is_migrated(tmp_path):
 
     migrated = Database(db_path=path)
     cols = {row[1] for row in migrated.conn.execute("PRAGMA table_info(reports)").fetchall()}
-    assert "research_notes" in cols
+    for column in ("research_notes", "input_tokens", "output_tokens", "total_tokens"):
+        assert column in cols, f"旧库迁移后应补上 {column} 列"
 
     # 迁移后旧数据可正常读取，新列取默认值
     migrated.conn.execute(
@@ -83,4 +92,5 @@ def test_old_schema_without_research_notes_is_migrated(tmp_path):
     migrated.conn.commit()
     row = migrated.get_report("r1")
     assert row["research_notes"] == []
+    assert row["total_tokens"] == 0
     assert row["report"] == ""

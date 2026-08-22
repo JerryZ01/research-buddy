@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from research_buddy.config import OPENAI_API_BASE, OPENAI_API_KEY, VISION_MODEL
-from research_buddy.utils import parse_llm_json
+from research_buddy.utils import add_tokens, parse_llm_json
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +129,13 @@ def _vision_select(question: str, images: list[tuple[dict, bytes, str]],
     )
     resp.raise_for_status()
     data = resp.json()
+
+    # 视觉调用也计入本次研究的 token 统计（裸 httpx 调用，Langfuse 看不到，
+    # 这里手动累计 + 记录观测）
+    usage = data.get("usage") or {}
+    add_tokens(usage)
+    _record_vision_observation(payload, data)
+
     text = data["choices"][0]["message"]["content"]
     parsed = parse_llm_json(text)
     if not isinstance(parsed, dict):
@@ -164,6 +171,45 @@ def _vision_select(question: str, images: list[tuple[dict, bytes, str]],
 
 # 单次请求图片数上限：中转站/DeepSeek 对多图请求有数量限制，超了会 400
 _MAX_VISION_BATCH = 4
+
+
+def _record_vision_observation(payload: dict, data: dict) -> None:
+    """把视觉选图调用记录到 Langfuse（可选，未配置/失败静默跳过）。
+
+    视觉调用走裸 httpx，不走 langchain，默认不在 Langfuse 里；
+    这里用 OTEL 上下文挂一个 generation 观测，usage 手动喂入。
+    """
+    try:
+        from research_buddy.config import LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
+        if not (LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY):
+            return
+        from langfuse import get_client
+        usage = data.get("usage") or {}
+        choices = data.get("choices") or [{}]
+        output_text = (choices[0].get("message") or {}).get("content", "")
+        client = get_client()
+        with client.start_as_current_observation(
+            name="vision-select",
+            as_type="generation",
+            model=VISION_MODEL,
+            input={
+                "model": payload.get("model"),
+                "images": sum(
+                    1 for part in (payload.get("messages") or [{}])[0].get("content", [])
+                    if isinstance(part, dict) and part.get("type") == "image_url"
+                ),
+            },
+            output=output_text,
+            usage_details={
+                "input": int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
+                "output": int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
+                "total": int(usage.get("total_tokens") or 0),
+            },
+        ):
+            pass
+    except Exception:
+        # 观测是锦上添花，失败不影响选图
+        pass
 
 
 def _vision_select_with_retry(question: str,

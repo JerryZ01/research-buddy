@@ -164,13 +164,18 @@ def test_report_payload_carries_quality_fields(offline_graph):
     report = next(data for name, data in events if name == "report")
     for key in ("reflection_score", "stop_reason",
                 "evidence_assessment_degraded", "search_unavailable",
-                "confidence", "research_notes"):
+                "confidence", "research_notes", "token_usage"):
         assert key in report, f"report 事件缺少 {key}"
     assert report["reflection_score"] == 15
     assert report["evidence_assessment_degraded"] is True
     # 语义评估降级 → 代码计算置信度为「中」，研究说明里披露降级
     assert report["confidence"] == "中"
     assert any("语义证据评估不可用" in n for n in report["research_notes"])
+    # token 统计：mock LLM 不产生 usage，因此是全 0 的 dict，但字段必须在
+    assert set(report["token_usage"]) == {"input_tokens", "output_tokens", "total_tokens"}
+    # done 事件也带 token_usage
+    done = next(data for name, data in events if name == "done")
+    assert "token_usage" in done
 
 
 def test_validator_detail_carries_branch_coverage(offline_graph):

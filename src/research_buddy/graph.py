@@ -27,7 +27,7 @@ from research_buddy.config import (
     MAX_SEARCH_ROUNDS,
     MAX_TOTAL_QUERIES,
 )
-from research_buddy.utils import stream_and_accumulate
+from research_buddy.utils import stream_and_accumulate, track_run_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -231,10 +231,12 @@ def run_research(question: str) -> dict:
 
     logger.info("开始研究: %s", question)
 
-    with _langfuse_run("research", question, langfuse_handler) as trace_id:
-        result = stream_and_accumulate(graph, {"question": question}, config)
+    with track_run_tokens() as usage:
+        with _langfuse_run("research", question, langfuse_handler) as trace_id:
+            result = stream_and_accumulate(graph, {"question": question}, config)
     result.setdefault("question", question)
     result["langfuse_trace_id"] = trace_id
+    result["token_usage"] = dict(usage)
 
     # 确保 Langfuse 数据刷出
     if langfuse_handler:
@@ -262,14 +264,16 @@ def run_knowledge_research(question: str, topic_id: str,
     mode = "增量" if is_incremental else "全新"
     logger.info("开始%s研究: %s (主题: %s)", mode, question, topic_id)
 
-    with _langfuse_run("knowledge-research", question, langfuse_handler) as trace_id:
-        result = stream_and_accumulate(graph, {
-            "question": question,
-            "topic_id": topic_id,
-            "is_incremental": is_incremental,
-        }, config)
+    with track_run_tokens() as usage:
+        with _langfuse_run("knowledge-research", question, langfuse_handler) as trace_id:
+            result = stream_and_accumulate(graph, {
+                "question": question,
+                "topic_id": topic_id,
+                "is_incremental": is_incremental,
+            }, config)
     result.setdefault("question", question)
     result["langfuse_trace_id"] = trace_id
+    result["token_usage"] = dict(usage)
 
     # 确保 Langfuse 数据刷出
     if langfuse_handler:
@@ -367,14 +371,16 @@ def run_tracking(topic_id: str, question: str | None = None) -> dict:
 
     logger.info("开始追踪: %s (问题: %s)", topic['name'], question)
 
-    with _langfuse_run("tracking", question, langfuse_handler) as trace_id:
-        result = stream_and_accumulate(graph, {
-            "question": question,
-            "topic_id": topic_id,
-            "is_incremental": True,
-        }, config)
+    with track_run_tokens() as usage:
+        with _langfuse_run("tracking", question, langfuse_handler) as trace_id:
+            result = stream_and_accumulate(graph, {
+                "question": question,
+                "topic_id": topic_id,
+                "is_incremental": True,
+            }, config)
     result.setdefault("question", question)
     result["langfuse_trace_id"] = trace_id
+    result["token_usage"] = dict(usage)
 
     # 确保 Langfuse 数据刷出
     if langfuse_handler:
@@ -396,57 +402,59 @@ def run_research_interactive(question: str) -> dict:
 
     logger.info("开始交互式研究: %s", question)
 
-    # 第一次执行：运行到 searcher 前暂停
-    for event in graph.stream({"question": question}, config=config):
-        pass  # 节点内部已打印进度
+    with track_run_tokens() as usage:
+        # 第一次执行：运行到 searcher 前暂停
+        for event in graph.stream({"question": question}, config=config):
+            pass  # 节点内部已打印进度
 
-    result = dict(graph.get_state(config).values)
+        result = dict(graph.get_state(config).values)
 
-    # === 第一次中断：用户确认子问题 ===
-    sub_questions = result.get("sub_questions", [])
-    print("\n📋 规划的子问题：")
-    for i, sq in enumerate(sub_questions, 1):
-        print(f"  {i}. {sq.get('question', '')}（搜索词：{sq.get('search_query', '')}）")
+        # === 第一次中断：用户确认子问题 ===
+        sub_questions = result.get("sub_questions", [])
+        print("\n📋 规划的子问题：")
+        for i, sq in enumerate(sub_questions, 1):
+            print(f"  {i}. {sq.get('question', '')}（搜索词：{sq.get('search_query', '')}）")
 
-    print("\n✏️  输入调整后的子问题（JSON 格式），或直接回车确认：")
-    user_input = input("> ").strip()
+        print("\n✏️  输入调整后的子问题（JSON 格式），或直接回车确认：")
+        user_input = input("> ").strip()
 
-    if user_input:
-        import json
-        try:
-            updated_sqs = json.loads(user_input)
-            resume_value = Command(resume={"sub_questions": updated_sqs})
-        except json.JSONDecodeError:
-            print("⚠️  JSON 解析失败，使用原始子问题")
+        if user_input:
+            import json
+            try:
+                updated_sqs = json.loads(user_input)
+                resume_value = Command(resume={"sub_questions": updated_sqs})
+            except json.JSONDecodeError:
+                print("⚠️  JSON 解析失败，使用原始子问题")
+                resume_value = Command(resume={})
+        else:
             resume_value = Command(resume={})
-    else:
-        resume_value = Command(resume={})
 
-    # 恢复执行
-    print("\n🔍 继续搜索和验证...")
-    for event in graph.stream(resume_value, config=config):
-        pass
+        # 恢复执行
+        print("\n🔍 继续搜索和验证...")
+        for event in graph.stream(resume_value, config=config):
+            pass
 
-    result = dict(graph.get_state(config).values)
+        result = dict(graph.get_state(config).values)
 
-    # === 第二次中断：用户查看报告并补充要求 ===
-    report = result.get("report", "")
-    print("\n📝 当前报告预览：")
-    print("-" * 40)
-    print(report[:800] + ("..." if len(report) > 800 else ""))
-    print("-" * 40)
+        # === 第二次中断：用户查看报告并补充要求 ===
+        report = result.get("report", "")
+        print("\n📝 当前报告预览：")
+        print("-" * 40)
+        print(report[:800] + ("..." if len(report) > 800 else ""))
+        print("-" * 40)
 
-    print("\n✏️  输入补充要求或改进建议，或直接回车确认：")
-    feedback = input("> ").strip()
+        print("\n✏️  输入补充要求或改进建议，或直接回车确认：")
+        feedback = input("> ").strip()
 
-    resume_value2 = Command(resume={"user_feedback": feedback}) if feedback else Command(resume={})
+        resume_value2 = Command(resume={"user_feedback": feedback}) if feedback else Command(resume={})
 
-    # 恢复执行到结束
-    print("\n🔄 继续反思和修正...")
-    for event in graph.stream(resume_value2, config=config):
-        pass
+        # 恢复执行到结束
+        print("\n🔄 继续反思和修正...")
+        for event in graph.stream(resume_value2, config=config):
+            pass
 
-    result = dict(graph.get_state(config).values)
+        result = dict(graph.get_state(config).values)
+        result["token_usage"] = dict(usage)
 
     # 确保 Langfuse 数据刷出
     if langfuse_handler:

@@ -4369,6 +4369,7 @@ function showReport(data) {
   }
 
   const m = $('reportMeta');
+  const tu = data.token_usage || {};
   const items = [
     data.topic_id ? { l: '主题', v: '已关联', c: 'badge-cyan' } : null,
     data.is_incremental ? { l: '模式', v: '增量', c: 'badge-amber' } : null,
@@ -4376,6 +4377,7 @@ function showReport(data) {
     { l: '来源', v: data.search_results_count || 0 },
     { l: '反思', v: data.reflection_round || 0 },
     { l: '通过', v: data.reflection_pass ? '✓' : '↻' },
+    tu.total_tokens ? { l: 'Tokens', v: fmtTokens(tu.total_tokens) } : null,
     { l: '耗时', v: elapsed() },
   ].filter(Boolean);
 
@@ -5153,6 +5155,7 @@ async function loadReportDetail(reportId) {
     const b = [
       r.is_incremental ? '<span class="badge badge-cyan">增量</span>' : '<span class="badge badge-accent">全新</span>',
       r.confidence ? `<span class="badge badge-${r.confidence === '高' ? 'green' : r.confidence === '中' ? 'amber' : 'red'}">${r.confidence}</span>` : '',
+      r.total_tokens ? `<span class="badge badge-muted">⚡ ${fmtTokens(r.total_tokens)} tokens</span>` : '',
       `<span class="badge badge-muted">${r.search_results_count || 0} src</span>`,
       `<span class="badge badge-muted">${r.reflection_rounds || 0} rounds</span>`,
     ].filter(Boolean).join('');
@@ -5382,6 +5385,13 @@ function esc(s) {
   const d = document.createElement('div');
   d.textContent = String(s);
   return d.innerHTML;
+}
+
+/** token 数友好显示：12345 → "12.3k" */
+function fmtTokens(n) {
+  n = Number(n || 0);
+  if (n < 1000) return String(n);
+  return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
 }
 
 /* ═══════════════════════════════════════════════

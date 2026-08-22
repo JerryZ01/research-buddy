@@ -60,6 +60,9 @@ class Database:
                 confidence TEXT DEFAULT '',
                 sources TEXT DEFAULT '[]',
                 research_notes TEXT DEFAULT '[]',
+                input_tokens INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
                 search_results_count INTEGER DEFAULT 0,
                 reflection_rounds INTEGER DEFAULT 0,
                 is_incremental INTEGER DEFAULT 0,
@@ -103,13 +106,13 @@ class Database:
         """旧库迁移：为已存在的表补上新列（幂等）。
 
         CREATE TABLE IF NOT EXISTS 不会给已存在的表加列，
-        早期版本建的 reports 表没有 research_notes 列。
+        早期版本建的 reports 表缺 research_notes / token 列。
         """
         cols = {row[1] for row in conn.execute("PRAGMA table_info(reports)").fetchall()}
-        if "research_notes" not in cols:
-            conn.execute(
-                "ALTER TABLE reports ADD COLUMN research_notes TEXT DEFAULT '[]'"
-            )
+        for column in ("research_notes", "input_tokens", "output_tokens", "total_tokens"):
+            if column not in cols:
+                default = "TEXT DEFAULT '[]'" if column == "research_notes" else "INTEGER DEFAULT 0"
+                conn.execute(f"ALTER TABLE reports ADD COLUMN {column} {default}")
 
     # ── Topic CRUD ──────────────────────────────────────
 
@@ -169,6 +172,8 @@ class Database:
     def create_report(self, topic_id: str, question: str, report: str,
                       confidence: str = "", sources: list | None = None,
                       research_notes: list[str] | None = None,
+                      input_tokens: int = 0, output_tokens: int = 0,
+                      total_tokens: int = 0,
                       search_results_count: int = 0, reflection_rounds: int = 0,
                       is_incremental: bool = False, parent_report_id: str = "",
                       key_facts: list[str] | None = None) -> dict:
@@ -177,12 +182,14 @@ class Database:
         self.conn.execute(
             """INSERT INTO reports
                (id, topic_id, question, report, confidence, sources, research_notes,
+                input_tokens, output_tokens, total_tokens,
                 search_results_count, reflection_rounds, is_incremental,
                 parent_report_id, key_facts)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (report_id, topic_id, question, report, confidence,
              json.dumps(sources or [], ensure_ascii=False),
              json.dumps(research_notes or [], ensure_ascii=False),
+             int(input_tokens or 0), int(output_tokens or 0), int(total_tokens or 0),
              search_results_count, reflection_rounds,
              1 if is_incremental else 0, parent_report_id,
              json.dumps(key_facts or [], ensure_ascii=False)),

@@ -4,7 +4,7 @@ import logging
 
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.state import ResearchState
-from research_buddy.utils import parse_llm_json, create_llm, normalize_url, get_prompt_from_langfuse
+from research_buddy.utils import get_current_token_usage, parse_llm_json, create_llm, normalize_url, get_prompt_from_langfuse
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,10 @@ def knowledge_store(state: ResearchState) -> dict:
     # 获取来源信息
     sources = _extract_sources(state)
 
+    # 本次研究的 token 用量（节点在 track_run_tokens 上下文内执行，
+    # 此时除后续追踪链外，研究阶段的 LLM 调用基本都已累计）
+    usage = get_current_token_usage()
+
     # 找到上一份报告 ID（用于增量研究关联）— 通过 KnowledgeStore 门面
     parent_report_id = ""
     if is_incremental:
@@ -60,6 +64,9 @@ def knowledge_store(state: ResearchState) -> dict:
         confidence=_extract_confidence(state),
         sources=sources,
         research_notes=state.get("research_notes", []),
+        input_tokens=usage.get("input_tokens", 0),
+        output_tokens=usage.get("output_tokens", 0),
+        total_tokens=usage.get("total_tokens", 0),
         search_results_count=len(state.get("search_results", [])),
         reflection_rounds=state.get("reflection_round", 0),
         is_incremental=is_incremental,

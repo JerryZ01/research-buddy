@@ -2,9 +2,12 @@
 
 import json
 import logging
+from contextlib import contextmanager
+from contextvars import ContextVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Any
 
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_openai import ChatOpenAI
 
 from research_buddy.config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL
@@ -45,22 +48,91 @@ def parse_llm_json(content: str) -> Any:
 
 # ── LLM 工厂 ───────────────────────────────────────────
 
+# 当前研究的 token 累计计数器（contextvar，每次研究运行开始时开启）。
+# 节点里的 LLM 调用不传 config（Langfuse 的 CallbackHandler 因而也收不到
+# 节点内 Generation），所以统一在 create_llm 挂一个记录回调，把每次调用的
+# usage 累进这个计数器——不依赖 langchain 的回调传播。
+_run_tokens: ContextVar[dict | None] = ContextVar("research_run_token_usage", default=None)
+
+
+def _normalize_usage(usage: dict | None) -> dict:
+    """把各家 LLM 的 usage 字段归一化为 {input_tokens, output_tokens, total_tokens}。"""
+    usage = usage or {}
+    try:
+        return {
+            "input_tokens": int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0),
+            "output_tokens": int(usage.get("output_tokens") or usage.get("completion_tokens") or 0),
+            "total_tokens": int(usage.get("total_tokens") or 0),
+        }
+    except (TypeError, ValueError):
+        return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+
+@contextmanager
+def track_run_tokens():
+    """开启一次研究的 token 累计。
+
+    with track_run_tokens() as usage:
+        ... 执行图 ...
+    # usage 是 {input_tokens, output_tokens, total_tokens}（始终含这三个键）
+    """
+    token = _run_tokens.set({"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+    try:
+        yield _run_tokens.get()
+    finally:
+        _run_tokens.reset(token)
+
+
+def add_tokens(usage: dict | None) -> None:
+    """把一次 LLM 调用的 usage 累进当前研究计数器（无追踪上下文时为空操作）。"""
+    counter = _run_tokens.get()
+    if counter is None:
+        return
+    norm = _normalize_usage(usage)
+    for key in ("input_tokens", "output_tokens", "total_tokens"):
+        counter[key] = counter.get(key, 0) + norm[key]
+
+
+def get_current_token_usage() -> dict:
+    """当前研究的累计 token 用量（无追踪上下文时返回全 0）。"""
+    counter = _run_tokens.get()
+    return {
+        "input_tokens": (counter or {}).get("input_tokens", 0),
+        "output_tokens": (counter or {}).get("output_tokens", 0),
+        "total_tokens": (counter or {}).get("total_tokens", 0),
+    }
+
+
+class _UsageRecorder(BaseCallbackHandler):
+    """挂在每个 LLM 上的回调：把每次调用的 token 用量累计进当前研究计数器。"""
+
+    def on_llm_end(self, response, **kwargs):
+        try:
+            usage = (response.llm_output or {}).get("token_usage")
+            add_tokens(usage)
+        except Exception:
+            pass
+
+
 def create_llm(streaming: bool = False) -> ChatOpenAI:
-    """创建 ChatOpenAI 实例（统一配置）
+    """创建 ChatOpenAI 实例（统一配置，每次调用自动累计 token 用量）
 
     Args:
-        streaming: 是否启用流式输出
+        streaming: 是否启用流式输出（流式时请求 usage 字段，token 统计才完整）
 
     Returns:
         配置好的 ChatOpenAI 实例
     """
-    return ChatOpenAI(
+    llm = ChatOpenAI(
         model=OPENAI_MODEL,
         api_key=OPENAI_API_KEY,
         base_url=OPENAI_API_BASE,
         temperature=0,
         streaming=streaming,
+        stream_usage=streaming,
     )
+    # 挂上 usage 记录回调（不依赖 langchain 的回调传播，节点内裸调用也能计数）
+    return llm.with_config({"callbacks": [_UsageRecorder()]})
 
 
 # ── Prompt 获取 ─────────────────────────────────────────

@@ -23,7 +23,7 @@ from research_buddy.graph import (
 from research_buddy.state import ResearchState
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.tracking.scheduler import get_scheduler
-from research_buddy.utils import stream_and_accumulate, merge_state_update
+from research_buddy.utils import stream_and_accumulate, merge_state_update, track_run_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +105,7 @@ class ResearchResponse(BaseModel):
     search_results_count: int
     reflection_round: int
     reflection_pass: bool
+    token_usage: dict = {}
 
 
 class HITLResearchRequest(BaseModel):
@@ -140,6 +141,7 @@ class KnowledgeResearchResponse(BaseModel):
     search_results_count: int
     reflection_round: int
     reflection_pass: bool
+    token_usage: dict = {}
 
 
 # ── 健康检查 ────────────────────────────────────────────
@@ -162,8 +164,10 @@ async def research(req: ResearchRequest):
     if langfuse_handler:
         config["callbacks"] = [langfuse_handler]
 
-    result = stream_and_accumulate(graph, {"question": req.question}, config)
+    with track_run_tokens() as usage:
+        result = stream_and_accumulate(graph, {"question": req.question}, config)
     result.setdefault("question", req.question)
+    result["token_usage"] = dict(usage)
 
     if langfuse_handler:
         langfuse_handler._langfuse_client.flush()
@@ -177,6 +181,7 @@ async def research(req: ResearchRequest):
         search_results_count=len(result.get("search_results", [])),
         reflection_round=result.get("reflection_round", 0),
         reflection_pass=result.get("reflection_pass", False),
+        token_usage=result.get("token_usage", {}),
     )
 
 
@@ -259,12 +264,14 @@ async def knowledge_research(req: KnowledgeResearchRequest):
     if langfuse_handler:
         config["callbacks"] = [langfuse_handler]
 
-    result = stream_and_accumulate(graph, {
-        "question": req.question,
-        "topic_id": req.topic_id,
-        "is_incremental": req.is_incremental,
-    }, config)
+    with track_run_tokens() as usage:
+        result = stream_and_accumulate(graph, {
+            "question": req.question,
+            "topic_id": req.topic_id,
+            "is_incremental": req.is_incremental,
+        }, config)
     result.setdefault("question", req.question)
+    result["token_usage"] = dict(usage)
 
     if langfuse_handler:
         langfuse_handler._langfuse_client.flush()
@@ -281,6 +288,7 @@ async def knowledge_research(req: KnowledgeResearchRequest):
         search_results_count=len(result.get("search_results", [])),
         reflection_round=result.get("reflection_round", 0),
         reflection_pass=result.get("reflection_pass", False),
+        token_usage=result.get("token_usage", {}),
     )
 
 
@@ -547,12 +555,14 @@ def _event_generator(question: str, topic_id: str = "",
                     "data": json.dumps({"node": "start", "message": f"开始研究: {question}"}),
                 })
 
-                result = {}
-                for mode, payload in graph.stream(input_data, config=config,
-                                                  stream_mode=_STREAM_MODES):
-                    _emit_stream_event(queue, mode, payload, result)
+                with track_run_tokens() as usage:
+                    result = {}
+                    for mode, payload in graph.stream(input_data, config=config,
+                                                      stream_mode=_STREAM_MODES):
+                        _emit_stream_event(queue, mode, payload, result)
 
-                result.setdefault("question", question)
+                    result.setdefault("question", question)
+                    result["token_usage"] = dict(usage)
 
                 queue.put_nowait({
                     "event": "report",
@@ -572,12 +582,16 @@ def _event_generator(question: str, topic_id: str = "",
                         "topic_id": topic_id,
                         "report_id": result.get("saved_report_id", ""),
                         "is_incremental": is_incremental,
+                        "token_usage": result.get("token_usage", {}),
                     }),
                 })
 
                 queue.put_nowait({
                     "event": "done",
-                    "data": json.dumps({"message": "研究完成"}),
+                    "data": json.dumps({
+                        "message": "研究完成",
+                        "token_usage": result.get("token_usage", {}),
+                    }),
                 })
 
             except Exception as e:
@@ -650,10 +664,12 @@ def _hitl_event_generator(question: str):
                     "data": json.dumps({"node": "start", "message": f"开始 HITL 研究: {question}"}),
                 })
 
-                result = {}
-                for mode, payload in graph.stream({"question": question}, config=config,
-                                                  stream_mode=_STREAM_MODES):
-                    _emit_stream_event(queue, mode, payload, result)
+                with track_run_tokens() as usage:
+                    result = {}
+                    for mode, payload in graph.stream({"question": question}, config=config,
+                                                      stream_mode=_STREAM_MODES):
+                        _emit_stream_event(queue, mode, payload, result)
+                    result["token_usage"] = dict(usage)
 
                 # Stream 结束后检查是否中断
                 snapshot = graph.get_state(config)
@@ -702,11 +718,15 @@ def _hitl_event_generator(question: str):
                             "stop_reason": result.get("stop_reason", ""),
                             "evidence_assessment_degraded": bool(result.get("evidence_assessment_degraded")),
                             "search_unavailable": bool(result.get("search_unavailable")),
+                            "token_usage": result.get("token_usage", {}),
                         }),
                     })
                     queue.put_nowait({
                         "event": "done",
-                        "data": json.dumps({"message": "研究完成"}),
+                        "data": json.dumps({
+                            "message": "研究完成",
+                            "token_usage": result.get("token_usage", {}),
+                        }),
                     })
                     # 清理会话
                     _hitl_sessions.pop(thread_id, None)
@@ -788,10 +808,12 @@ def _hitl_resume_event_generator(thread_id: str, resume_data: dict):
                     "data": json.dumps({"node": "resume", "message": "恢复执行..."}),
                 })
 
-                result = {}
-                for mode, payload in graph.stream(resume_value, config=config,
-                                                  stream_mode=_STREAM_MODES):
-                    _emit_stream_event(queue, mode, payload, result)
+                with track_run_tokens() as usage:
+                    result = {}
+                    for mode, payload in graph.stream(resume_value, config=config,
+                                                      stream_mode=_STREAM_MODES):
+                        _emit_stream_event(queue, mode, payload, result)
+                    result["token_usage"] = dict(usage)
 
                 # 检查是否再次中断
                 snapshot = graph.get_state(config)
@@ -838,11 +860,15 @@ def _hitl_resume_event_generator(thread_id: str, resume_data: dict):
                             "stop_reason": result.get("stop_reason", ""),
                             "evidence_assessment_degraded": bool(result.get("evidence_assessment_degraded")),
                             "search_unavailable": bool(result.get("search_unavailable")),
+                            "token_usage": result.get("token_usage", {}),
                         }),
                     })
                     queue.put_nowait({
                         "event": "done",
-                        "data": json.dumps({"message": "研究完成"}),
+                        "data": json.dumps({
+                            "message": "研究完成",
+                            "token_usage": result.get("token_usage", {}),
+                        }),
                     })
                     _hitl_sessions.pop(thread_id, None)
 

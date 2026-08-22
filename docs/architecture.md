@@ -572,7 +572,7 @@ SQLite 数据层，文件 `{DATA_DIR}/research_buddy.db`。`threading.local()` �
 | 表 | 用途 | 关键字段 |
 |----|------|---------|
 | topics | 研究主题 | id, name, description, tracking_keywords(JSON), tracking_cron, tracking_enabled, created_at, updated_at |
-| reports | 研究报告 | id, topic_id(FK 级联), question, report, confidence, sources(JSON), research_notes(JSON), search_results_count, reflection_rounds, is_incremental, parent_report_id, key_facts(JSON), created_at |
+| reports | 研究报告 | id, topic_id(FK 级联), question, report, confidence, sources(JSON), research_notes(JSON), input_tokens/output_tokens/total_tokens, search_results_count, reflection_rounds, is_incremental, parent_report_id, key_facts(JSON), created_at |
 | tracking_logs | 追踪记录 | id, topic_id(FK 级联), triggered_at, status(默认 running), changes_detected, change_summary, report_id |
 | changes | 变更条目 | id, tracking_log_id(FK 级联), change_type(默认 new_info), description, old_content, new_content, significance(默认 medium) |
 
@@ -782,6 +782,8 @@ Prompt 版本管理：本地 prompt 用 Python `.format()` 语法（`{var}`）�
 ---
 
 ## 六、共享工具层（utils.py）
+
+**Token 用量统计**：节点里的 LLM 调用不传 config（Langfuse 的 CallbackHandler 因而收不到节点内 Generation），所以 `create_llm()` 在每个 LLM 上挂 `_UsageRecorder` 回调，把每次调用的 token_usage 累计进 `track_run_tokens()` 开启的 contextvar 计数器（`_normalize_usage` 兼容新旧两种 usage 字段命名）。视觉选图（裸 httpx）在 `tools/images.py` 里手动 `add_tokens` + 用 `start_as_current_observation` 记录 Langfuse generation。运行函数（graph.py / api.py SSE）结束把 `token_usage` 写进结果、`report`/`done` 事件和 reports 表。
 
 消除各模块重复代码的统一工具集：
 
