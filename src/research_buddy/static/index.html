@@ -4392,6 +4392,7 @@ function showReport(data) {
   } catch (e) {
     body.innerHTML = `<p class="text-red">报告渲染失败: ${esc(e.message)}</p><pre>${esc(appState.lastReportText)}</pre>`;
   }
+  attachImageFallbacks(body);
   body.classList.remove('streaming-mode', 'is-streaming');
   // 从流式草稿平滑过渡到定稿排版，而不是直接跳变
   body.classList.remove('is-settled');
@@ -4621,6 +4622,7 @@ function handleReportChunk(d) {
       } catch {
         body.textContent = appState.streamingReportText;
       }
+      attachImageFallbacks(body);
       // 光标跟在正文末尾，表示还在生成
       const caret = document.createElement('span');
       caret.className = 'report-caret';
@@ -5191,6 +5193,7 @@ async function loadReportDetail(reportId) {
         </details>
       ` : ''}
     `;
+    attachImageFallbacks(c);
   } catch (e) {
     c.innerHTML = `
       <div class="empty-state">
@@ -5340,6 +5343,17 @@ function renderMarkdown(markdown) {
     }
   });
   return template.innerHTML;
+}
+
+/** 插图加载失败自动隐藏（热链接的第三方图片可能失效/防盗链）。
+ * 必须在 innerHTML 插入真实 DOM 之后调用——模板序列化会丢失监听器。 */
+function attachImageFallbacks(root) {
+  if (!root) return;
+  root.querySelectorAll('img').forEach(img => {
+    if (img.dataset.imgFallback) return;
+    img.dataset.imgFallback = '1';
+    img.addEventListener('error', () => { img.style.display = 'none'; });
+  });
 }
 
 function esc(s) {

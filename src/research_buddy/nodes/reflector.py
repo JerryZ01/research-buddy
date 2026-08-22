@@ -220,12 +220,17 @@ def reflector(state: ResearchState) -> dict:
     total_score = sum(dimensions.values())
     passed = total_score >= 12 and min(dimensions.values()) >= 3
 
-    # 证据集 = 本次检索结果 + 历史知识的来源。
+    # 证据集 = 本次检索结果 + 历史知识的来源 + 视觉模型选中的插图 URL。
     # 增量/追踪模式下 synthesizer 被要求引用 knowledge_context 里的历史来源，
     # 这些 URL 不在 search_results 里；只用 search_results 当证据集会把每一条
     # 历史引用都判成「不在证据集」，导致增量研究每轮必然不通过直到耗尽预算。
+    # 插图 URL 出现在正文的 ![alt](url) 中，也要放行（但只放行被选中的图，
+    # LLM 若嵌入候选之外的图片 URL 仍会被判违规）。
     known_urls = {normalize_url(result.get("url", "")) for result in search_results}
     known_urls.update(normalize_url(url) for url in state.get("known_source_urls", []))
+    known_urls.update(
+        normalize_url(img.get("url", "")) for img in state.get("selected_images", [])
+    )
     known_urls.discard("")
 
     # 编号引用表：synthesizer 构建，正文 [n] 与文末参考文献的单一事实来源。
@@ -238,7 +243,9 @@ def reflector(state: ResearchState) -> dict:
     citation_issues = []
 
     # 1) 编号引用检查：正文必须用 [n] 引用，编号必须在编号表内。
-    report_cites = [int(n) for n in re.findall(r"\[(\d+)\]", report)]
+    #    用负向后行断言排除图片语法 ![alt](url) 里的方括号，避免 alt 文本
+    #    中的数字被误判为引用编号。
+    report_cites = [int(n) for n in re.findall(r"(?<!\!)\[(\d+)\]", report)]
     unknown_cites = sorted({n for n in report_cites if n not in table_by_index})
     cited_urls = {
         normalize_url(table_by_index[n]["url"])

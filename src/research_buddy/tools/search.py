@@ -41,12 +41,15 @@ def _get_tavily_client():
 
 
 def search(query: str, max_results: int | None = None,
-           search_depth: str = "basic") -> list[dict]:
+           search_depth: str = "basic", include_images: bool = True) -> list[dict]:
     """使用 Tavily 搜索
 
     Args:
         query: 搜索查询词（由规划器根据目标来源选择语言）
         max_results: 最大结果数
+        search_depth: basic / advanced
+        include_images: 是否请求 Tavily 返回相关图片 URL 列表（查询级，
+            附加到每条结果的 "images" 字段；视觉选图步骤使用）
 
     Returns:
         结果列表；空列表表示「搜索成功但没有命中」。
@@ -69,7 +72,12 @@ def search(query: str, max_results: int | None = None,
                 max_results=limit,
                 search_depth=search_depth if search_depth in {"basic", "advanced"} else "basic",
                 include_raw_content=False,
+                include_images=include_images,
             )
+
+            # Tavily 的 images 是查询级列表（与搜索结果相关的图片 URL），
+            # 附加到每条结果上，由 searcher 节点统一聚合去重。
+            query_images = [str(u) for u in response.get("images", []) if str(u).strip()]
 
             results = []
             for r in response.get("results", []):
@@ -79,6 +87,7 @@ def search(query: str, max_results: int | None = None,
                     "content": r.get("content", ""),
                     # Tavily 缺省 score 时默认 0.0（未知相关性），而非误导性的 1.0
                     "score": r.get("score", 0.0),
+                    "images": query_images,
                 })
 
             logger.info("Tavily 返回 %d 条结果 (query: %s)", len(results), query[:40])

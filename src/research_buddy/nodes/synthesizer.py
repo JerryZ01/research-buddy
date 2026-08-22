@@ -12,6 +12,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.types import StreamWriter
 
 from research_buddy.state import ResearchState
+from research_buddy.tools.images import select_images
 from research_buddy.utils import create_llm, get_prompt_from_langfuse, normalize_url
 
 logger = logging.getLogger(__name__)
@@ -30,14 +31,18 @@ SYNTHESIZER_PROMPT = """你是一位资深研究撰稿人。根据研究问题�
 ## 可用来源编号表
 {source_table}
 
+## 可用插图（可选）
+{image_section}
+
 ## 撰写要求
 1. 文章结构：概述 → 各子问题分析 → 结论
 2. 论点引用来源时，在句末用方括号标注编号，如「……这一机制于 1992 年引入[1]」。编号必须来自「可用来源编号表」，一个论点可引用多个编号（如 [1][2]）
-3. 只陈述客观事实与基于证据的分析，语气中立、行文流畅，达到可直接发布的质量
-4. 不评价检索过程本身：不要在正文中写「信息存在矛盾」「证据不足」「研究局限」「本报告基于……搜索」等元评论
-5. 不要在正文中直接写出任何 URL（来源只通过 [编号] 引用）
-6. 不要自行添加「参考文献」「来源」「置信度」章节（文末参考文献由系统自动生成）
-7. 使用中文撰写"""
+3. 如果提供了「可用插图」，在内容最相关的位置插入 1~2 张插图：`![alt文本](图片URL)`。图片 URL 必须原样来自「可用插图」列表，禁止使用列表之外的图片；alt 文本用「可用插图」里给出的描述
+4. 只陈述客观事实与基于证据的分析，语气中立、行文流畅，达到可直接发布的质量
+5. 不评价检索过程本身：不要在正文中写「信息存在矛盾」「证据不足」「研究局限」「本报告基于……搜索」等元评论
+6. 不要在正文中直接写出任何 URL（来源只通过 [编号] 引用；插图 URL 仅出现在 `![]()` 语法中）
+7. 不要自行添加「参考文献」「来源」「置信度」章节（文末参考文献由系统自动生成）
+8. 使用中文撰写"""
 
 SYNTHESIZER_INCREMENTAL_PROMPT = """你是一位资深研究撰稿人。请基于已有知识撰写一篇更新后的完整研究文章（不是只写增量部分），达到可直接发布的质量。
 
@@ -53,15 +58,19 @@ SYNTHESIZER_INCREMENTAL_PROMPT = """你是一位资深研究撰稿人。请基�
 ## 可用来源编号表
 {source_table}
 
+## 可用插图（可选）
+{image_section}
+
 ## 撰写要求
 1. 在已有知识基础上补充和更新信息，生成完整的更新后文章
 2. 客观陈述最新进展与既有结论之间的关系（如「截至 2024 年……」「此前的结论在最新资料中得到确认」），不使用 🆕/⚠️ 等进度标记符号
 3. 论点引用来源时，在句末用方括号标注编号（如 [1]），编号必须来自「可用来源编号表」
-4. 只陈述客观事实与基于证据的分析，不评价检索过程本身（不写「存在矛盾」「证据不足」「研究局限」等元评论）
-5. 不要在正文中直接写出任何 URL
-6. 不要自行添加「参考文献」「来源」「置信度」章节
-7. 文章结构：概述 → 各子问题分析 → 结论
-8. 使用中文撰写"""
+4. 如果提供了「可用插图」，在内容最相关的位置插入 1~2 张插图：`![alt文本](图片URL)`。图片 URL 必须原样来自「可用插图」列表，禁止使用列表之外的图片；alt 文本用「可用插图」里给出的描述
+5. 只陈述客观事实与基于证据的分析，不评价检索过程本身（不写「存在矛盾」「证据不足」「研究局限」等元评论）
+6. 不要在正文中直接写出任何 URL
+7. 不要自行添加「参考文献」「来源」「置信度」章节
+8. 文章结构：概述 → 各子问题分析 → 结论
+9. 使用中文撰写"""
 
 SYNTHESIZER_REFINE_PROMPT = """你是一位资深研究撰稿人。以下是之前生成的研究文章和改进建议，请根据建议改进，产出可直接发布的最终稿。
 
@@ -74,6 +83,9 @@ SYNTHESIZER_REFINE_PROMPT = """你是一位资深研究撰稿人。以下是之�
 ## 可用来源编号表
 {source_table}
 
+## 可用插图（可选）
+{image_section}
+
 ## 当前文章
 {report}
 
@@ -83,11 +95,12 @@ SYNTHESIZER_REFINE_PROMPT = """你是一位资深研究撰稿人。以下是之�
 ## 撰写要求
 1. 根据改进建议针对性补充和修正，保留原文中仍然有效的部分
 2. 论点引用来源时，在句末用方括号标注编号（如 [1]），编号必须来自「可用来源编号表」，新增内容使用新编号
-3. 只陈述客观事实与基于证据的分析，不评价检索过程本身（不写「存在矛盾」「证据不足」「研究局限」等元评论）
-4. 不要在正文中直接写出任何 URL
-5. 不要自行添加「参考文献」「来源」「置信度」章节
-6. 文章结构：概述 → 各子问题分析 → 结论
-7. 使用中文撰写"""
+3. 如果提供了「可用插图」，在内容最相关的位置插入 1~2 张插图：`![alt文本](图片URL)`。图片 URL 必须原样来自「可用插图」列表，禁止使用列表之外的图片；alt 文本用「可用插图」里给出的描述
+4. 只陈述客观事实与基于证据的分析，不评价检索过程本身（不写「存在矛盾」「证据不足」「研究局限」等元评论）
+5. 不要在正文中直接写出任何 URL
+6. 不要自行添加「参考文献」「来源」「置信度」章节
+7. 文章结构：概述 → 各子问题分析 → 结论
+8. 使用中文撰写"""
 
 
 # ── 来源编号表 ──────────────────────────────────────────
@@ -221,6 +234,24 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
     # 编号引用表：正文 [n] 与文末参考文献的单一事实来源
     source_table = build_source_table(state)
 
+    # 视觉选图（可选）：配置 VISION_MODEL 才生效；未配置/失败返回 []，
+    # 文章退化为无插图，不阻塞出稿。
+    image_candidates = state.get("image_candidates", [])
+    selected_images: list[dict] = []
+    if image_candidates:
+        try:
+            selected_images = select_images(state.get("sub_questions", []), image_candidates)
+        except Exception as exc:
+            logger.warning("视觉选图整体失败，文章不含插图: %s", exc)
+
+    if selected_images:
+        image_section = "\n".join(
+            f"- 图{i}: {img.get('url', '')}（子问题：{img.get('sub_question_id', '')}，alt：{img.get('alt', '')}）"
+            for i, img in enumerate(selected_images, 1)
+        )
+    else:
+        image_section = "（无）"
+
     # 格式化搜索结果
     formatted_results = ""
     for i, r in enumerate(search_results, 1):
@@ -260,6 +291,7 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
         "question": question,
         "search_results": formatted_results,
         "source_table": format_source_table(source_table),
+        "image_section": image_section,
     }
 
     # 选择模式
@@ -316,5 +348,6 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
         "confidence": compute_confidence(state),
         "research_notes": _build_research_notes(state),
         "source_table": source_table,
+        "selected_images": selected_images,
         "messages": [f"📝 报告生成完成（{mode}模式）"],
     }

@@ -124,10 +124,10 @@ def normalize_url(url: str) -> str:
 
 # 覆盖语义的列表字段（不使用 operator.add，便于 HITL 编辑与清空已处理缺口）
 # 单一来源：stream_and_accumulate 与 api.py 的 SSE 生成器共用。
-# research_notes / source_table 每次综合由 synthesizer 全量重建，覆盖而非追加。
+# research_notes / source_table / selected_images 每次综合由 synthesizer 全量重建，覆盖而非追加。
 _OVERWRITE_LIST_KEYS = frozenset({
     "sub_questions", "validation_gaps", "evidence_assessments",
-    "research_notes", "source_table",
+    "research_notes", "source_table", "selected_images",
 })
 
 

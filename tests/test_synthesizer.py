@@ -193,3 +193,47 @@ def test_references_chunk_is_streamed(monkeypatch):
 def test_empty_table_renders_no_references(monkeypatch):
     result = _run(monkeypatch, {"question": "测试问题", "search_results": []})
     assert "## 参考文献" not in result["report"]
+
+
+# ── 插图（视觉选图） ──────────────────────────────────
+
+def test_selected_images_injected_into_prompt(monkeypatch):
+    """选中的插图要注入 prompt 的 image_section，并随 state 返回。"""
+    monkeypatch.setattr(synthesizer_module, "select_images", lambda *_, **__: [{
+        "url": "https://img.example/pic.jpg",
+        "alt": "架构示意图",
+        "sub_question_id": "sq_01",
+        "query": "查询",
+    }])
+    captured: dict = {}
+
+    def fake_get_prompt(name, fallback, **kwargs):
+        captured["prompt"] = kwargs
+        return "prompt"
+
+    monkeypatch.setattr(synthesizer_module, "create_llm", lambda **_: _FakeLLM())
+    monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse", fake_get_prompt)
+
+    result = _graph().invoke({
+        "question": "测试问题",
+        "search_results": [],
+        "sub_questions": [{"id": "sq_01", "question": "子问题"}],
+        "image_candidates": [{"url": "https://img.example/pic.jpg",
+                              "sub_question_id": "sq_01", "query": "查询"}],
+    })
+    assert "https://img.example/pic.jpg" in captured["prompt"]["image_section"]
+    assert result["selected_images"][0]["alt"] == "架构示意图"
+
+
+def test_no_candidates_skips_selection(monkeypatch):
+    """没有候选图时不得调用视觉模型（也不得在 prompt 里出现插图指令数据）。"""
+    called = {"select": False}
+
+    def fake_select(*args, **kwargs):
+        called["select"] = True
+        return []
+
+    monkeypatch.setattr(synthesizer_module, "select_images", fake_select)
+    result = _run(monkeypatch, {"question": "测试问题", "search_results": []})
+    assert called["select"] is False
+    assert result["selected_images"] == []

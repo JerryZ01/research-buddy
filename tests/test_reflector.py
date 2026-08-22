@@ -286,3 +286,38 @@ def test_historical_sources_citable_via_numbered_table(monkeypatch):
     result = _reflect(state, monkeypatch)
     assert result["reflection_pass"] is True
     assert "不在" not in result["reflection_feedback"]
+
+
+# ── 插图 URL 校验（防幻觉图片） ───────────────────────
+
+def test_selected_image_url_is_allowed(monkeypatch):
+    """正文嵌入的插图 URL 必须在 selected_images 里才放行。"""
+    state = _state_with_table("结论[1]。\n\n![架构示意图](https://img.example/pic.jpg)\n")
+    state["selected_images"] = [{
+        "url": "https://img.example/pic.jpg", "alt": "架构示意图", "sub_question_id": "sq_01",
+    }]
+    result = _reflect(state, monkeypatch)
+    assert result["reflection_pass"] is True
+    assert "不在证据集" not in result["reflection_feedback"]
+
+
+def test_unselected_image_url_fails(monkeypatch):
+    """LLM 嵌入了候选/选中之外的图片 URL → fail-closed 强制修正。"""
+    state = _state_with_table("结论[1]。\n\n![未知图](https://img.example/unknown.jpg)\n")
+    state["selected_images"] = [{
+        "url": "https://img.example/real.jpg", "alt": "真实图", "sub_question_id": "sq_01",
+    }]
+    result = _reflect(state, monkeypatch)
+    assert result["reflection_pass"] is False
+    assert "不在证据集" in result["reflection_feedback"]
+
+
+def test_image_alt_numbers_are_not_citations(monkeypatch):
+    """![2024](url) 里的数字不是 [n] 引用编号（负向后行断言排除图片语法）。"""
+    state = _state_with_table("结论[1]。\n\n![2024](https://img.example/pic.jpg)\n")
+    state["selected_images"] = [{
+        "url": "https://img.example/pic.jpg", "alt": "2024", "sub_question_id": "sq_01",
+    }]
+    result = _reflect(state, monkeypatch)
+    assert result["reflection_pass"] is True
+    assert "不在来源编号表" not in result["reflection_feedback"]

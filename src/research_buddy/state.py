@@ -92,6 +92,10 @@ class ResearchState(TypedDict):
     research_notes: list[str]  # 研究说明（局限/降级/未解决缺口），不进正文，供 API/前端展示
     source_table: list[dict]  # 编号引用表 [{index, title, url, source}]，synthesizer 构建，reflector 校验用
 
+    # 插图（可选，视觉模型选图）
+    image_candidates: Annotated[list[dict], operator.add]  # 搜索聚合的候选图 {url, sub_question_id, query}
+    selected_images: list[dict]  # 视觉模型选中的插图 {url, alt, sub_question_id}（覆盖语义）
+
     # 反思阶段（Phase 2）
     reflection_pass: bool  # 反思是否通过
     reflection_feedback: str  # 反思反馈/改进建议

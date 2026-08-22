@@ -6,6 +6,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from research_buddy.state import ResearchState, SearchResult
+from research_buddy.tools.images import MAX_CANDIDATES_PER_SUB_QUESTION
 from research_buddy.tools.search import SearchUnavailableError, search
 from research_buddy.utils import normalize_url
 
@@ -31,6 +32,7 @@ def _search_one(task: dict) -> list[SearchResult]:
             "url": r.get("url", ""),
             "content": r.get("content", ""),
             "score": r.get("score", 0.0),
+            "images": r.get("images", []),
         }
         for r in results
     ]
@@ -208,6 +210,32 @@ def searcher(state: ResearchState) -> dict:
 
     logger.info("搜索完成，共获取 %d 条结果", len(all_results))
 
+    # 聚合图片候选（视觉选图用）：查询级图片 URL 按子问题去重限量。
+    # 跨轮次也去重（image_candidates 是追加语义，可能已有历史候选）。
+    image_candidates = []
+    seen_images = {
+        normalize_url(c.get("url", ""))
+        for c in state.get("image_candidates", []) if c.get("url")
+    }
+    per_subq_count: dict[str, int] = {}
+    for result in all_results:
+        sq_id = result.get("sub_question_id", "")
+        for img in result.get("images", []):
+            key = normalize_url(img)
+            if not key or key in seen_images:
+                continue
+            seen_images.add(key)
+            if per_subq_count.get(sq_id, 0) >= MAX_CANDIDATES_PER_SUB_QUESTION:
+                continue
+            per_subq_count[sq_id] = per_subq_count.get(sq_id, 0) + 1
+            image_candidates.append({
+                "url": img,
+                "sub_question_id": sq_id,
+                "query": result.get("query", ""),
+            })
+    if image_candidates:
+        logger.info("聚合图片候选 %d 张", len(image_candidates))
+
     # 清空 validation_gaps（已处理）
     all_failed = bool(failures) and len(failures) == total
     msgs = [
@@ -231,6 +259,7 @@ def searcher(state: ResearchState) -> dict:
         "search_history": history,
         "search_round": state.get("search_round", 0) + 1,
         "total_queries": state.get("total_queries", 0) + supplement_count,
+        "image_candidates": image_candidates,
         # 本轮全挂但之前已有证据：不再让路由把预算耗在必然失败的补搜上
         "stop_reason": "search_unavailable" if all_failed else "",
         "search_unavailable": all_failed,

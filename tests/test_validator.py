@@ -202,3 +202,43 @@ def test_supplement_queries_count_against_budget(monkeypatch):
     assert len(calls) == 2
     # 两条都是补搜查询，计入预算
     assert output["total_queries"] == 2
+
+
+def test_searcher_aggregates_image_candidates(monkeypatch):
+    """查询级图片 URL 按子问题去重聚合为 image_candidates（视觉选图用）。"""
+    calls = []
+
+    def fake_search(query, **_):
+        calls.append(query)
+        return [{
+            "title": query,
+            "url": f"https://{len(calls)}.example/item",
+            "content": (query + " evidence ") * 20,
+            "score": 0.8,
+            "images": ["https://img.example/pic.jpg", "https://img.example/pic.jpg",
+                       "https://img.example/other.jpg"],
+        }]
+
+    monkeypatch.setattr(searcher_module, "search", fake_search)
+    state = _state([])
+    state["search_history"] = []
+    output = searcher_module.searcher(state)
+    assert [c["url"] for c in output["image_candidates"]] == [
+        "https://img.example/pic.jpg", "https://img.example/other.jpg",
+    ]
+    assert output["image_candidates"][0]["sub_question_id"] == "sq_01"
+
+
+def test_image_candidates_dedup_across_rounds(monkeypatch):
+    """image_candidates 是追加语义，跨轮次去重由 searcher 基于已有 state 完成。"""
+    monkeypatch.setattr(searcher_module, "search", lambda query, **_: [{
+        "title": query, "url": "https://x.example/item",
+        "content": query * 100, "score": 0.8,
+        "images": ["https://img.example/seen.jpg", "https://img.example/new.jpg"],
+    }])
+    state = _state([])
+    state["search_history"] = []
+    state["image_candidates"] = [{"url": "https://img.example/seen.jpg",
+                                  "sub_question_id": "sq_01", "query": "q"}]
+    output = searcher_module.searcher(state)
+    assert [c["url"] for c in output["image_candidates"]] == ["https://img.example/new.jpg"]

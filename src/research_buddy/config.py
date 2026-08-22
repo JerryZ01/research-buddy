@@ -17,6 +17,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 
+# 视觉模型选图（可选）：配置后文章会用视觉模型从搜索结果中挑选相关插图。
+# 留空则整个图片功能关闭，行为与无图版本一致（推荐中转站的 vision 模型，
+# 如 v4-flash-vision-exp）。
+VISION_MODEL = os.getenv("VISION_MODEL", "").strip()
+
 # Langfuse 可观测性
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
