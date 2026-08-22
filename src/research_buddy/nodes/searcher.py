@@ -164,7 +164,9 @@ def searcher(state: ResearchState) -> dict:
                 "search_results": [],
                 "validation_gaps": [],
                 "search_round": state.get("search_round", 0) + 1,
-                "total_queries": state.get("total_queries", 0) + total,
+                "total_queries": state.get("total_queries", 0) + sum(
+                    1 for task in search_tasks if task.get("reason") != "initial"
+                ),
                 "stop_reason": "search_unavailable",
                 "search_unavailable": True,
                 "messages": [f"⛔ 搜索层不可用（{detail}），仅基于历史知识生成报告"],
@@ -196,6 +198,14 @@ def searcher(state: ResearchState) -> dict:
     if deduped:
         logger.info("搜索去重：过滤 %d 条重复结果", deduped)
 
+    # 补搜预算只累计补搜轮执行的查询（来自 validation_gaps 的 reason != "initial"）。
+    # 初始轮的基础搜索不占预算：planner 每个子问题会扩展出中英双语查询，
+    # 一轮就消耗 8~12 个查询，若全部计入 MAX_TOTAL_QUERIES，补搜只能补 1 轮
+    # 就触发 search_budget_exhausted，覆盖度永远补不满。
+    supplement_count = sum(
+        1 for task in search_tasks if task.get("reason") != "initial"
+    )
+
     logger.info("搜索完成，共获取 %d 条结果", len(all_results))
 
     # 清空 validation_gaps（已处理）
@@ -220,7 +230,7 @@ def searcher(state: ResearchState) -> dict:
         "validation_gaps": [],
         "search_history": history,
         "search_round": state.get("search_round", 0) + 1,
-        "total_queries": state.get("total_queries", 0) + len(search_tasks),
+        "total_queries": state.get("total_queries", 0) + supplement_count,
         # 本轮全挂但之前已有证据：不再让路由把预算耗在必然失败的补搜上
         "stop_reason": "search_unavailable" if all_failed else "",
         "search_unavailable": all_failed,

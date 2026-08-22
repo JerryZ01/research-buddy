@@ -282,7 +282,7 @@ graph.compile(
 ```
 1. reflection_pass == True              → end / knowledge_store（通过）
 2. search_round >= MAX_SEARCH_ROUNDS(4) → end / knowledge_store（搜索轮次预算耗尽）
-   或 total_queries >= MAX_TOTAL_QUERIES(20)（查询总数预算耗尽）
+   或 total_queries >= MAX_TOTAL_QUERIES(30)（查询总数预算耗尽）
 3. reflection_round >= MAX_REFLECTION_ROUNDS(2) → end / knowledge_store（反思轮次达上限）
 4. search_unavailable == True            → revise_report（补搜必然再失败，只能改写）
 5. validation_gaps 为空                  → revise_report（回 synthesizer 重写）
@@ -309,14 +309,15 @@ graph.compile(
 **职责**：并行搜索子问题，支持补搜（来自 validator/reflector 的 `validation_gaps`）；增量模式下去重已知来源 URL；同轮及历史轮次不重复执行相同查询。**不调用 LLM。**
 
 **输入**：`sub_questions` / `validation_gaps` / `search_results` / `search_history` / `search_round` / `is_incremental` / `known_source_urls` / `has_knowledge` / `knowledge_context` / `total_queries`
-**输出**：`search_results`（追加）/ `validation_gaps`（清空）/ `search_history`（追加）/ `search_round`+1 / `total_queries` 累加 / `stop_reason` / `search_unavailable` / `messages`
+**输出**：`search_results`（追加）/ `validation_gaps`（清空）/ `search_history`（追加）/ `search_round`+1 / `total_queries` 累加（仅补搜查询）/ `stop_reason` / `search_unavailable` / `messages`
 
 **流程**：
 
 1. **任务合并**：`validation_gaps`（补搜）+ 未搜索的原始子问题（按 `search_queries` 展开为多查询）。
 2. **查询去重**：对 `search_query` 归一化，跳过已在 `search_history` 或本轮重复的查询；第 2 轮起 high 优先级用 Tavily `advanced` 深度。
-3. **并行执行**：`ThreadPoolExecutor(max_workers=min(total, 4))`，`as_completed` 收集，逐个统计失败数。
-4. **结果双去重**：`normalize_url()`（去 www/utm/fragment）+ 内容 sha256 指纹双重去重；增量模式合并 `known_source_urls`。
+3. **预算计数**：`total_queries` **只累计补搜查询**（`reason != "initial"` 的任务）。初始轮基础搜索不占预算——planner 每个子问题会展开中英双语查询，一轮 8~12 个，若全部计入 `MAX_TOTAL_QUERIES=30`，补搜只能补 1~2 轮就触发 `search_budget_exhausted`，快变话题的覆盖度永远补不满。
+4. **并行执行**：`ThreadPoolExecutor(max_workers=min(total, 4))`，`as_completed` 收集，逐个统计失败数。
+5. **结果双去重**：`normalize_url()`（去 www/utm/fragment）+ 内容 sha256 指纹双重去重；增量模式合并 `known_source_urls`。
 
 **搜索层失败处理**（`tools/search.search` 会抛 `SearchUnavailableError`，不再静默返回 `[]`）：
 
@@ -382,7 +383,7 @@ final_coverage = min(确定性 coverage, LLM coverage)  # LLM 存在时取更严
 **预算信号**：
 
 ```
-budget_exhausted = search_round >= MAX_SEARCH_ROUNDS(4) 或 total_queries >= MAX_TOTAL_QUERIES(20)
+budget_exhausted = search_round >= MAX_SEARCH_ROUNDS(4) 或 total_queries >= MAX_TOTAL_QUERIES(30)
 stop_reason:
   - 有缺口 且 上次 stop_reason ∈ {no_new_queries, search_unavailable} → 沿用该原因
   - 有缺口 且 budget_exhausted                         → search_budget_exhausted
@@ -919,7 +920,7 @@ Prompt 版本管理：本地 prompt 用 Python `.format()` 语法（`{var}`）�
 | `LANGFUSE_HOST` | `https://cloud.langfuse.com` | Langfuse 地址 |
 | `MAX_SEARCH_RESULTS` | `5` | 每次搜索最大结果数 |
 | `MAX_SEARCH_ROUNDS` | `4` | 最大搜索轮次（补搜循环闸） |
-| `MAX_TOTAL_QUERIES` | `20` | 最大查询总数（补搜循环闸） |
+| `MAX_TOTAL_QUERIES` | `30` | 补搜查询预算（初始轮基础搜索不计入） |
 | `MAX_REFLECTION_ROUNDS` | `2` | 最大反思轮次（修正循环闸） |
 | `MIN_EVIDENCE_COVERAGE` | `0.75` | 证据覆盖率硬底线 |
 | `MIN_DISTINCT_DOMAINS` | `2` | 最少独立域名数（交叉验证信号） |
@@ -1003,7 +1004,7 @@ Prompt 版本管理：本地 prompt 用 Python `.format()` 语法（`{var}`）�
       ▼
    输出改进后的报告
 
- ┊ 最多循环 MAX_SEARCH_ROUNDS=4 轮搜索 / MAX_TOTAL_QUERIES=20 次查询
+ ┊ 最多循环 MAX_SEARCH_ROUNDS=4 轮搜索 / 补搜 MAX_TOTAL_QUERIES=30 次查询
  ┊   / MAX_REFLECTION_ROUNDS=2 轮反思，三道预算闸防无限循环
  ┊ 预算耗尽时 stop_reason=search_budget_exhausted，停止补搜直接综合
 ```
@@ -1376,7 +1377,7 @@ data/                        # 运行时数据（.gitignore 已排除）
 | `DATA_DIR` | 可选 | 数据目录（默认 `{PROJECT_ROOT}/data`） |
 | `MAX_SEARCH_RESULTS` | 可选 | 每次搜索最大结果数（默认 5） |
 | `MAX_SEARCH_ROUNDS` | 可选 | 最大搜索轮次（默认 4） |
-| `MAX_TOTAL_QUERIES` | 可选 | 最大查询总数（默认 20） |
+| `MAX_TOTAL_QUERIES` | 可选 | 补搜查询预算（默认 30，初始轮不计入） |
 | `MAX_REFLECTION_ROUNDS` | 可选 | 最大反思轮次（默认 2） |
 | `MIN_EVIDENCE_COVERAGE` | 可选 | 证据覆盖率硬底线（默认 0.75） |
 | `MIN_DISTINCT_DOMAINS` | 可选 | 最少独立域名数（默认 2） |

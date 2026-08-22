@@ -167,4 +167,38 @@ def test_bilingual_initial_queries_are_both_executed(monkeypatch):
     output = searcher_module.searcher(state)
     assert set(calls) == {"中国市场政策", "global market policy"}
     assert {result["language"] for result in output["search_results"]} == {"zh", "en"}
+    # 初始轮基础搜索不占补搜预算：total_queries 只累计补搜查询
+    assert output["total_queries"] == 0
+
+
+def test_supplement_queries_count_against_budget(monkeypatch):
+    """补搜（来自 validation_gaps）的查询才计入 MAX_TOTAL_QUERIES 预算。"""
+    calls = []
+
+    def fake_search(query, **_):
+        calls.append(query)
+        return [{
+            "title": query,
+            "url": f"https://{len(calls)}.example/item",
+            "content": (query + " evidence ") * 20,
+            "score": 0.8,
+        }]
+
+    monkeypatch.setattr(searcher_module, "search", fake_search)
+    # sq_01 已有结果 → 不会重复初始搜索，本轮只有补搜任务
+    state = _state([_result("sq_01", "a.example", "existing", "已有内容" * 50)])
+    state["total_queries"] = 0
+    state["validation_gaps"] = [{
+        "sub_question_id": "sq_01", "question": "测试子问题",
+        "search_query": "补充查询A", "reason": "low_coverage",
+        "priority": "high", "language": "zh", "region": "CN",
+    }, {
+        "sub_question_id": "sq_01", "question": "测试子问题",
+        "search_query": "补充查询B", "reason": "low_coverage",
+        "priority": "medium", "language": "zh", "region": "CN",
+    }]
+    state["search_history"] = []
+    output = searcher_module.searcher(state)
+    assert len(calls) == 2
+    # 两条都是补搜查询，计入预算
     assert output["total_queries"] == 2
