@@ -69,6 +69,7 @@ _hitl_sessions: dict[str, dict] = {}  # thread_id → {graph, config, memory}
 class ResearchRequest(BaseModel):
     """研究请求"""
     question: str
+    style: str = "tech-blog"
 
 
 class KnowledgeResearchRequest(BaseModel):
@@ -76,6 +77,7 @@ class KnowledgeResearchRequest(BaseModel):
     question: str
     topic_id: str
     is_incremental: bool = True
+    style: str = "tech-blog"
 
 
 class TopicCreateRequest(BaseModel):
@@ -111,6 +113,7 @@ class ResearchResponse(BaseModel):
 class HITLResearchRequest(BaseModel):
     """HITL 研究请求"""
     question: str
+    style: str = "tech-blog"
 
 
 class HITLResumeRequest(BaseModel):
@@ -165,7 +168,9 @@ async def research(req: ResearchRequest):
         config["callbacks"] = [langfuse_handler]
 
     with track_run_tokens() as usage:
-        result = stream_and_accumulate(graph, {"question": req.question}, config)
+        result = stream_and_accumulate(
+            graph, {"question": req.question, "style": req.style}, config,
+        )
     result.setdefault("question", req.question)
     result["token_usage"] = dict(usage)
 
@@ -188,13 +193,14 @@ async def research(req: ResearchRequest):
 @app.post("/research/stream")
 async def research_stream(req: ResearchRequest):
     """SSE 流式研究接口（POST）- 适合 API 调用"""
-    return EventSourceResponse(_event_generator(req.question), ping=15)
+    return EventSourceResponse(_event_generator(req.question, style=req.style), ping=15)
 
 
 @app.get("/research/stream")
-async def research_stream_get(question: str = Query(..., description="研究问题")):
+async def research_stream_get(question: str = Query(..., description="研究问题"),
+                              style: str = Query("tech-blog", description="写作风格 id")):
     """SSE 流式研究接口（GET）- 适合浏览器 EventSource"""
-    return EventSourceResponse(_event_generator(question), ping=15)
+    return EventSourceResponse(_event_generator(question, style=style), ping=15)
 
 
 # ── HITL 研究接口（Phase 3）───────────────────────────────
@@ -202,7 +208,7 @@ async def research_stream_get(question: str = Query(..., description="研究问�
 @app.post("/research/hitl/stream")
 async def hitl_research_stream(req: HITLResearchRequest):
     """HITL 研究 SSE 流式接口 - 支持人机交互"""
-    return EventSourceResponse(_hitl_event_generator(req.question), ping=15)
+    return EventSourceResponse(_hitl_event_generator(req.question, style=req.style), ping=15)
 
 
 @app.post("/research/hitl/resume/stream")
@@ -269,6 +275,7 @@ async def knowledge_research(req: KnowledgeResearchRequest):
             "question": req.question,
             "topic_id": req.topic_id,
             "is_incremental": req.is_incremental,
+            "style": req.style,
         }, config)
     result.setdefault("question", req.question)
     result["token_usage"] = dict(usage)
@@ -296,7 +303,8 @@ async def knowledge_research(req: KnowledgeResearchRequest):
 async def knowledge_research_stream(req: KnowledgeResearchRequest):
     """知识研究 SSE 流式接口"""
     return EventSourceResponse(
-        _event_generator(req.question, topic_id=req.topic_id, is_incremental=req.is_incremental),
+        _event_generator(req.question, topic_id=req.topic_id,
+                         is_incremental=req.is_incremental, style=req.style),
         ping=15,
     )
 
@@ -517,7 +525,7 @@ def _emit_stream_event(queue, mode: str, payload, result: dict) -> None:
 
 
 def _event_generator(question: str, topic_id: str = "",
-                     is_incremental: bool = False):
+                     is_incremental: bool = False, style: str = "tech-blog"):
     """SSE 事件生成器（共用）
 
     使用 asyncio.Queue + asyncio.to_thread 将同步的 graph.stream()
@@ -534,10 +542,11 @@ def _event_generator(question: str, topic_id: str = "",
                 "question": question,
                 "topic_id": topic_id,
                 "is_incremental": is_incremental,
+                "style": style,
             }
         else:
             graph = create_research_graph()
-            input_data = {"question": question}
+            input_data = {"question": question, "style": style}
 
         langfuse_handler = get_langfuse_handler()
 
@@ -626,7 +635,7 @@ def _event_generator(question: str, topic_id: str = "",
 
 # ── HITL SSE 事件生成器 ─────────────────────────────────
 
-def _hitl_event_generator(question: str):
+def _hitl_event_generator(question: str, style: str = "tech-blog"):
     """HITL 研究 SSE 事件生成器
 
     启动 HITL 图，执行到中断点时推送 interrupt 事件，
@@ -666,7 +675,7 @@ def _hitl_event_generator(question: str):
 
                 with track_run_tokens() as usage:
                     result = {}
-                    for mode, payload in graph.stream({"question": question}, config=config,
+                    for mode, payload in graph.stream({"question": question, "style": style}, config=config,
                                                       stream_mode=_STREAM_MODES):
                         _emit_stream_event(queue, mode, payload, result)
                     result["token_usage"] = dict(usage)

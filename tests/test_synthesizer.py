@@ -274,7 +274,8 @@ def test_prompts_include_mermaid_and_render():
         assert "```mermaid" in prompt
         assert "技术图解" in prompt
         # 模拟 fallback 渲染路径：花括号必须正确转义（mermaid 的 { } 节点语法）
-        kwargs = {"question": "Q", "search_results": "R", "image_section": "I"}
+        kwargs = {"question": "Q", "search_results": "R", "image_section": "I",
+                  "style_section": "测试文风"}
         if "{knowledge_context}" in prompt:
             kwargs["knowledge_context"] = "K"
         if "{report}" in prompt:
@@ -392,3 +393,38 @@ def test_recurates_core_refs_when_sources_changed(monkeypatch):
     }
     _graph().invoke(state)
     assert calls["n"] == 1
+
+
+# ── 写作风格注入 ──────────────────────────────────────
+
+def test_style_section_injected_into_prompt(monkeypatch):
+    """所选风格（如观点锐评）的文风要求要注入 prompt。"""
+    captured: dict = {}
+
+    def fake_get_prompt(name, fallback, **kwargs):
+        captured["prompt"] = kwargs
+        return "prompt"
+
+    monkeypatch.setattr(synthesizer_module, "create_llm", lambda **_: _FakeLLM())
+    monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse", fake_get_prompt)
+    monkeypatch.setattr(synthesizer_module, "curate_core_references",
+                        lambda _q, table, **_k: table)
+
+    _graph().invoke({"question": "测试问题", "search_results": [], "style": "essay"})
+    assert "犀利" in captured["prompt"]["style_section"]
+
+
+def test_unknown_style_falls_back_to_default(monkeypatch):
+    captured: dict = {}
+
+    def fake_get_prompt(name, fallback, **kwargs):
+        captured["prompt"] = kwargs
+        return "prompt"
+
+    monkeypatch.setattr(synthesizer_module, "create_llm", lambda **_: _FakeLLM())
+    monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse", fake_get_prompt)
+    monkeypatch.setattr(synthesizer_module, "curate_core_references",
+                        lambda _q, table, **_k: table)
+
+    _graph().invoke({"question": "测试问题", "search_results": [], "style": "不存在的风格"})
+    assert "专业、克制、自信的技术博客文风" in captured["prompt"]["style_section"]

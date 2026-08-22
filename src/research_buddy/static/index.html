@@ -2664,6 +2664,12 @@ select.input {
       </div>
       <div class="research-actions">
         <select id="researchMode" aria-label="研究模式"><option value="normal">◈ 常规研究</option><option value="hitl">👤 交互研究</option></select>
+        <select id="writingStyle" aria-label="写作风格" title="文章写作风格">
+          <option value="tech-blog">◇ 专业技术博客</option>
+          <option value="report">◉ 深度研究报告</option>
+          <option value="essay">✦ 观点锐评</option>
+          <option value="popular">◎ 通俗科普</option>
+        </select>
         <button class="btn btn-primary" id="submitBtn" onclick="startResearch()" aria-label="开始研究">
           <div class="spinner" id="spinner" style="display:none"></div>
           <i data-lucide="arrow-up-right"></i><span id="btnText">开始研究</span>
@@ -3720,7 +3726,9 @@ function startResearch(topicId, isIncremental) {
 
   // Create abort controller
   appState.abortController = new AbortController();
-  const es = new EventSource('/research/stream?question=' + encodeURIComponent(question));
+  const style = ($('writingStyle') && $('writingStyle').value) || 'tech-blog';
+  const es = new EventSource('/research/stream?question=' + encodeURIComponent(question)
+    + '&style=' + encodeURIComponent(style));
   appState.eventSource = es;
   setupSSEHandlers(es);
 }
@@ -3751,6 +3759,7 @@ function startKnowledgeResearchSSE(question, topicId, isIncremental) {
       question,
       topic_id: topicId,
       is_incremental: isIncremental !== false,
+      style: ($('writingStyle') && $('writingStyle').value) || 'tech-blog',
     }),
     signal: appState.abortController.signal,
   })
@@ -3939,7 +3948,10 @@ function startHITLResearch() {
   fetch('/research/hitl/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({
+      question,
+      style: ($('writingStyle') && $('writingStyle').value) || 'tech-blog',
+    }),
     signal: appState.abortController.signal,
   })
     .then(res => {

@@ -105,6 +105,64 @@ def _merge_gaps(primary: list[dict], inherited: list[dict]) -> list[dict]:
     return merged
 
 
+# ── AI 味硬校验（防模板腔） ─────────────────────────────
+
+# 元评论/模板句：命中数量 ≥ _META_COMMENT_LIMIT 视为模板腔
+_META_COMMENT_PATTERNS = [
+    r"本节.{0,14}(?:关键|核心|重要)?(?:结论|发现|判断)",
+    r"值得(?:注意|指出|一提|强调)的是",
+    r"综上所述|总而言之|总的来说|一言以蔽之",
+    r"这(?:揭示了|恰恰说明|直接说明)",
+]
+_META_COMMENT_LIMIT = 3
+
+# 排比对仗句式：密度（每千字命中数）≥ _PARALLEL_DENSITY_LIMIT 视为滥用
+_PARALLEL_PATTERNS = [
+    r"不是.{0,20}而是",
+    r"既.{0,16}又.{0,16}",
+    r"越.{0,8}越.{0,8}",
+    r"不(?:仅|只).{0,12}更(?:是|要|重要)",
+]
+_PARALLEL_DENSITY_LIMIT = 4.0  # 每千字
+
+# 公式化结尾：「…结论」标题 + 数字列表出现在文末 600 字内
+_FORMULA_TAIL_HEADING = re.compile(r"#{1,3}\s*[^#\n]{0,18}(?:总结|结论)")
+_FORMULA_TAIL_LIST = re.compile(r"(?:^|\n)\s*(?:1[.、．]|①)")
+
+
+def _ai_flavor_issues(report: str) -> list[str]:
+    """检测文章的 AI 模板痕迹，返回问题描述列表（空 = 通过）。
+
+    阈值从宽：只拦截明显的模板腔，不误伤正常的个别句式。
+    """
+    if not report:
+        return []
+    issues: list[str] = []
+
+    meta_count = sum(len(re.findall(p, report)) for p in _META_COMMENT_PATTERNS)
+    if meta_count >= _META_COMMENT_LIMIT:
+        issues.append(
+            f"存在 {meta_count} 处元评论/模板句（「本节的关键结论是」「值得注意的是」「综上所述」等），"
+            "请重写时删除这些句式，直接用内容说话"
+        )
+
+    parallel_count = sum(len(re.findall(p, report)) for p in _PARALLEL_PATTERNS)
+    density = parallel_count * 1000 / max(len(report), 1)
+    if density >= _PARALLEL_DENSITY_LIMIT:
+        issues.append(
+            f"排比对仗句式过密（约 {density:.1f} 处/千字，如「不是…而是…」「既…又…」），"
+            "请重写时让句子长短自然交错"
+        )
+
+    tail = report[-600:]
+    if _FORMULA_TAIL_HEADING.search(tail) and _FORMULA_TAIL_LIST.search(tail):
+        issues.append(
+            "结尾是公式化的「…结论：1. 2. 3.」结构，请改用散文收束或按问题语义给出行之有效的建议"
+        )
+
+    return issues
+
+
 def reflector(state: ResearchState) -> dict:
     """反思节点：LLM 评估报告质量
 
@@ -244,6 +302,11 @@ def reflector(state: ResearchState) -> dict:
 
     if raw_urls - known_urls:
         citation_issues.append(f"报告包含 {len(raw_urls - known_urls)} 个不在证据集中的 URL")
+
+    # AI 味硬校验（防模板腔）：元评论句、排比对仗密度、公式化结尾。
+    # 阈值从宽设置，避免误伤正常行文；命中才强制重写。
+    citation_issues.extend(_ai_flavor_issues(report))
+
     if citation_issues:
         passed = False
         feedback = "\n".join(citation_issues + ([feedback] if feedback else []))

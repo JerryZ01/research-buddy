@@ -59,6 +59,7 @@ class ResearchState(TypedDict):
     """
     # 输入
     question: str  # 原始研究问题
+    style: str  # 写作风格 id（research_buddy.styles.STYLES 的键，默认 tech-blog）
 
     # 知识层（Phase 6）
     topic_id: str  # 关联的研究主题 ID（可选，为空则不持久化）

@@ -220,8 +220,12 @@ def create_research_graph_with_hitl() -> StateGraph:
 
 # ── 便捷运行函数 ────────────────────────────────────────
 
-def run_research(question: str) -> dict:
-    """运行全自动研究流程（流式输出，实时进度，无知识层）"""
+def run_research(question: str, style: str = "tech-blog") -> dict:
+    """运行全自动研究流程（流式输出，实时进度，无知识层）
+
+    Args:
+        style: 写作风格 id（见 research_buddy.styles）
+    """
     graph = create_research_graph()
     langfuse_handler = get_langfuse_handler()
 
@@ -233,7 +237,7 @@ def run_research(question: str) -> dict:
 
     with track_run_tokens() as usage:
         with _langfuse_run("research", question, langfuse_handler) as trace_id:
-            result = stream_and_accumulate(graph, {"question": question}, config)
+            result = stream_and_accumulate(graph, {"question": question, "style": style}, config)
     result.setdefault("question", question)
     result["langfuse_trace_id"] = trace_id
     result["token_usage"] = dict(usage)
@@ -246,7 +250,8 @@ def run_research(question: str) -> dict:
 
 
 def run_knowledge_research(question: str, topic_id: str,
-                           is_incremental: bool = True) -> dict:
+                           is_incremental: bool = True,
+                           style: str = "tech-blog") -> dict:
     """运行知识研究流程（带知识层，支持增量研究）
 
     Args:
@@ -270,6 +275,7 @@ def run_knowledge_research(question: str, topic_id: str,
                 "question": question,
                 "topic_id": topic_id,
                 "is_incremental": is_incremental,
+                "style": style,
             }, config)
     result.setdefault("question", question)
     result["langfuse_trace_id"] = trace_id

@@ -311,3 +311,42 @@ def test_unselected_image_url_fails(monkeypatch):
     result = _reflect(state, monkeypatch)
     assert result["reflection_pass"] is False
     assert "不在证据集" in result["reflection_feedback"]
+
+
+# ── AI 味硬校验（防模板腔） ─────────────────────────────
+
+def _ai_issues(report: str) -> list[str]:
+    return reflector_module._ai_flavor_issues(report)
+
+
+def test_ai_flavor_meta_comments_detected():
+    report = ("本节的关键结论是：X。\n值得注意的是：Y。\n"
+              "综上所述，Z。\n这揭示了 W。\n正常段落。")
+    issues = _ai_issues(report)
+    assert any("元评论" in i for i in issues)
+
+
+def test_ai_flavor_parallel_overuse_detected():
+    report = ("不是A而是B，既C又D，越E越F，不仅G更是H。" * 6)  # 高密度排比
+    issues = _ai_issues(report)
+    assert any("排比对仗" in i for i in issues)
+
+
+def test_ai_flavor_formula_ending_detected():
+    report = "正文内容。\n\n## 结论\n1. 要点一\n2. 要点二\n3. 要点三\n"
+    issues = _ai_issues(report)
+    assert any("公式化" in i for i in issues)
+
+
+def test_ai_flavor_clean_report_passes():
+    report = ("这是一段正常的正文，句子长短自然，观点明确。\n"
+              "另一个段落继续展开分析，没有模板句式。\n" * 5)
+    assert _ai_issues(report) == []
+
+
+def test_ai_flavor_issues_force_rewrite(monkeypatch):
+    """AI 味命中 → 强制不通过，反馈里带具体问题。"""
+    state = _state("本节的关键结论是：X。\n值得注意的是：Y。\n综上所述：Z。\n这揭示了 W。\n")
+    result = _reflect(state, monkeypatch)
+    assert result["reflection_pass"] is False
+    assert "元评论" in result["reflection_feedback"]
