@@ -15,6 +15,7 @@
 import base64
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
 import httpx
@@ -288,19 +289,26 @@ def select_images(sub_questions: list[dict],
             if not question:
                 continue
 
-            # 下载候选图，累计字节不超单次调用上限。
-            # 只保留下载成功的图：视觉模型的 index 对应这个顺序，映射不会错位。
+            # 下载候选图（并行，最多 4 并发）——httpx.Client 线程安全，
+            # pool.map 保持输入顺序，视觉模型的 index 映射不会错位。
+            # 只保留下载成功的图，累计字节不超单次调用上限。
+            candidates_pool = candidates[:MAX_CANDIDATES_PER_SUB_QUESTION]
+            downloaded_all: list[tuple[dict, bytes, str]] = []
+            with ThreadPoolExecutor(max_workers=min(4, len(candidates_pool))) as pool:
+                for cand, result in pool.map(
+                    lambda c: (c, _download_image(client, c.get("url", ""))),
+                    candidates_pool,
+                ):
+                    if result:
+                        downloaded_all.append((cand, result[0], result[1]))
+
             images: list[tuple[dict, bytes, str]] = []
             total = 0
-            for c in candidates:
-                if total >= MAX_PAYLOAD_BYTES:
-                    break
-                downloaded = _download_image(client, c.get("url", ""))
-                if not downloaded:
+            for item in downloaded_all:
+                if total + len(item[1]) > MAX_PAYLOAD_BYTES:
                     continue
-                raw, mime = downloaded
-                total += len(raw)
-                images.append((c, raw, mime))
+                total += len(item[1])
+                images.append(item)
                 if len(images) >= MAX_CANDIDATES_PER_SUB_QUESTION:
                     break
 

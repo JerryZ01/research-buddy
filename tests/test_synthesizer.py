@@ -328,3 +328,67 @@ def test_no_candidates_skips_selection(monkeypatch):
     result = _run(monkeypatch, {"question": "测试问题", "search_results": []})
     assert called["select"] is False
     assert result["selected_images"] == []
+
+
+# ── 跨轮次复用（性能优化，不改核心逻辑） ───────────────
+
+def test_reuses_selected_images_across_rounds(monkeypatch):
+    """重写/回环轮复用上一轮选中的图，不再重新调视觉模型。"""
+    def _boom(*a, **k):
+        raise AssertionError("已有选中图，不应重新选图")
+
+    monkeypatch.setattr(synthesizer_module, "select_images", _boom)
+    _patch_llm(monkeypatch)
+    state = {
+        "question": "测试问题",
+        "search_results": [],
+        "image_candidates": [{"url": "https://img.example/pic.jpg",
+                              "sub_question_id": "sq_01", "query": "q"}],
+        "selected_images": [{"url": "https://img.example/pic.jpg", "alt": "复用图",
+                             "sub_question_id": "sq_01", "query": "q"}],
+    }
+    result = _graph().invoke(state)
+    assert result["selected_images"][0]["alt"] == "复用图"
+
+
+def test_reuses_core_refs_when_sources_unchanged(monkeypatch):
+    """来源集（URL 签名）未变时复用上一轮的文献筛选结果，不再调 LLM。"""
+    _patch_llm(monkeypatch)
+
+    def _boom(*a, **k):
+        raise AssertionError("来源集未变，不应重新筛选文献")
+
+    monkeypatch.setattr(synthesizer_module, "curate_core_references", _boom)
+    # 签名 = normalize_url 后的 URL（无 scheme），与 synthesizer 内部计算一致
+    expected_sig = synthesizer_module.normalize_url(_URL_A)
+    state = {
+        "question": "测试问题",
+        "search_results": [{"sub_question": "A", "title": "来源一", "url": _URL_A,
+                            "content": "x", "score": 0.9}],
+        "core_refs": [{"index": 1, "title": "核心", "url": _URL_A, "source": "search"}],
+        "core_refs_signature": expected_sig,
+    }
+    result = _graph().invoke(state)
+    assert "1. [核心]" in result["report"]
+    assert result["core_refs"][0]["title"] == "核心"
+
+
+def test_recurates_core_refs_when_sources_changed(monkeypatch):
+    """补充搜索带来新来源（签名变化）时重新筛选文献。"""
+    _patch_llm(monkeypatch)
+    calls = {"n": 0}
+
+    def _fake_curate(q, table, **_k):
+        calls["n"] += 1
+        return table[:1]
+
+    monkeypatch.setattr(synthesizer_module, "curate_core_references", _fake_curate)
+    state = {
+        "question": "测试问题",
+        "search_results": [{"sub_question": "A", "title": "来源一", "url": _URL_A,
+                            "content": "x", "score": 0.9}],
+        "core_refs": [{"index": 99, "title": "旧", "url": "https://old.example", "source": "search"}],
+        "core_refs_signature": "https://old.example",  # 与当前来源集不同 → 重筛
+    }
+    _graph().invoke(state)
+    assert calls["n"] == 1

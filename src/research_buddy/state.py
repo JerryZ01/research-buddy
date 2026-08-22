@@ -91,6 +91,8 @@ class ResearchState(TypedDict):
     confidence: str  # 置信度（高/中/低），由代码从证据质量计算，不进报告正文
     research_notes: list[str]  # 研究说明（局限/降级/未解决缺口），不进正文，供 API/前端展示
     source_table: list[dict]  # 编号引用表 [{index, title, url, source}]，synthesizer 构建，reflector 校验用
+    core_refs: list[dict]  # 核心文献筛选结果（跨轮次复用，来源集未变时跳过重筛）
+    core_refs_signature: str  # 核心文献对应的来源 URL 签名（判断来源集是否变化）
 
     # 插图（可选，视觉模型选图）
     image_candidates: Annotated[list[dict], operator.add]  # 搜索聚合的候选图 {url, sub_question_id, query}

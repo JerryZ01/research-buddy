@@ -384,13 +384,17 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
 
     # 视觉选图（可选）：配置 VISION_MODEL 才生效；未配置/失败返回 []，
     # 文章退化为无插图，不阻塞出稿。
+    # 跨轮次复用：反思后的重写/回环轮直接复用上一轮选中的图，
+    # 不再重新下载图片 + 调视觉模型（省 40~90s/轮）。
     image_candidates = state.get("image_candidates", [])
-    selected_images: list[dict] = []
-    if image_candidates:
+    selected_images: list[dict] = state.get("selected_images", []) or []
+    if not selected_images and image_candidates:
         try:
             selected_images = select_images(state.get("sub_questions", []), image_candidates)
         except Exception as exc:
             logger.warning("视觉选图整体失败，文章不含插图: %s", exc)
+    elif selected_images:
+        logger.info("复用上一轮选中的 %d 张插图", len(selected_images))
 
     if selected_images:
         image_section = "\n".join(
@@ -480,8 +484,16 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
             if writer:
                 writer({"type": "report_chunk", "content": content})
 
-    # 文末核心参考文献：LLM 从全部来源中筛选子集，代码重新编号生成
-    core_refs = curate_core_references(question, source_table)
+    # 文末核心参考文献：LLM 从全部来源中筛选子集，代码重新编号生成。
+    # 跨轮次复用：来源集（URL 签名）未变时直接复用上一轮的筛选结果，
+    # 不再调 LLM（省 ~10s/轮）；补充搜索带来了新来源才重新筛选。
+    source_signature = "|".join(sorted(
+        normalize_url(item.get("url", "")) for item in source_table if item.get("url")
+    ))
+    if state.get("core_refs_signature") == source_signature and state.get("core_refs"):
+        core_refs = state["core_refs"]
+    else:
+        core_refs = curate_core_references(question, source_table)
     references = render_references(core_refs)
     if references:
         full_report += references
@@ -497,5 +509,7 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
         "research_notes": _build_research_notes(state),
         "source_table": source_table,
         "selected_images": selected_images,
+        "core_refs": core_refs,
+        "core_refs_signature": source_signature,
         "messages": [f"📝 报告生成完成（{mode}模式）"],
     }
