@@ -175,3 +175,61 @@ def test_no_candidates_returns_empty(monkeypatch):
     _enable_vision(monkeypatch)
     assert images_module.select_images([{"id": "sq_01", "question": "问题？"}], []) == []
     assert images_module.select_images([], []) == []
+
+
+# ── 自动降级重试 ─────────────────────────────────────
+
+def _http_status_error(status: int) -> images_module.httpx.HTTPStatusError:
+    request = images_module.httpx.Request("POST", "http://vision.example")
+    response = images_module.httpx.Response(status, request=request)
+    return images_module.httpx.HTTPStatusError(
+        f"{status} error", request=request, response=response,
+    )
+
+
+def test_vision_400_halves_batch_and_retries(monkeypatch):
+    """请求过大（400/413）→ 减半图片批次重试，而不是直接放弃该子问题。"""
+    _enable_vision(monkeypatch)
+    monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
+
+    calls = []
+
+    def flaky_post(url, json=None, **kwargs):
+        calls.append(len([c for c in json["messages"][0]["content"]
+                          if c["type"] == "image_url"]))
+        if len(calls) == 1:
+            raise _http_status_error(400)
+        return _FakeResp(json_body=_vision_reply([(1, "重试后的图")]))
+
+    monkeypatch.setattr(images_module.httpx, "post", flaky_post)
+    picked = images_module.select_images(
+        [{"id": "sq_01", "question": "问题？"}],
+        [_candidate(f"https://img.example/{i}.jpg", "sq_01") for i in range(4)],
+    )
+    assert len(calls) == 2
+    assert calls[0] == 4 and calls[1] == 2  # 批次从 4 减半到 2
+    # 减半后的批次 = [0.jpg, 1.jpg]，index 1 → 0.jpg
+    assert [p["url"] for p in picked] == ["https://img.example/0.jpg"]
+
+
+def test_truncated_json_retries_with_larger_max_tokens(monkeypatch):
+    """输出 JSON 被截断 → 加大 max_tokens 重试一次。"""
+    _enable_vision(monkeypatch)
+    monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
+
+    calls = []
+
+    def flaky_post(url, json=None, **kwargs):
+        calls.append(json.get("max_tokens"))
+        if len(calls) == 1:
+            # 截断的 JSON：Unterminated string
+            return _FakeResp(json_body={"choices": [{"message": {"content": '{"images": [{"index": 1, "alt": "未完成'}}]})
+        return _FakeResp(json_body=_vision_reply([(1, "完整输出")]))
+
+    monkeypatch.setattr(images_module.httpx, "post", flaky_post)
+    picked = images_module.select_images(
+        [{"id": "sq_01", "question": "问题？"}],
+        [_candidate("https://img.example/a.jpg", "sq_01")],
+    )
+    assert calls == [1024, 2048]
+    assert [p["url"] for p in picked] == ["https://img.example/a.jpg"]

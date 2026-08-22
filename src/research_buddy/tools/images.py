@@ -88,12 +88,14 @@ def _download_image(client: httpx.Client, url: str) -> tuple[bytes, str] | None:
         return None
 
 
-def _vision_select(question: str, images: list[tuple[dict, bytes, str]]) -> list[dict]:
+def _vision_select(question: str, images: list[tuple[dict, bytes, str]],
+                   max_tokens: int = 1024) -> list[dict]:
     """调用视觉模型选图。index 对应 images 列表顺序（即实际下载成功的图）。
 
     Args:
         question: 子问题文本
         images: [(候选 dict, 原始字节, mime), ...] 下载成功的图
+        max_tokens: 输出上限。JSON 截断时由重试逻辑翻倍重试
 
     Returns:
         [{url, alt, sub_question_id, query}]
@@ -117,7 +119,7 @@ def _vision_select(question: str, images: list[tuple[dict, bytes, str]]) -> list
         "model": VISION_MODEL,
         "messages": [{"role": "user", "content": content_parts}],
         "temperature": 0,
-        "max_tokens": 500,
+        "max_tokens": max_tokens,
     }
     resp = httpx.post(
         f"{OPENAI_API_BASE.rstrip('/')}/chat/completions",
@@ -158,6 +160,40 @@ def _vision_select(question: str, images: list[tuple[dict, bytes, str]]) -> list
         if len(picked) >= MAX_IMAGES_PER_SUB_QUESTION:
             break
     return picked
+
+
+# 单次请求图片数上限：中转站/DeepSeek 对多图请求有数量限制，超了会 400
+_MAX_VISION_BATCH = 4
+
+
+def _vision_select_with_retry(question: str,
+                              images: list[tuple[dict, bytes, str]]) -> list[dict]:
+    """带自动降级重试的视觉选图。
+
+    - 请求过大（400/413）或限流（429）：减半图片批次重试（每张图最多试 3 次）
+    - 输出 JSON 截断/解析失败：把 max_tokens 翻倍到 2048 重试一次
+    - 全部失败返回 []（该子问题无插图，不向调用方抛异常）
+    """
+    batch = images[:_MAX_VISION_BATCH]
+    max_tokens = 1024
+    for _ in range(3):
+        try:
+            return _vision_select(question, batch, max_tokens=max_tokens)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in {400, 413, 429} and len(batch) > 1:
+                logger.warning("视觉请求过大（HTTP %s），图片批次减半重试（%d→%d 张）",
+                               exc.response.status_code, len(batch), max(1, len(batch) // 2))
+                batch = batch[:max(1, len(batch) // 2)]
+                continue
+            raise
+        except Exception:
+            # JSON 截断或解析失败：大概率是 max_tokens 把输出切断了
+            if max_tokens < 2048:
+                logger.warning("视觉输出解析失败，加大 max_tokens 重试（%d→2048）", max_tokens)
+                max_tokens = 2048
+                continue
+            raise
+    return []
 
 
 def select_images(sub_questions: list[dict],
@@ -221,7 +257,7 @@ def select_images(sub_questions: list[dict],
                 continue
 
             try:
-                picked = _vision_select(question, images)
+                picked = _vision_select_with_retry(question, images)
                 selected.extend(picked)
                 if picked:
                     logger.info("子问题 %s 选中 %d 张插图", sq_id, len(picked))
