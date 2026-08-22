@@ -2767,7 +2767,6 @@ select.input {
         <div class="report-main">
           <div class="report-meta" id="reportMeta"></div>
           <div class="report-body" id="reportBody"></div>
-          <section class="report-sources" id="reportSources" hidden aria-label="来源汇总"></section>
         </div>
         <nav class="report-toc" id="reportToc" hidden aria-label="报告目录"></nav>
       </div>
@@ -2914,7 +2913,6 @@ const appState = {
   activeSteps: [],
   pipelineReached: -1,
   nodeDetails: {},
-  seenSources: new Set(),
   tocObserver: null,
   reportRenderTimer: null,
 };
@@ -3694,7 +3692,6 @@ function startResearch(topicId, isIncremental) {
   appState.activeSteps = useTopic ? KNOWLEDGE_RESEARCH_STEPS : CORE_RESEARCH_STEPS;
   appState.pipelineReached = -1;
   appState.nodeDetails = {};
-  appState.seenSources = new Set();
   renderPipelineStrip(appState.activeSteps, '');
   document.body.classList.add('research-active');
   $('foundryQuestion').textContent = question;
@@ -3857,9 +3854,6 @@ function setupSSEHandlers(es) {
  */
 function rememberNodeDetail(node, detail) {
   appState.nodeDetails[node] = detail;
-  (detail.results_preview || []).forEach(r => {
-    if (r && r.url) appState.seenSources.add(normalizeUrlKey(r.url));
-  });
 }
 
 function handleSSEEvent(type, raw) {
@@ -3911,7 +3905,6 @@ function startHITLResearch() {
   appState.activeSteps = CORE_RESEARCH_STEPS;
   appState.pipelineReached = -1;
   appState.nodeDetails = {};
-  appState.seenSources = new Set();
   renderPipelineStrip(appState.activeSteps, '');
   document.body.classList.add('research-active');
   $('foundryQuestion').textContent = question;
@@ -4407,7 +4400,6 @@ function showReport(data) {
 
   buildReportScorecard(data);
   buildReportToc();
-  buildReportSources(data);
 
   // 显示折叠按钮
   $('collapseBtn').style.display = 'inline-flex';
@@ -4596,91 +4588,6 @@ function buildReportToc() {
   heads.forEach(h => appState.tocObserver.observe(h));
 }
 
-/* ── 来源汇总清单 ──────────────────────────────────── */
-
-function buildReportSources(data) {
-  const host = $('reportSources');
-  if (!host) return;
-
-  const cited = new Map();  // normalized url → {url, fromRun}
-  $('reportBody').querySelectorAll('a[href^="http"]').forEach(a => {
-    const url = a.getAttribute('href');
-    cited.set(normalizeUrlKey(url), { url, fromRun: appState.seenSources.has(normalizeUrlKey(url)) });
-  });
-  // 正文里以纯文本形式写出的 URL 也算引用
-  (appState.lastReportText.match(/https?:\/\/[^\s<>)）】"'，。;；]+/g) || []).forEach(url => {
-    const key = normalizeUrlKey(url);
-    if (!cited.has(key)) cited.set(key, { url, fromRun: appState.seenSources.has(key) });
-  });
-
-  if (!cited.size) {
-    host.hidden = true;
-    host.replaceChildren();
-    return;
-  }
-
-  const byDomain = new Map();
-  cited.forEach(entry => {
-    let host_ = '';
-    try { host_ = new URL(entry.url).hostname.replace(/^www\./, ''); } catch { host_ = '其他'; }
-    if (!byDomain.has(host_)) byDomain.set(host_, []);
-    byDomain.get(host_).push(entry);
-  });
-  const domains = [...byDomain.entries()].sort((a, b) => b[1].length - a[1].length);
-
-  host.replaceChildren();
-  const head = document.createElement('div');
-  head.className = 'rsrc-head';
-  const h = document.createElement('h3');
-  h.textContent = '来源汇总';
-  const count = document.createElement('span');
-  count.className = 'rsrc-count';
-  count.textContent = `${cited.size} 条引用 · ${domains.length} 个独立域名`;
-  head.append(h, count);
-  host.appendChild(head);
-
-  domains.forEach(([domain, entries]) => {
-    const group = document.createElement('div');
-    group.className = 'rsrc-group';
-    const dn = document.createElement('div');
-    dn.className = 'rsrc-domain';
-    dn.textContent = domain;
-    const badge = document.createElement('span');
-    badge.className = 'rsrc-domain-count';
-    badge.textContent = String(entries.length);
-    dn.appendChild(badge);
-    group.appendChild(dn);
-
-    entries.forEach(entry => {
-      const row = document.createElement('div');
-      row.className = 'rsrc-row';
-      const a = document.createElement('a');
-      a.href = entry.url;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.textContent = entry.url.replace(/^https?:\/\//, '');
-      const tag = document.createElement('span');
-      tag.className = `rsrc-tag ${entry.fromRun ? 'is-run' : 'is-history'}`;
-      tag.textContent = entry.fromRun ? '本次检索' : (data.is_incremental ? '历史知识' : '报告引用');
-      row.append(a, tag);
-      group.appendChild(row);
-    });
-    host.appendChild(group);
-  });
-  host.hidden = false;
-}
-
-/** 与后端 utils.normalize_url 同思路的轻量版，仅用于前端去重比对 */
-function normalizeUrlKey(url) {
-  try {
-    const u = new URL(url);
-    const path = u.pathname.replace(/\/$/, '') || '/';
-    return u.hostname.replace(/^www\./, '').toLowerCase() + path.toLowerCase();
-  } catch {
-    return String(url || '').trim().toLowerCase().replace(/\/$/, '');
-  }
-}
-
 function handleReportChunk(d) {
   const chunk = d.chunk || '';
   if (!chunk) return;
@@ -4696,7 +4603,7 @@ function handleReportChunk(d) {
     body.classList.add('streaming-mode', 'is-streaming', 'typing');
     body.classList.remove('is-settled');
     // 生成中先隐藏定稿后才有意义的模块
-    ['reportScorecard', 'reportToc', 'reportSources'].forEach(id => {
+    ['reportScorecard', 'reportToc'].forEach(id => {
       const el = $(id);
       if (el) el.hidden = true;
     });

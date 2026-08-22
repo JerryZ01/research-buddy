@@ -787,21 +787,6 @@ kbd { padding: 1px 4px; color: inherit; background: rgba(255,255,255,.06); borde
 .toc-item a.is-active { color: var(--cyan2); font-weight: 700; }
 .toc-h3 a { padding-left: 11px; font-size: .68rem; }
 
-/* ── 报告：来源汇总 ─────────────────────────────── */
-.report-sources { max-width: 860px; margin: 40px auto 0; padding-top: 22px; border-top: 1px solid var(--border); }
-.report-sources[hidden] { display: none; }
-.rsrc-head { margin-bottom: 13px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.rsrc-head h3 { margin: 0; color: var(--text); font-family: 'Noto Serif SC', serif; font-size: 1rem; }
-.rsrc-count { flex-shrink: 0; color: var(--text3); font-size: .67rem; white-space: nowrap; }
-.rsrc-group + .rsrc-group { margin-top: 13px; }
-.rsrc-domain { margin-bottom: 5px; display: flex; align-items: center; gap: 7px; color: var(--text2); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .71rem; font-weight: 700; }
-.rsrc-domain-count { padding: 1px 6px; color: var(--text3); background: var(--surface2); border-radius: 8px; font-size: .61rem; font-weight: 400; }
-.rsrc-row { padding: 4px 0 4px 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; border-left: 1px solid var(--border); }
-.rsrc-row a { min-width: 0; overflow: hidden; color: var(--cyan); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
-.rsrc-tag { flex-shrink: 0; padding: 1px 6px; border-radius: 3px; font-size: .6rem; white-space: nowrap; }
-.rsrc-tag.is-run { color: var(--cyan2); background: var(--cyan-g); }
-.rsrc-tag.is-history { color: var(--text3); background: var(--surface2); }
-
 /* ── 报告：流式生成 → 定稿过渡 ─────────────────── */
 .report-caret { display: inline-block; width: 7px; height: 1.02em; margin-left: 2px; background: var(--cyan); vertical-align: text-bottom; animation: reportCaret 1.05s steps(2, end) infinite; }
 @keyframes reportCaret { 0%, 45% { opacity: 1; } 46%, 100% { opacity: .08; } }
