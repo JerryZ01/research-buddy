@@ -9,7 +9,7 @@
 import difflib
 import logging
 
-from research_buddy.utils import parse_llm_json, create_llm
+from research_buddy.utils import parse_llm_json, create_llm, get_prompt_from_langfuse
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,8 @@ class DiffAnalyzer:
         old_truncated = old_report[:max_chars] + ("..." if len(old_report) > max_chars else "")
         new_truncated = new_report[:max_chars] + ("..." if len(new_report) > max_chars else "")
 
-        prompt = DIFF_ANALYZER_PROMPT.format(
+        prompt = get_prompt_from_langfuse(
+            "research-buddy-diff-analyzer", DIFF_ANALYZER_PROMPT,
             old_report=old_truncated,
             new_report=new_truncated,
         )

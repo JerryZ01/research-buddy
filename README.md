@@ -45,7 +45,7 @@ research-buddy/
 │   ├── graph.py                 # LangGraph 工作流（节点、边、条件分支、HITL）
 │   ├── api.py                   # FastAPI 应用（HTTP + SSE + 静态文件）
 │   ├── nodes/                   # LangGraph 节点实现
-│   │   ├── planner.py           #   规划节点 — 拆解问题，生成英文搜索词
+│   │   ├── planner.py           #   规划节点 — 拆解问题，生成自适应语言搜索词
 │   │   ├── searcher.py          #   搜索节点 — 并行搜索，支持补充搜索
 │   │   ├── validator.py         #   验证节点 — 检查结果充足性
 │   │   ├── synthesizer.py       #   综合节点 — LLM 流式生成报告
@@ -115,6 +115,28 @@ LANGFUSE_HOST=https://cloud.langfuse.com
 
 > **提示**：LLM 支持任何 OpenAI 兼容 API，如讯飞 MaaS、硅基流动、DeepSeek 等。
 
+> **`TAVILY_API_KEY` 是必填的**。缺失或搜索层连续失败时，研究会直接中止并报明确错误，而不是让模型凭内部知识编一份零来源的报告。
+
+### 2.1 可选：中文向量检索
+
+知识层的语义检索默认用 ChromaDB 内置的 `all-MiniLM-L6-v2`，它以英文语料训练，中文召回偏低。需要中文检索质量时选一个后端：
+
+```env
+# 本地多语言模型（质量好，但会拉入 torch，安装体积 +2~3GB）
+EMBEDDING_BACKEND=sentence-transformers
+
+# 或走 OPENAI_API_BASE 的 /embeddings（零安装体积，但中转站不一定支持）
+EMBEDDING_BACKEND=openai
+```
+
+用本地模型前先装可选依赖：
+
+```bash
+uv sync --extra multilingual
+```
+
+后端不可用时会打 WARNING 并降级到默认模型，不会静默切换。**切换后端后已有向量库不能混用**（两个 MiniLM 都是 384 维，混用不报错但结果失去意义）：要么改回原模型，要么删掉 `data/chroma_db` 重建。
+
 ### 3. 启动服务
 
 ```bash
@@ -132,6 +154,9 @@ LANGFUSE_HOST=https://cloud.langfuse.com
 ## 🧪 测试
 
 ```bash
+# 单元测试（全离线，不需要 API Key）
+uv run pytest -q
+
 # 测试线性工作流（规划→搜索→综合）
 uv run python scripts/test_phase1.py
 
@@ -141,7 +166,8 @@ uv run python scripts/test_phase2.py
 # 测试人机交互（规划后确认、报告后补充）
 uv run python scripts/test_phase3.py
 
-# 运行评估（LLM-as-Judge 评分）
+# 运行评估（LLM-as-Judge 评分，需要 Langfuse 密钥才会写入分数）
+uv run python -m research_buddy.eval.dataset   # 首次：创建/更新测试集
 uv run python scripts/run_eval.py
 ```
 

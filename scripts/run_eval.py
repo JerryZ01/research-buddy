@@ -48,9 +48,10 @@ def run_eval(limit: int | None = None) -> None:
         print(f"[{i}/{len(items)}] 🔍 研究问题: {question}")
         start = time.time()
 
-        # 运行研究
+        # 运行研究（run_research 会开一个 Langfuse 根 span 并回传 trace_id）
         result = run_research(question)
         report = result.get("report", "未生成报告")
+        trace_id = result.get("langfuse_trace_id", "")
 
         elapsed = time.time() - start
         print(f"   ⏱️  耗时: {elapsed:.1f}s")
@@ -64,30 +65,18 @@ def run_eval(limit: int | None = None) -> None:
               f"总分={total}/15")
 
         if scores.get("parse_failed"):
-            print(f"   ⚠️  评分解析失败，使用默认分数")
+            print("   ⚠️  评分解析失败，使用默认分数（不计入汇总）")
 
-        # 将评分写入 Langfuse
-        # 使用 run_research 返回的 langfuse trace_id（如果有）
-        # 而非竞态地获取最近 trace
-        try:
-            from langfuse import Langfuse
-            langfuse = Langfuse()
-            # 使用 trace_id 从 result 中获取（如果 Langfuse handler 记录了）
-            # fallback: 获取最近 trace（仍有竞态风险，但这是 Langfuse API 限制）
-            traces = langfuse.get_traces(limit=1, tags=["eval"])
-            if traces.data:
-                score_trace(traces.data[0].id, scores)
-                print(f"   ✅ 评分已写入 Langfuse trace")
-            else:
-                # 尝试不带 tag 获取
-                traces = langfuse.get_traces(limit=1)
-                if traces.data:
-                    score_trace(traces.data[0].id, scores)
-                    print(f"   ✅ 评分已写入 Langfuse trace（无 eval tag）")
-                else:
-                    print(f"   ⚠️  未找到 Langfuse trace")
-        except Exception as e:
-            print(f"   ⚠️  Langfuse 评分写入失败: {e}")
+        # 将评分写入 Langfuse：用本次运行自己的 trace_id，
+        # 不再事后查询「最近一条 trace」（有竞态，且 get_traces 在 Langfuse v3+ 已删除）
+        if trace_id:
+            try:
+                score_trace(trace_id, scores)
+                print(f"   ✅ 评分已写入 Langfuse trace {trace_id}")
+            except Exception as e:
+                print(f"   ⚠️  Langfuse 评分写入失败: {e}")
+        else:
+            print("   ⚠️  未配置 LANGFUSE_* 密钥，跳过评分写入")
 
         results.append({
             "question": question,
@@ -103,16 +92,28 @@ def run_eval(limit: int | None = None) -> None:
     print("=" * 60)
 
     if results:
-        avg_relevance = sum(r["scores"].get("relevance", 0) for r in results) / len(results)
-        avg_completeness = sum(r["scores"].get("completeness", 0) for r in results) / len(results)
-        avg_accuracy = sum(r["scores"].get("accuracy", 0) for r in results) / len(results)
-        avg_total = avg_relevance + avg_completeness + avg_accuracy
+        # 解析失败的条目分数是占位的 3/3/3，计入均值会把结论粉饰得比实际好
+        scored = [r for r in results if not r["scores"].get("parse_failed")]
+        skipped = len(results) - len(scored)
 
         print(f"测试用例数: {len(results)}")
-        print(f"平均相关性: {avg_relevance:.1f}/5")
-        print(f"平均完整性: {avg_completeness:.1f}/5")
-        print(f"平均准确性: {avg_accuracy:.1f}/5")
-        print(f"平均总分: {avg_total:.1f}/15")
+        if skipped:
+            print(f"评分解析失败（已排除）: {skipped}")
+
+        if scored:
+            avg_relevance = sum(r["scores"].get("relevance", 0) for r in scored) / len(scored)
+            avg_completeness = sum(r["scores"].get("completeness", 0) for r in scored) / len(scored)
+            avg_accuracy = sum(r["scores"].get("accuracy", 0) for r in scored) / len(scored)
+            avg_total = avg_relevance + avg_completeness + avg_accuracy
+
+            print(f"有效评分数: {len(scored)}")
+            print(f"平均相关性: {avg_relevance:.1f}/5")
+            print(f"平均完整性: {avg_completeness:.1f}/5")
+            print(f"平均准确性: {avg_accuracy:.1f}/5")
+            print(f"平均总分: {avg_total:.1f}/15")
+        else:
+            print("⚠️  全部用例评分解析失败，没有可用的汇总结果")
+
         print(f"总耗时: {sum(r['elapsed'] for r in results):.1f}s")
 
     # 刷出 Langfuse 数据

@@ -84,41 +84,48 @@ TEST_CASES = [
 ]
 
 
+def _item_id(index: int) -> str:
+    """测试用例的稳定 ID —— 让 create_dataset_item 变成 upsert 而不是每次追加。"""
+    return f"{DATASET_NAME}-{index:02d}"
+
+
 def create_dataset() -> None:
-    """创建或更新 Langfuse Dataset（幂等：已存在的 item 不会重复添加）"""
+    """创建或更新 Langfuse Dataset（幂等：同一条用例只会存在一份）"""
     langfuse = Langfuse()
 
     # 创建 Dataset（如已存在则复用）
-    dataset = langfuse.create_dataset(
+    langfuse.create_dataset(
         name=DATASET_NAME,
         description="Research Buddy 评估测试集",
     )
 
-    # 获取已有 items，避免重复添加
-    existing_items = set()
+    # 读取已有 items 只用于区分「新增」和「更新」。
+    # 注意：create_dataset() 返回的是 API 的 Dataset 模型，它没有 items 属性；
+    # 只有 get_dataset() 返回的 DatasetClient 才有。之前对 create_dataset()
+    # 的返回值取 .items 会 AttributeError，被 except 吞掉后幂等检查形同虚设，
+    # 于是每跑一次就重复插入一整份用例。
+    existing_ids: set[str] = set()
     try:
-        for item in dataset.items:
-            if hasattr(item, 'input') and item.input:
-                existing_items.add(item.input)
-    except Exception:
-        pass  # 首次创建时可能没有 items
+        existing_ids = {item.id for item in langfuse.get_dataset(DATASET_NAME).items}
+    except Exception as exc:
+        logger.warning("读取 Dataset '%s' 已有条目失败，按全部新增处理: %s", DATASET_NAME, exc)
 
     added = 0
     for i, case in enumerate(TEST_CASES):
-        # 幂等检查：跳过已存在的 item
-        if case["input"] in existing_items:
-            continue
-
+        item_id = _item_id(i)
+        # 显式传 id → 已存在则覆盖，不存在则新建，天然幂等
         langfuse.create_dataset_item(
             dataset_name=DATASET_NAME,
+            id=item_id,
             input=case["input"],
             expected_output=case["expected_output"],
             metadata={"index": i},
         )
-        added += 1
+        if item_id not in existing_ids:
+            added += 1
 
-    logger.info("Dataset '%s' 处理完成，新增 %d 条（共 %d 条测试用例）",
-                DATASET_NAME, added, len(TEST_CASES))
+    logger.info("Dataset '%s' 处理完成：新增 %d 条，更新 %d 条（共 %d 条测试用例）",
+                DATASET_NAME, added, len(TEST_CASES) - added, len(TEST_CASES))
 
 
 def get_dataset():

@@ -109,14 +109,41 @@ class TrackingScheduler:
         except Exception:
             return False
 
+    def sync_tracking_job(self, topic: dict) -> dict:
+        """按主题当前配置同步运行中的调度器（新增 / 更新 / 移除）。
+
+        主题的 tracking_enabled 或 tracking_cron 变更后必须调用，否则 SQLite 里的
+        配置与调度器内存中的任务不一致：启用了却不触发，或关闭了却继续触发。
+        调度器用的是 MemoryJobStore，start() 只在进程启动时按 DB 加载一次。
+
+        Returns:
+            {"scheduled": bool, "reason": str} —— reason 为 invalid_cron 时表示
+            配置已写库但 cron 无法解析，调用方应把这个情况告诉用户。
+        """
+        topic_id = topic.get("id", "")
+        if not topic_id:
+            return {"scheduled": False, "reason": "missing_topic_id"}
+
+        cron = (topic.get("tracking_cron") or "").strip()
+        if not topic.get("tracking_enabled") or not cron:
+            self.remove_tracking_job(topic_id)
+            return {"scheduled": False, "reason": "disabled"}
+
+        if self.add_tracking_job(topic_id, cron):
+            return {"scheduled": True, "reason": ""}
+        return {"scheduled": False, "reason": "invalid_cron"}
+
     def list_jobs(self) -> list[dict]:
         """列出所有追踪任务"""
         jobs = []
         for job in self._scheduler.get_jobs():
+            # 调度器还没 start() 时任务处于 pending 状态，APScheduler 3.x 的 Job
+            # 用 __slots__ 声明了 next_run_time 但不会赋值，直接取属性会 AttributeError
+            next_run = getattr(job, "next_run_time", None)
             jobs.append({
                 "job_id": job.id,
                 "topic_id": job.id.replace("tracking_", ""),
-                "next_run": str(job.next_run_time) if job.next_run_time else None,
+                "next_run": str(next_run) if next_run else None,
                 "trigger": str(job.trigger),
             })
         return jobs
@@ -170,6 +197,7 @@ async def _run_tracking(topic_id: str) -> None:
             "question": question,
             "topic_id": topic_id,
             "is_incremental": True,
+            "tracking_log_id": log["id"],
         }, config)
 
         if langfuse_handler:

@@ -116,17 +116,6 @@ class Notifier:
         else:
             return self._build_generic_payload(topic_name, topic_id, changes)
 
-    def _build_change_lines(self, changes: list[dict], markdown: bool = True) -> list[str]:
-        """构建变更行列表（统一逻辑，消除 wechat/dingtalk 重复）
-
-        Args:
-            changes: 变更列表
-            markdown: 是否使用 Markdown 格式（企业微信用，钉钉不用加粗）
-        """
-        lines = [f"## 🔔 {changes[0].get('_topic_name', '追踪更新')} 追踪更新\n"] if changes else []
-        # 重新构建，使用传入的 topic_name
-        return lines  # 由调用方设置标题
-
     @staticmethod
     def _format_change_line(change: dict, markdown: bool = True) -> str:
         """格式化单条变更行"""

@@ -1,6 +1,7 @@
 """DiffAnalyzer 单元测试 — 覆盖公共 API 和分支逻辑"""
 
 from research_buddy.tracking.diff import DiffAnalyzer
+from research_buddy.nodes.diff_analyzer import _get_previous_report
 
 
 class TestDiffAnalyzerAnalyze:
@@ -95,3 +96,26 @@ class TestDiffAnalyzerDifflibFallback:
         # 应检测到新增内容
         assert len(changes) > 0
         assert any(c["type"] == "new_info" for c in changes)
+
+
+class TestTrackingPreviousReport:
+    """测试追踪变化分析选择旧报告的逻辑"""
+
+    def test_skips_current_saved_report(self):
+        class Store:
+            def list_reports(self, topic_id, limit=5):
+                return [
+                    {"id": "new", "report": "new report"},
+                    {"id": "old", "report": "old report"},
+                ]
+
+        report = _get_previous_report(Store(), "topic-1", saved_report_id="new")
+        assert report["id"] == "old"
+
+    def test_returns_none_when_only_current_report_exists(self):
+        class Store:
+            def list_reports(self, topic_id, limit=5):
+                return [{"id": "new", "report": "new report"}]
+
+        report = _get_previous_report(Store(), "topic-1", saved_report_id="new")
+        assert report is None

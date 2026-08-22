@@ -23,6 +23,12 @@ class TestResearchGraph:
                     "synthesizer", "reflector"}
         assert expected.issubset(nodes), f"Missing nodes: {expected - nodes}"
 
+    def test_validator_routes_to_search_or_synthesis(self):
+        edges = create_research_graph().get_graph().edges
+        edge_keys = {(edge.source, edge.target, edge.data) for edge in edges}
+        assert ("validator", "searcher", "search_again") in edge_keys
+        assert ("validator", "synthesizer", "synthesize") in edge_keys
+
 
 class TestKnowledgeResearchGraph:
     def test_compiles(self):
@@ -35,6 +41,16 @@ class TestKnowledgeResearchGraph:
         expected = {"__start__", "__end__", "planner", "searcher", "validator",
                     "synthesizer", "reflector", "knowledge_lookup", "knowledge_store"}
         assert expected.issubset(nodes), f"Missing nodes: {expected - nodes}"
+
+    def test_reflector_routes_to_store_or_searcher(self):
+        graph = create_knowledge_research_graph()
+        edges = graph.get_graph().edges
+        edge_keys = {(edge.source, edge.target, edge.data) for edge in edges}
+        assert any(
+            edge.source == "reflector" and edge.target == "knowledge_store" and edge.conditional
+            for edge in edges
+        )
+        assert ("reflector", "searcher", "search_again") in edge_keys
 
 
 class TestTrackingGraph:
@@ -49,6 +65,17 @@ class TestTrackingGraph:
                     "synthesizer", "reflector", "knowledge_lookup", "knowledge_store",
                     "diff_analyzer", "change_notifier"}
         assert expected.issubset(nodes), f"Missing nodes: {expected - nodes}"
+
+    def test_reflector_routes_to_tracking_chain_or_searcher(self):
+        graph = create_tracking_graph()
+        edges = graph.get_graph().edges
+        edge_keys = {(edge.source, edge.target, edge.data) for edge in edges}
+        assert any(
+            edge.source == "reflector" and edge.target == "knowledge_store" and edge.conditional
+            for edge in edges
+        )
+        assert ("reflector", "searcher", "search_again") in edge_keys
+        assert ("knowledge_store", "diff_analyzer", None) in edge_keys
 
 
 class TestHITLGraph:

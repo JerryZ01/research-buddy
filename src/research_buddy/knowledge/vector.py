@@ -3,32 +3,124 @@
 import logging
 from pathlib import Path
 
-from research_buddy.config import DATA_DIR
+from research_buddy.config import (
+    DATA_DIR,
+    EMBEDDING_BACKEND,
+    EMBEDDING_MODEL,
+    OPENAI_API_BASE,
+    OPENAI_API_KEY,
+)
 
 logger = logging.getLogger(__name__)
 
-# 多语言 embedding 模型（支持中英文语义检索，基于 ONNX，无需 torch）
-_MULTILINGUAL_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
+# 各后端的默认模型
+_DEFAULT_MODELS = {
+    "default": "all-MiniLM-L6-v2",                          # ChromaDB 内置（ONNX，英文为主）
+    "sentence-transformers": "paraphrase-multilingual-MiniLM-L12-v2",  # 本地多语言
+    "openai": "text-embedding-3-small",                      # 远程 API
+}
+
+# 记忆化：embedding 模型只解析/加载一次。
+# 两个 collection 各自调用会把同一个本地模型加载两遍，占两份内存。
+_resolved: tuple[object | None, str, str] | None = None
 
 
-def _get_embedding_function():
-    """获取 embedding 函数：优先用 ONNX 多语言模型，fallback 到默认"""
-    try:
-        from chromadb.utils import embedding_functions
-        return embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=_MULTILINGUAL_MODEL,
-            device="cpu",  # 强制 CPU，避免拉入 CUDA 依赖
+class EmbeddingBackendMismatch(RuntimeError):
+    """已有向量与当前 embedding 后端不一致 —— 混用会让检索结果变成噪声。"""
+
+
+def _build_sentence_transformers(model_name: str):
+    from chromadb.utils import embedding_functions
+    return embedding_functions.SentenceTransformerEmbeddingFunction(
+        model_name=model_name,
+        device="cpu",  # 强制 CPU，避免拉入 CUDA 依赖
+    )
+
+
+def _build_openai(model_name: str):
+    if not OPENAI_API_KEY:
+        raise RuntimeError("EMBEDDING_BACKEND=openai 需要配置 OPENAI_API_KEY")
+    from chromadb.utils import embedding_functions
+    return embedding_functions.OpenAIEmbeddingFunction(
+        api_key=OPENAI_API_KEY,
+        api_base=OPENAI_API_BASE,
+        model_name=model_name,
+    )
+
+
+def resolve_embedding_function() -> tuple[object | None, str, str]:
+    """解析 embedding 后端，返回 (embedding_function, backend, model_name)。
+
+    embedding_function 为 None 表示用 ChromaDB 内置默认模型。
+
+    请求的后端不可用时会打 WARNING 并降级到 default —— 之前是静默 except 返回 None，
+    于是「多语言中文检索」这个卖点在 sentence-transformers 没安装的环境里
+    完全没有生效，日志里也看不出任何异常。
+    """
+    global _resolved
+    if _resolved is not None:
+        return _resolved
+
+    backend = EMBEDDING_BACKEND or "default"
+    if backend not in _DEFAULT_MODELS:
+        logger.warning(
+            "未知的 EMBEDDING_BACKEND=%s，降级到 default。可选值：%s",
+            backend, "、".join(_DEFAULT_MODELS),
         )
-    except Exception:
-        # fallback: ChromaDB 默认的 all-MiniLM-L6-v2（英文）
-        return None
+        backend = "default"
+
+    model_name = EMBEDDING_MODEL or _DEFAULT_MODELS[backend]
+    ef = None
+
+    if backend == "sentence-transformers":
+        try:
+            ef = _build_sentence_transformers(model_name)
+        except Exception as exc:
+            logger.warning(
+                "sentence-transformers 后端不可用（%s），降级到 default（%s，英文为主，"
+                "中文检索质量有限）。安装可选依赖：uv sync --extra multilingual",
+                exc, _DEFAULT_MODELS["default"],
+            )
+            backend, model_name = "default", _DEFAULT_MODELS["default"]
+    elif backend == "openai":
+        try:
+            ef = _build_openai(model_name)
+        except Exception as exc:
+            logger.warning(
+                "openai embedding 后端不可用（%s），降级到 default（%s）。"
+                "注意中转站不一定提供 /embeddings 接口",
+                exc, _DEFAULT_MODELS["default"],
+            )
+            backend, model_name = "default", _DEFAULT_MODELS["default"]
+
+    logger.info("向量后端=%s 模型=%s", backend, model_name)
+    if backend == "default":
+        logger.info("default 后端以英文语料训练，中文语义检索召回率偏低；"
+                    "需要中文可设 EMBEDDING_BACKEND=sentence-transformers 或 openai")
+
+    _resolved = (ef, backend, model_name)
+    return _resolved
+
+
+def describe_embedding_backend() -> str:
+    """给启动日志用的一行描述。"""
+    _, backend, model_name = resolve_embedding_function()
+    return f"{backend} / {model_name}"
+
+
+def _reset_embedding_cache() -> None:
+    """仅供测试：清掉记忆化结果，让配置改动生效。"""
+    global _resolved
+    _resolved = None
 
 
 class VectorStore:
     """ChromaDB 向量存储
 
     将研究报告按 chunk 存储，支持语义检索。
-    使用 paraphrase-multilingual-MiniLM-L12-v2 embedding（多语言，支持中文）。
+    embedding 后端由 EMBEDDING_BACKEND 决定，实际生效的模型会写入 collection
+    metadata；后续启动如果配置变了但已有向量来自别的模型，会直接拒绝混用
+    （两个 MiniLM 都是 384 维，混用不会报维度错，只会让结果悄悄失去意义）。
 
     集合：
     - report_chunks: 研究报告的文本分块
@@ -50,32 +142,61 @@ class VectorStore:
             self._client = chromadb.PersistentClient(path=self.persist_dir)
         return self._client
 
+    def _open_collection(self, name: str):
+        """打开 collection，并校验已有向量与当前 embedding 模型是否一致。"""
+        ef, backend, model_name = resolve_embedding_function()
+
+        kwargs = {
+            "metadata": {
+                "hnsw:space": "cosine",
+                "embedding_backend": backend,
+                "embedding_model": model_name,
+            },
+        }
+        if ef:
+            kwargs["embedding_function"] = ef
+
+        collection = self.client.get_or_create_collection(name=name, **kwargs)
+
+        # get_or_create_collection 对已存在的 collection 会忽略传入的 metadata，
+        # 所以要读回来比对。
+        existing = collection.metadata or {}
+        recorded = existing.get("embedding_model")
+
+        if recorded is None:
+            # 旧库没有标记。历史上 sentence-transformers 从未真正安装成功，
+            # 已有向量必然来自当时生效的模型，这里补上标记供以后校验。
+            logger.warning(
+                "collection %s 没有 embedding 模型标记（旧版本创建），"
+                "按当前配置 %s 打标；如果历史向量来自别的模型请清空 %s 后重建",
+                name, model_name, self.persist_dir,
+            )
+            try:
+                collection.modify(metadata={**existing, **kwargs["metadata"]})
+            except Exception as exc:
+                logger.warning("写入 collection %s 的 embedding 标记失败: %s", name, exc)
+        elif recorded != model_name:
+            raise EmbeddingBackendMismatch(
+                f"collection {name} 的已有向量来自 {recorded}，当前配置是 {model_name}。"
+                f"混用不同 embedding 模型会让检索结果失去意义。"
+                f"请把 EMBEDDING_BACKEND/EMBEDDING_MODEL 改回原模型，"
+                f"或删除 {self.persist_dir} 后重建向量库。"
+            )
+
+        return collection
+
     @property
     def report_collection(self):
         """报告分块集合"""
         if self._report_collection is None:
-            ef = _get_embedding_function()
-            kwargs = {"metadata": {"hnsw:space": "cosine"}}
-            if ef:
-                kwargs["embedding_function"] = ef
-            self._report_collection = self.client.get_or_create_collection(
-                name="report_chunks",
-                **kwargs,
-            )
+            self._report_collection = self._open_collection("report_chunks")
         return self._report_collection
 
     @property
     def facts_collection(self):
         """关键事实集合"""
         if self._facts_collection is None:
-            ef = _get_embedding_function()
-            kwargs = {"metadata": {"hnsw:space": "cosine"}}
-            if ef:
-                kwargs["embedding_function"] = ef
-            self._facts_collection = self.client.get_or_create_collection(
-                name="key_facts",
-                **kwargs,
-            )
+            self._facts_collection = self._open_collection("key_facts")
         return self._facts_collection
 
     # ── 报告分块 ────────────────────────────────────────

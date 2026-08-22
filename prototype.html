@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEXUS — Research Buddy</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500;600&family=Instrument+Serif&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --void:#06080f;--deep:#0b0e1a;--surface:#121830;--surface2:#1a2040;--surface3:#1e2444;--surface4:#252c52;
+  --border:rgba(0,229,255,0.12);--border2:rgba(0,229,255,0.2);--border3:rgba(0,229,255,0.35);--border4:rgba(0,229,255,0.4);
+  --text:#e8ecf4;--text2:#9ba5c8;--text3:#636e94;
+  --cyan:#00e5ff;--cyan-dim:#0097a7;--cyan-glow:rgba(0,229,255,0.2);--cyan-glow2:rgba(0,229,255,0.08);--cyan-glow3:rgba(0,229,255,0.04);
+  --amber:#ffab00;--amber-glow:rgba(255,171,0,0.15);
+  --green:#00e676;--green-glow:rgba(0,230,118,0.15);
+  --red:#ff5252;--red-glow:rgba(255,82,82,0.15);
+  --violet:#7c4dff;
+  --sans:'Space Grotesk',system-ui,sans-serif;--mono:'IBM Plex Mono','Menlo',monospace;--serif:'Instrument Serif',Georgia,serif;
+}
+html{scroll-behavior:smooth;font-size:16px}
+body{background:var(--void);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden;position:relative}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 100% 50% at 50% -5%,rgba(0,229,255,0.14),transparent 55%),radial-gradient(ellipse 70% 50% at 80% 100%,rgba(0,151,167,0.08),transparent 50%),radial-gradient(ellipse 50% 40% at 0% 40%,rgba(124,77,255,0.06),transparent 50%),radial-gradient(ellipse 40% 30% at 100% 30%,rgba(0,229,255,0.05),transparent 50%),linear-gradient(180deg,rgba(6,8,15,0) 0%,rgba(6,8,15,1) 100%);pointer-events:none;z-index:0}
+body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,229,255,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,0.04) 1px,transparent 1px);background-size:80px 80px;pointer-events:none;z-index:0;mask-image:radial-gradient(ellipse 80% 80% at 50% 40%,black 30%,transparent 80%);-webkit-mask-image:radial-gradient(ellipse 80% 80% at 50% 40%,black 30%,transparent 80%)}
+.noise{position:fixed;inset:0;opacity:0.05;pointer-events:none;z-index:1;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:200px 200px}
+.scan-line{position:fixed;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent 5%,var(--cyan) 30%,rgba(0,229,255,0.8) 50%,var(--cyan) 70%,transparent 95%);opacity:0;pointer-events:none;z-index:200;filter:blur(0.5px);box-shadow:0 0 30px var(--cyan-glow),0 0 80px var(--cyan-glow2),0 0 120px rgba(0,229,255,0.06)}
+.scan-line.active{animation:scanSweep 2.5s cubic-bezier(0.25,0,0.2,1)}
+@keyframes scanSweep{0%{top:-3px;opacity:0.9}3%{opacity:1}100%{top:100vh;opacity:0}}
+.topnav{display:flex;align-items:center;padding:0 32px;height:52px;border-bottom:1px solid var(--border2);position:sticky;top:0;background:rgba(6,8,15,0.88);backdrop-filter:blur(24px) saturate(1.4);-webkit-backdrop-filter:blur(24px) saturate(1.4);z-index:100}
+.topnav::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent 5%,var(--cyan) 50%,transparent 95%);opacity:0.35}
+.nav-brand{font-family:var(--mono);font-size:0.6rem;font-weight:600;letter-spacing:0.5em;color:var(--text3);text-transform:uppercase;display:flex;align-items:center;gap:10px}
+.brand-icon{width:22px;height:22px;border:1.5px solid var(--cyan);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:var(--cyan);position:relative;box-shadow:0 0 16px var(--cyan-glow),0 0 32px var(--cyan-glow2),inset 0 0 8px var(--cyan-glow2);background:var(--cyan-glow3)}
+.brand-icon::before{content:'';position:absolute;inset:-4px;border:1px solid rgba(0,229,255,0.06);border-radius:6px}
+.nav-links{display:flex;gap:2px;margin-left:40px}
+.nav-link{padding:7px 18px;font-size:0.72rem;font-weight:500;color:var(--text3);cursor:pointer;border-radius:5px;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);border:1px solid transparent;position:relative;overflow:hidden;user-select:none;letter-spacing:0.02em}
+.nav-link::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(0,229,255,0.06),transparent);opacity:0;transition:opacity 0.3s}
+.nav-link:hover{color:var(--text2);border-color:var(--border)}.nav-link:hover::before{opacity:1}
+.nav-link.active{color:var(--cyan);border-color:var(--border2);background:rgba(0,229,255,0.05);text-shadow:0 0 16px var(--cyan-glow);box-shadow:0 0 16px var(--cyan-glow3),0 0 32px rgba(0,229,255,0.03)}.nav-link.active::before{opacity:1}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:20px}
+.nav-status{font-family:var(--mono);font-size:0.58rem;color:var(--text3);display:flex;align-items:center;gap:8px;letter-spacing:0.08em}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green),0 0 24px var(--green-glow),0 0 40px rgba(0,230,118,0.08);animation:statusPulse 3s ease-in-out infinite}
+@keyframes statusPulse{0%,100%{opacity:0.5;transform:scale(0.9)}50%{opacity:1;transform:scale(1.1)}}
+.page{display:none;padding:0 32px;max-width:900px;margin:0 auto;position:relative;z-index:2}
+.page.active{display:block}
+.research-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:calc(100vh - 52px);text-align:center;padding:40px 0}
+.orbital{width:140px;height:140px;position:relative;margin-bottom:40px}
+.orbital-ring{position:absolute;border-radius:50%;border:1px solid}
+.orbital-ring:nth-child(1){inset:0;border-color:rgba(0,229,255,0.2);animation:orbitSpin 40s linear infinite}
+.orbital-ring:nth-child(2){inset:12px;border-color:rgba(0,229,255,0.14);animation:orbitSpin 28s linear infinite reverse}
+.orbital-ring:nth-child(3){inset:28px;border-color:rgba(0,229,255,0.1);border-style:dashed;animation:orbitSpin 18s linear infinite}
+.orbital-ring:nth-child(4){inset:42px;border-color:rgba(0,229,255,0.07);animation:orbitSpin 12s linear infinite reverse}
+.orbital-ring::after{content:'';position:absolute;top:-2px;left:50%;width:4px;height:4px;border-radius:50%;background:var(--cyan);box-shadow:0 0 12px var(--cyan),0 0 24px var(--cyan-glow),0 0 48px var(--cyan-glow2);transform:translateX(-50%)}
+.orbital-ring:nth-child(2)::after{background:var(--cyan-dim);box-shadow:0 0 6px var(--cyan-dim);width:3px;height:3px}
+.orbital-ring:nth-child(3)::after{background:var(--violet);box-shadow:0 0 6px var(--violet);width:3px;height:3px}
+.orbital-ring:nth-child(4)::after{display:none}
+@keyframes orbitSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.orbital-core{position:absolute;inset:50px;border-radius:50%;background:radial-gradient(circle,rgba(0,229,255,0.22) 0%,rgba(0,229,255,0.06) 50%,transparent 70%);display:flex;align-items:center;justify-content:center}
+.orbital-core::before{content:'\2B21';font-size:1.6rem;color:var(--cyan);text-shadow:0 0 30px var(--cyan-glow),0 0 60px var(--cyan-glow2),0 0 100px var(--cyan-glow3);animation:corePulse 4s ease-in-out infinite}
+@keyframes corePulse{0%,100%{opacity:0.7;transform:scale(0.95)}50%{opacity:1;transform:scale(1.05)}}
+.research-empty h1{font-family:var(--mono);font-size:0.65rem;font-weight:500;letter-spacing:0.6em;color:var(--text3);text-transform:uppercase;margin-bottom:6px}
+.subtitle{font-family:var(--serif);font-size:1.1rem;color:var(--text2);margin-bottom:44px;font-weight:400;letter-spacing:0.01em;font-style:italic}
+.input-wrap{width:100%;max-width:640px;position:relative;background:var(--surface);border:1px solid var(--border2);border-radius:12px;overflow:hidden;transition:all 0.5s cubic-bezier(0.4,0,0.2,1)}
+.input-wrap::before{content:'';position:absolute;top:0;left:15%;right:15%;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);opacity:0.6;z-index:2}
+.input-wrap::after{content:'';position:absolute;inset:0;border-radius:12px;box-shadow:inset 0 0 40px rgba(0,229,255,0.02);pointer-events:none;transition:box-shadow 0.5s}
+.input-wrap:focus-within::after{box-shadow:inset 0 0 60px rgba(0,229,255,0.04),inset 0 0 120px rgba(0,229,255,0.02)}
+.input-wrap:focus-within{border-color:var(--border3);box-shadow:0 0 0 4px var(--cyan-glow3),0 0 40px var(--cyan-glow2),0 8px 32px rgba(0,0,0,0.3)}
+.corner{position:absolute;width:10px;height:10px;border-color:var(--cyan);border-style:solid;opacity:0.3;transition:all 0.4s;z-index:3}
+.input-wrap:focus-within .corner{opacity:0.8;width:14px;height:14px}
+.corner.tl{top:-1px;left:-1px;border-width:2px 0 0 2px;border-radius:4px 0 0 0}
+.corner.tr{top:-1px;right:-1px;border-width:2px 2px 0 0;border-radius:0 4px 0 0}
+.corner.bl{bottom:-1px;left:-1px;border-width:0 0 2px 2px;border-radius:0 0 0 4px}
+.corner.br{bottom:-1px;right:-1px;border-width:0 2px 2px 0;border-radius:0 0 4px 0}
+.research-input{width:100%;background:transparent;border:none;padding:22px 26px;font-size:0.95rem;color:var(--text);font-family:var(--sans);outline:none;resize:none;min-height:88px;line-height:1.7}
+.research-input::placeholder{color:var(--text3);font-weight:300}
+.research-actions{display:flex;gap:12px;margin-top:18px;align-items:center;justify-content:center}
+.btn-start{padding:12px 36px;background:linear-gradient(135deg,rgba(0,229,255,0.15),rgba(0,229,255,0.05));color:var(--cyan);border:1px solid var(--border3);border-radius:8px;font-size:0.78rem;font-weight:600;font-family:var(--sans);cursor:pointer;transition:all 0.4s cubic-bezier(0.4,0,0.2,1);letter-spacing:0.08em;text-transform:uppercase;position:relative;overflow:hidden}
+.btn-start::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(0,229,255,0.2),transparent 60%);opacity:0;transition:opacity 0.4s}
+.btn-start:hover{box-shadow:0 0 40px var(--cyan-glow),0 0 100px var(--cyan-glow2),0 4px 16px rgba(0,0,0,0.2),0 0 160px rgba(0,229,255,0.04);border-color:var(--cyan);transform:translateY(-2px);text-shadow:0 0 12px var(--cyan-glow)}.btn-start:hover::before{opacity:1}
+.btn-start:active{transform:translateY(0)}
+.depth-select{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 16px;font-size:0.66rem;color:var(--text2);font-family:var(--mono);outline:none;cursor:pointer;appearance:none;transition:all 0.3s;letter-spacing:0.04em}
+.depth-select:hover{border-color:var(--border2);background:var(--surface2)}
+.research-hint{font-size:0.6rem;color:var(--text3);margin-top:28px;font-family:var(--mono);letter-spacing:0.14em;display:flex;align-items:center;gap:20px}
+.research-hint span{display:flex;align-items:center;gap:6px}
+.hint-dot{width:3px;height:3px;border-radius:50%;background:var(--cyan-dim);box-shadow:0 0 4px var(--cyan-glow2)}
+.research-running{display:none;padding-top:36px;padding-bottom:80px}
+.research-running.active{display:block}
+.research-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:32px;padding-bottom:24px;border-bottom:1px solid var(--border2);position:relative}
+.research-header::after{content:'';position:absolute;bottom:-1px;left:0;width:120px;height:1px;background:var(--cyan);box-shadow:0 0 8px var(--cyan-glow);opacity:0.4}
+.research-question{font-size:1.15rem;font-weight:600;color:var(--text);max-width:560px;line-height:1.5}
+.research-timer{font-family:var(--mono);font-size:0.82rem;color:var(--cyan);display:flex;align-items:center;gap:10px;flex-shrink:0;padding:8px 16px;background:rgba(0,229,255,0.05);border:1px solid var(--border2);border-radius:6px;box-shadow:0 0 16px var(--cyan-glow3),0 0 32px rgba(0,229,255,0.03)}
+.timer-pulse{width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan),0 0 16px var(--cyan-glow);animation:timerPulse 1.2s ease-in-out infinite}
+@keyframes timerPulse{0%,100%{opacity:0.3;transform:scale(0.7)}50%{opacity:1;transform:scale(1.3)}}
+.tree-node{margin-bottom:3px;animation:nodeReveal 0.6s cubic-bezier(0.4,0,0.2,1) both}
+@keyframes nodeReveal{from{opacity:0;transform:translateY(-10px);filter:blur(3px)}to{opacity:1;transform:translateY(0);filter:blur(0)}}
+.tree-row{display:flex;align-items:center;gap:14px;padding:10px 14px;border-radius:8px;transition:all 0.25s;position:relative;background:transparent}
+.tree-row:hover{background:rgba(0,229,255,0.03)}
+.tree-row::before{content:'';position:absolute;left:0;top:4px;bottom:4px;width:3px;border-radius:2px;background:transparent;transition:all 0.4s}
+.tree-node.active-node .tree-row::before{background:var(--cyan);box-shadow:0 0 8px var(--cyan-glow),0 0 20px var(--cyan-glow2)}
+.tree-node.done-node .tree-row::before{background:var(--green);box-shadow:0 0 6px var(--green-glow)}
+.tree-icon{font-family:var(--mono);font-size:0.9rem;width:22px;text-align:center;flex-shrink:0;transition:all 0.3s}
+.tree-icon.c{color:var(--cyan);text-shadow:0 0 10px var(--cyan-glow)}
+.tree-icon.g{color:var(--green);text-shadow:0 0 10px var(--green-glow)}
+.tree-icon.a{color:var(--amber);text-shadow:0 0 10px var(--amber-glow)}
+.tree-icon.r{color:var(--red);text-shadow:0 0 10px var(--red-glow)}
+.tree-label{font-size:0.84rem;font-weight:600;color:var(--text);margin-right:14px;white-space:nowrap}
+.tree-dots{flex:1;border-bottom:1px dotted rgba(0,229,255,0.08);min-width:24px}
+.tree-status{font-family:var(--mono);font-size:0.66rem;font-weight:500;flex-shrink:0;white-space:nowrap;padding:3px 10px;border-radius:4px;letter-spacing:0.02em}
+.tree-status.done{color:var(--green);background:var(--green-glow)}
+.tree-status.running{color:var(--cyan);background:var(--cyan-glow);animation:statusGlow 1.5s ease-in-out infinite}
+.tree-status.waiting{color:var(--text3);background:rgba(255,255,255,0.02)}
+.tree-status.warn{color:var(--amber);background:var(--amber-glow)}
+@keyframes statusGlow{0%,100%{box-shadow:none}50%{box-shadow:0 0 12px var(--cyan-glow)}}
+.tree-children{margin-left:34px;border-left:1px solid rgba(0,229,255,0.06);padding-left:0;position:relative}
+.tree-children::before{content:'';position:absolute;left:-1px;top:0;bottom:0;width:1px;background:linear-gradient(180deg,var(--border2),transparent 80%);opacity:0.6}
+.tree-child{display:flex;align-items:center;gap:10px;padding:6px 14px;font-size:0.74rem;color:var(--text2);animation:childSlide 0.4s cubic-bezier(0.4,0,0.2,1) both;position:relative}
+@keyframes childSlide{from{opacity:0;transform:translateX(-10px);filter:blur(2px)}to{opacity:1;transform:translateX(0);filter:blur(0)}}
+.child-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;background:var(--green);box-shadow:0 0 6px var(--green-glow)}
+.child-dot.running{background:var(--cyan);box-shadow:0 0 8px var(--cyan-glow);animation:dotPulse 1.2s infinite}
+.child-dot.warn{background:var(--amber);box-shadow:0 0 6px var(--amber-glow)}
+@keyframes dotPulse{0%,100%{transform:scale(0.6);opacity:0.4}50%{transform:scale(1.4);opacity:1}}
+.child-src{font-family:var(--mono);font-size:0.58rem;margin-left:auto;flex-shrink:0;padding:2px 8px;border-radius:3px;letter-spacing:0.02em}
+.child-src.ok{color:var(--green);background:var(--green-glow)}
+.child-src.warn{color:var(--amber);background:var(--amber-glow)}
+.tree-node.flash .tree-row{animation:nodeFlash 0.8s ease-out}
+@keyframes nodeFlash{0%{box-shadow:inset 0 0 0 1px rgba(0,229,255,0.5),0 0 24px var(--cyan-glow);background:rgba(0,229,255,0.06)}100%{box-shadow:none;background:transparent}}
+
+.report-conflict {
+  background: linear-gradient(135deg, var(--red-glow), rgba(255, 82, 82, 0.03));
+  border: 1px solid rgba(255, 82, 82, 0.15);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin: 20px 0;
+  animation: conflictReveal 0.7s cubic-bezier(0.4, 0, 0.2, 1) both;
+  position: relative;
+  overflow: hidden;
+}
+.report-conflict::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 3px;
+  background: var(--red);
+  box-shadow: 0 0 10px var(--red-glow);
+  border-radius: 2px;
+}
+@keyframes conflictReveal {
+  from { opacity: 0; transform: translateX(-10px); border-color: rgba(255, 82, 82, 0.5); box-shadow: 0 0 24px var(--red-glow); }
+  to { opacity: 1; transform: translateX(0); border-color: rgba(255, 82, 82, 0.15); box-shadow: none; }
+}
+.conflict-label {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--red);
+  margin-bottom: 8px;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 10px var(--red-glow);
+}
+.conflict-text {
+  font-size: 0.84rem;
+  color: var(--text2);
+  line-height: 1.8;
+  font-weight: 300;
+}
+.conflict-link {
+  font-size: 0.66rem;
+  color: var(--text3);
+  margin-top: 10px;
+  cursor: pointer;
+  transition: all 0.3s;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.conflict-link:hover { color: var(--red); text-shadow: 0 0 6px var(--red-glow); }
+
+.marker-new {
+  font-family: var(--mono);
+  font-size: 0.54rem;
+  color: var(--green);
+  background: var(--green-glow);
+  padding: 1px 7px;
+  border-radius: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+  border: 1px solid rgba(0, 230, 118, 0.12);
+  letter-spacing: 0.04em;
+}
+.marker-update {
+  font-family: var(--mono);
+  font-size: 0.54rem;
+  color: var(--amber);
+  background: var(--amber-glow);
+  padding: 1px 7px;
+  border-radius: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+  border: 1px solid rgba(255, 171, 0, 0.12);
+  letter-spacing: 0.04em;
+}
+
+/* ═══════════════════════════════════════════
+   TRACKING PAGE
+   ═══════════════════════════════════════════ */
+.tracking-page {
+  padding-top: 36px;
+  padding-bottom: 80px;
+}
+.tracking-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 36px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border2);
+  position: relative;
+}
+.tracking-header::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 80px;
+  height: 1px;
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan-glow);
+  opacity: 0.3;
+}
+.tracking-title {
+  font-family: var(--serif);
+  font-size: 1.2rem;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--text);
+}
+.tracking-badge {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  color: var(--cyan);
+  background: rgba(0, 229, 255, 0.05);
+  padding: 5px 14px;
+  border-radius: 99px;
+  border: 1px solid var(--border2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 0 16px var(--cyan-glow3);
+  letter-spacing: 0.06em;
+}
+.badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+  animation: dotPulse 1.5s infinite;
+}
+
+.timeline {
+  position: relative;
+  padding-left: 32px;
+}
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(180deg, var(--border3), var(--border), transparent 90%);
+}
+
+.tl-date {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  color: var(--text3);
+  margin-bottom: 14px;
+  margin-top: 32px;
+  position: relative;
+  letter-spacing: 0.12em;
+}
+.tl-date:first-child { margin-top: 0; }
+.tl-date::before {
+  content: '';
+  position: absolute;
+  left: -26px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--surface2);
+  border: 2px solid var(--border2);
+  transform: translateY(-50%);
+  box-shadow: 0 0 8px var(--cyan-glow3);
+}
+
+.tl-item {
+  padding: 8px 0;
+  font-size: 0.82rem;
+  color: var(--text2);
+  line-height: 1.7;
+  animation: tlReveal 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+@keyframes tlReveal {
+  from { opacity: 0; transform: translateX(-10px); filter: blur(2px); }
+  to { opacity: 1; transform: translateX(0); filter: blur(0); }
+}
+
+.tl-tag {
+  font-family: var(--mono);
+  font-size: 0.54rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 3px;
+  margin-right: 10px;
+  border: 1px solid transparent;
+  letter-spacing: 0.04em;
+}
+.tl-tag.new { color: var(--green); background: var(--green-glow); border-color: rgba(0, 230, 118, 0.12); }
+.tl-tag.update { color: var(--amber); background: var(--amber-glow); border-color: rgba(255, 171, 0, 0.12); }
+.tl-tag.conflict { color: var(--red); background: var(--red-glow); border-color: rgba(255, 82, 82, 0.12); }
+
+.tl-arrow { font-family: var(--mono); margin: 0 6px; color: var(--text3); }
+.tl-old { text-decoration: line-through; color: var(--text3); font-family: var(--mono); font-size: 0.74rem; }
+.tl-new { color: var(--cyan); font-family: var(--mono); font-size: 0.74rem; font-weight: 600; text-shadow: 0 0 8px var(--cyan-glow); }
+
+.tracking-reports {
+  margin-top: 40px;
+  border-top: 1px solid var(--border2);
+  padding-top: 28px;
+  position: relative;
+}
+.tracking-reports::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 10%, var(--cyan) 50%, transparent 90%);
+  opacity: 0.1;
+}
+.tr-section-title {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  color: var(--text3);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+.tr-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.tr-row:hover {
+  color: var(--text);
+  background: rgba(0, 229, 255, 0.03);
+  padding-left: 6px;
+}
+.tr-date { font-family: var(--mono); font-size: 0.62rem; color: var(--text3); width: 64px; flex-shrink: 0; letter-spacing: 0.04em; }
+.tr-type { font-family: var(--mono); font-size: 0.54rem; padding: 3px 10px; border-radius: 3px; flex-shrink: 0; border: 1px solid transparent; letter-spacing: 0.04em; }
+.tr-type.inc { color: var(--cyan); background: var(--cyan-glow3); border-color: rgba(0, 229, 255, 0.1); }
+.tr-type.full { color: var(--text3); background: rgba(255, 255, 255, 0.02); border-color: var(--border); }
+.tr-summary { flex: 1; }
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  .topnav { padding: 0 16px; }
+  .page { padding: 0 16px; }
+  .nav-brand { font-size: 0.5rem; letter-spacing: 0.3em; }
+  .nav-links { margin-left: 16px; gap: 0; }
+  .nav-link { padding: 6px 12px; font-size: 0.66rem; }
+  .research-input { font-size: 0.88rem; padding: 18px 20px; }
+  .orbital { width: 100px; height: 100px; }
+  .report-title { font-size: 1.1rem; }
+  .tracking-title { font-size: 1rem; }
+}
+
+</style>
+</head>
+<body>
+<div class="noise"></div>
+<div class="scan-line" id="scanLine"></div>
+
+<nav class="topnav">
+  <div class="nav-brand">
+    <div class="brand-icon">R</div>
+    RESEARCH BUDDY
+  </div>
+  <div class="nav-links">
+    <div class="nav-link active" data-page="research" onclick="switchPage('research')">研究</div>
+    <div class="nav-link" data-page="report" onclick="switchPage('report')">报告</div>
+    <div class="nav-link" data-page="tracking" onclick="switchPage('tracking')">追踪</div>
+  </div>
+  <div class="nav-right">
+    <div class="nav-status"><span class="status-dot"></span>NEXUS ONLINE</div>
+  </div>
+</nav>
+
+<!-- ═══ RESEARCH PAGE ═══ -->
+<div class="page active" id="page-research">
+  <div class="research-empty" id="emptyState">
+    <div class="orbital">
+      <div class="orbital-ring"></div>
+      <div class="orbital-ring"></div>
+      <div class="orbital-ring"></div>
+      <div class="orbital-ring"></div>
+      <div class="orbital-core"></div>
+    </div>
+    <h1>Deep Research</h1>
+    <div class="subtitle">AI 驱动的深度研究引擎</div>
+    <div class="input-wrap">
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+      <textarea class="research-input" id="questionInput" rows="2" placeholder="输入研究问题，AI 自动拆解、搜索、验证、综合..."></textarea>
+    </div>
+    <div class="research-actions">
+      <button class="btn-start" onclick="startDemo()">开始研究</button>
+      <select class="depth-select">
+        <option>深度 · 标准</option>
+        <option>深度 · 全面</option>
+        <option>深度 · 快速</option>
+      </select>
+    </div>
+    <div class="research-hint">
+      <span><span class="hint-dot"></span>增量研究</span>
+      <span><span class="hint-dot"></span>变化追踪</span>
+      <span><span class="hint-dot"></span>知识积累</span>
+    </div>
+  </div>
+
+  <div class="research-running" id="runningState">
+    <div class="research-header">
+      <div class="research-question" id="runningQuestion"></div>
+      <div class="research-timer">
+        <div class="timer-pulse"></div>
+        <span id="timer">0s</span>
+      </div>
+    </div>
+    <div id="mindTree"></div>
+  </div>
+</div>
+
+<!-- ═══ REPORT PAGE ═══ -->
+<div class="page" id="page-report">
+  <div class="report-page">
+    <div class="report-topbar">
+      <button class="report-back" onclick="switchPage('research')">← 返回</button>
+      <div class="report-title">中国新能源汽车市场 2026</div>
+      <button class="report-copy">📋 复制</button>
+    </div>
+    <div class="report-meta">
+      <div class="meta-item"><span class="meta-val">12</span> 来源</div>
+      <div class="meta-sep">·</div>
+      <div class="meta-item"><span class="meta-val">3</span> 轮反思</div>
+      <div class="meta-sep">·</div>
+      <div class="meta-item">耗时 <span class="meta-val">47s</span></div>
+      <div class="meta-sep">·</div>
+      <div class="meta-item">置信度 <span class="meta-val">8.5</span>/10</div>
+    </div>
+
+    <div class="report-section" style="animation-delay:.05s">
+      <div class="section-title">市场规模</div>
+      <div class="report-para">2026年新能源乘用车销量预计达1200万辆，同比增长约18%。渗透率将从2025年的40%提升至45%左右，新能源车正式进入主流市场。<a class="report-src">乘联会 ↗</a><span class="marker-update">更新</span></div>
+      <div class="report-para">纯电动车型占比约65%，插混/增程占比35%。插混增速显著高于纯电，成为新的增长引擎。<a class="report-src">中汽协 ↗</a></div>
+    </div>
+
+    <div class="report-section" style="animation-delay:.15s">
+      <div class="section-title">政策趋势</div>
+      <div class="report-para">以旧换新补贴政策确认延续至2026年底，单车补贴额度维持不变。新能源购置税减免政策延续至2027年底。<a class="report-src">工信部 ↗</a><span class="marker-new">新增</span></div>
+      <div class="report-para">部分城市开始试点新能源车专用停车位和充电优惠，推动使用端激励。<a class="report-src">新华网 ↗</a></div>
+    </div>
+
+    <div class="report-conflict" style="animation-delay:.25s">
+      <div class="conflict-label">⚠ 矛盾检测</div>
+      <div class="conflict-text">某自媒体报告称"新能源渗透率出现下滑趋势"，与乘联会官方数据（持续上升）矛盾</div>
+      <div class="conflict-link">查看详情 →</div>
+    </div>
+
+    <div class="report-section" style="animation-delay:.35s">
+      <div class="section-title">竞争格局</div>
+      <div class="report-para">比亚迪稳居第一，市占率约35%。吉利+极氪组合升至第二梯队。新势力中理想增程路线持续验证，蔚来换电模式加速扩张。<a class="report-src">乘联会 ↗</a><span class="marker-update">更新</span></div>
+      <div class="report-para">海外市场成为新战场：比亚迪泰国/巴西工厂投产，奇瑞俄罗斯销量翻倍，长城欧洲战略调整。<a class="report-src">财经网 ↗</a><span class="marker-new">新增</span></div>
+    </div>
+
+    <div class="report-section" style="animation-delay:.45s">
+      <div class="section-title">基础设施</div>
+      <div class="report-para">公共充电桩保有量突破350万个，超充站覆盖率快速提升。换电站以蔚来为主导，已超2500座。<a class="report-src">充电联盟 ↗</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TRACKING PAGE ═══ -->
+<div class="page" id="page-tracking">
+  <div class="tracking-page">
+    <div class="tracking-header">
+      <div class="tracking-title">新能源汽车市场</div>
+      <div class="tracking-badge"><span class="badge-dot"></span>追踪中 · 每日 09:00</div>
+    </div>
+    <div class="timeline">
+      <div class="tl-date">7月10日</div>
+      <div class="tl-item"><span class="tl-tag update">更新</span>渗透率 <span class="tl-old">35%</span> <span class="tl-arrow">→</span> <span class="tl-new">40%</span></div>
+      <div class="tl-item"><span class="tl-tag new">新增</span>以旧换新补贴延续至2026年底</div>
+      <div class="tl-date">7月3日</div>
+      <div class="tl-item"><span class="tl-tag new">新增</span>比亚迪泰国工厂正式投产</div>
+      <div class="tl-item"><span class="tl-tag update">更新</span>比亚迪市占率 <span class="tl-old">32%</span> <span class="tl-arrow">→</span> <span class="tl-new">35%</span></div>
+      <div class="tl-date">6月26日</div>
+      <div class="tl-item"><span class="tl-tag new">新增</span>新能源购置税减免政策确认延续至2027</div>
+      <div class="tl-item"><span class="tl-tag conflict">矛盾</span>某报告称渗透率下滑 vs 官方数据持续上升（已排除）</div>
+      <div class="tl-date">6月19日</div>
+      <div class="tl-item"><span class="tl-tag update">更新</span>插混占比 <span class="tl-old">28%</span> <span class="tl-arrow">→</span> <span class="tl-new">33%</span></div>
+      <div class="tl-item"><span class="tl-tag new">新增</span>理想 L6 月销破 2 万</div>
+    </div>
+    <div class="tracking-reports">
+      <div class="tr-section-title">历史报告</div>
+      <div class="tr-row"><span class="tr-date">7月10日</span><span class="tr-type inc">增量</span><span class="tr-summary">3 项变化 · 4 个新来源</span></div>
+      <div class="tr-row"><span class="tr-date">7月3日</span><span class="tr-type inc">增量</span><span class="tr-summary">2 项变化 · 3 个新来源</span></div>
+      <div class="tr-row"><span class="tr-date">6月26日</span><span class="tr-type full">完整</span><span class="tr-summary">12 个来源 · 3 轮反思</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+function switchPage(p){
+  document.querySelectorAll('.page').forEach(function(e){e.classList.remove('active')});
+  document.getElementById('page-'+p).classList.add('active');
+  document.querySelectorAll('.nav-link').forEach(function(l){l.classList.remove('active')});
+  document.querySelector('.nav-link[data-page="'+p+'"]').classList.add('active');
+}
+
+function startDemo(){
+  var q=document.getElementById('questionInput').value.trim()||'中国新能源汽车市场 2026';
+  document.getElementById('emptyState').style.display='none';
+  document.getElementById('runningState').classList.add('active');
+  document.getElementById('runningQuestion').textContent=q;
+
+  // Trigger scan line
+  var scan=document.getElementById('scanLine');
+  scan.classList.remove('active');
+  void scan.offsetWidth;
+  scan.classList.add('active');
+
+  // Timer
+  var sec=0,timerEl=document.getElementById('timer');
+  var timerInt=setInterval(function(){
+    sec++;
+    timerEl.textContent=sec<60?sec+'s':Math.floor(sec/60)+'m '+(sec%60)+'s';
+  },1000);
+
+  var tree=document.getElementById('mindTree');
+  tree.innerHTML='';
+
+  var steps=[
+    {d:600, h:mkN('c','◎','知识查询','done','发现历史知识','done-node', mkCh([
+      mkC('','匹配 3 篇历史报告 · 2,400 chars')
+    ]))},
+    {d:1400, h:mkN('c','◈','问题规划','done','3 个子问题','done-node', mkCh([
+      mkC('','2026年销量预测'),
+      mkC('','政策变化趋势'),
+      mkC('','竞争格局演变')
+    ]))},
+    {d:2200, h:mkN('c','◉','并行搜索','running','4/12','active-node', mkCh([
+      mkCS('','乘联会 · 销量数据','ok','✓'),
+      mkCS('','工信部 · 补贴政策','ok','✓'),
+      mkCS('','新华网 · 行业报道','ok','✓'),
+      mkCS('','中汽协 · 统计数据','ok','✓')
+    ]))},
+    {d:3400, search:true},
+    {d:4400, h:mkN('g','✓','结果验证','done','充足','done-node', mkCh([
+      mkC('','8/8 子问题有充分来源'),
+      mkCW('1 处矛盾需标注')
+    ]))},
+    {d:5400, h:mkN('g','✓','报告综合','done','完成','done-node','')},
+    {d:6000, h:mkN('a','↻','质量反思','done','8.5/10 · 通过','done-node', mkCh([
+      mkC('','完整性 9/10 · 准确性 8/10 · 清晰度 8.5/10')
+    ]))},
+    {d:6800, finish:true}
+  ];
+
+  var i=0;
+  function next(){
+    if(i>=steps.length) return;
+    var s=steps[i]; i++;
+
+    if(s.finish){
+      clearInterval(timerInt);
+      setTimeout(function(){ switchPage('report'); },600);
+      return;
+    }
+
+    if(s.search){
+      var sc=tree.querySelector('.tree-children:last-child');
+      var more=[
+        ['财经网 · 竞争分析','ok','✓'],
+        ['某自媒体 · 渗透率报告','warn','⚠'],
+        ['政策研究室 · 预测','ok','✓'],
+        ['海关总署 · 出口数据','ok','✓'],
+        ['理想汽车 · 投资者日','ok','✓'],
+        ['比亚迪 · 海外战略','ok','✓'],
+        ['充电联盟 · 基础设施','ok','✓'],
+        ['行业白皮书 · 趋势','ok','✓']
+      ];
+      var j=0;
+      var addInt=setInterval(function(){
+        if(j>=more.length){
+          clearInterval(addInt);
+          var ss=document.getElementById('searchStatus');
+          if(ss){ss.textContent='12/12';ss.className='tree-status done';}
+          var sn=sc.closest('.tree-node');
+          if(sn){sn.classList.remove('active-node');sn.classList.add('done-node','flash');}
+          setTimeout(next,500);
+          return;
+        }
+        var m=more[j];
+        var ch=document.createElement('div');
+        ch.className='tree-child';
+        ch.style.animationDelay=(j*0.05)+'s';
+        ch.innerHTML='<span class="child-dot'+(m[1]==='warn'?' warn':'')+'"></span>'+m[0]+'<span class="child-src '+m[1]+'">'+m[2]+'</span>';
+        sc.appendChild(ch);
+        var ss=document.getElementById('searchStatus');
+        if(ss) ss.textContent=(4+j+1)+'/12';
+        j++;
+      },180);
+      return;
+    }
+
+    if(s.h) tree.insertAdjacentHTML('beforeend',s.h);
+    setTimeout(next, s.d||1000);
+  }
+  setTimeout(next,400);
+}
+
+function mkN(ic,sym,label,status,statusText,nc,children){
+  var sid=status==='running'?' id="searchStatus"':'';
+  return '<div class="tree-node '+nc+'"><div class="tree-row"><span class="tree-icon '+ic+'">'+sym+'</span><span class="tree-label">'+label+'</span><span class="tree-dots"></span><span class="tree-status '+status+'"'+sid+'>'+statusText+'</span></div>'+(children||'')+'</div>';
+}
+function mkCh(items){return '<div class="tree-children">'+items.join('')+'</div>';}
+function mkC(dot,text){return '<div class="tree-child"><span class="child-dot'+dot+'"></span>'+text+'</div>';}
+function mkCS(dot,text,cls,mark){return '<div class="tree-child"><span class="child-dot'+dot+'"></span>'+text+'<span class="child-src '+cls+'">'+mark+'</span></div>';}
+function mkCW(text){return '<div class="tree-child"><span class="child-dot warn"></span>'+text+'</div>';}
+
+</script>
+</body>
+</html>

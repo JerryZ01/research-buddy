@@ -4,7 +4,7 @@ import logging
 
 from langfuse import Langfuse
 
-from research_buddy.utils import create_llm, parse_llm_json
+from research_buddy.utils import create_llm, parse_llm_json, get_prompt_from_langfuse
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,17 @@ JUDGE_PROMPT = """你是一个研究质量评估专家。请评估以下研究�
 ```"""
 
 
+def _default_scores(reason: str) -> dict:
+    """评分不可用时的默认分数，parse_failed 让调用方把它排除在汇总之外。"""
+    return {
+        "relevance": 3,
+        "completeness": 3,
+        "accuracy": 3,
+        "reasoning": reason,
+        "parse_failed": True,
+    }
+
+
 def judge_report(question: str, expected_points: list[str], report: str) -> dict:
     """LLM-as-Judge 评估报告质量
 
@@ -71,33 +82,33 @@ def judge_report(question: str, expected_points: list[str], report: str) -> dict
 
     llm = create_llm()
 
-    response = llm.invoke(
-        JUDGE_PROMPT.format(
-            question=question,
-            expected_points=points_text,
-            report=report,
-        )
+    prompt = get_prompt_from_langfuse(
+        "research-buddy-judge", JUDGE_PROMPT,
+        question=question,
+        expected_points=points_text,
+        report=report,
     )
+    response = llm.invoke(prompt)
 
     # 使用统一的 parse_llm_json
     try:
         scores = parse_llm_json(response.content)
-    except (ValueError, Exception):
+    except Exception:
         # 解析失败，给默认中等分，但标记 parse_failed 让调用方知道
         logger.warning("Judge JSON 解析失败，使用默认分数")
-        scores = {
-            "relevance": 3,
-            "completeness": 3,
-            "accuracy": 3,
-            "reasoning": "评分解析失败，使用默认分数",
-            "parse_failed": True,
-        }
-        return scores
+        return _default_scores("评分解析失败，使用默认分数")
+
+    # parse_llm_json 成功不等于拿到了字典：模型可能返回 JSON 数组或标量，
+    # 那样后面的 scores.get() 会 AttributeError 把整个评估跑挂。
+    if not isinstance(scores, dict):
+        logger.warning("Judge 返回的不是 JSON 对象（%s），使用默认分数", type(scores).__name__)
+        return _default_scores("评分格式不是 JSON 对象，使用默认分数")
 
     # 验证分数范围和维度完整性
     for dim in _SCORE_DIMENSIONS:
         val = scores.get(dim, 3)
-        if not isinstance(val, (int, float)) or val < _MIN_SCORE or val > _MAX_SCORE:
+        if isinstance(val, bool) or not isinstance(val, (int, float)) \
+                or val < _MIN_SCORE or val > _MAX_SCORE:
             logger.warning("Judge 维度 %s 分数 %s 超出范围，修正为 3", dim, val)
             scores[dim] = 3
         else:

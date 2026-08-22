@@ -27,16 +27,16 @@ def diff_analyzer(state: ResearchState) -> dict:
 
     store = get_knowledge_store()
 
-    # 获取上一份报告（通过 KnowledgeStore 门面）
-    latest = store.get_latest_report(topic_id)
-    if not latest:
+    # 获取上一份报告。追踪图会先保存新报告，所以这里必须跳过刚保存的报告。
+    previous_report = _get_previous_report(store, topic_id, state.get("saved_report_id", ""))
+    if not previous_report:
         logger.info("首次研究，无需对比")
         return {
             "detected_changes": [],
             "messages": ["📊 首次研究，无需对比"],
         }
 
-    old_report = latest.get("report", "")
+    old_report = previous_report.get("report", "")
     if not old_report:
         logger.info("旧报告为空，无需对比")
         return {
@@ -55,7 +55,10 @@ def diff_analyzer(state: ResearchState) -> dict:
     similarity = result.get("similarity", 1.0)
 
     # 保存变更到数据库
-    log = store.create_tracking_log(topic_id, status="completed")
+    log_id = state.get("tracking_log_id", "")
+    log = store.update_tracking_log(log_id, status="completed") if log_id else None
+    if not log:
+        log = store.create_tracking_log(topic_id, status="completed")
     for change in changes:
         store.create_change(
             tracking_log_id=log["id"],
@@ -71,6 +74,7 @@ def diff_analyzer(state: ResearchState) -> dict:
         log["id"],
         changes_detected=len(changes),
         change_summary=summarize_changes(changes),
+        report_id=state.get("saved_report_id", ""),
     )
 
     logger.info("变化分析完成：相似度 %.1f%%，检测到 %d 项变化", similarity * 100, len(changes))
@@ -89,3 +93,13 @@ def diff_analyzer(state: ResearchState) -> dict:
         "tracking_log_id": log["id"],
         "messages": msgs,
     }
+
+
+def _get_previous_report(store, topic_id: str, saved_report_id: str = "") -> dict | None:
+    """获取用于变化对比的旧报告，排除当前刚保存的新报告。"""
+    if saved_report_id:
+        for report in store.list_reports(topic_id, limit=5):
+            if report.get("id") != saved_report_id:
+                return report
+        return None
+    return store.get_latest_report(topic_id)
