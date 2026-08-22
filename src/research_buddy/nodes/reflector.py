@@ -34,7 +34,7 @@ REFLECTOR_PROMPT = """你是一个研究质量评审专家。请评估以下研�
 
 ## 评分维度
 1. **完整性**（1-5）：是否回答了所有子问题，有无遗漏
-2. **准确性**（1-5）：论点是否有充分来源支撑，有无凭空推测。报告应以 [编号] 引用来源（编号来自可用来源索引），正文不应内嵌 URL
+2. **准确性**（1-5）：论点是否有充分来源支撑，有无凭空推测。报告应基于检索到的来源撰写；正文不应内嵌 URL，也不应出现 `[编号]` 引用标注（来源统一放在文末参考文献）
 3. **清晰度**（1-5）：结构是否清晰，逻辑是否连贯
 
 ## 输出格式
@@ -221,11 +221,10 @@ def reflector(state: ResearchState) -> dict:
     passed = total_score >= 12 and min(dimensions.values()) >= 3
 
     # 证据集 = 本次检索结果 + 历史知识的来源 + 视觉模型选中的插图 URL。
-    # 增量/追踪模式下 synthesizer 被要求引用 knowledge_context 里的历史来源，
-    # 这些 URL 不在 search_results 里；只用 search_results 当证据集会把每一条
-    # 历史引用都判成「不在证据集」，导致增量研究每轮必然不通过直到耗尽预算。
-    # 插图 URL 出现在正文的 ![alt](url) 中，也要放行（但只放行被选中的图，
-    # LLM 若嵌入候选之外的图片 URL 仍会被判违规）。
+    # 正文不内嵌来源 URL（来源统一放在文末参考文献，由代码生成），
+    # 只检查正文里残留的裸 URL 是否都在证据集内——防 LLM 回归旧式内嵌链接
+    # 或幻觉 URL。插图 URL 出现在正文的 ![alt](url) 中，也要放行（但只放行
+    # 被选中的图，LLM 若嵌入候选之外的图片 URL 仍会被判违规）。
     known_urls = {normalize_url(result.get("url", "")) for result in search_results}
     known_urls.update(normalize_url(url) for url in state.get("known_source_urls", []))
     known_urls.update(
@@ -233,40 +232,16 @@ def reflector(state: ResearchState) -> dict:
     )
     known_urls.discard("")
 
-    # 编号引用表：synthesizer 构建，正文 [n] 与文末参考文献的单一事实来源。
-    source_table = state.get("source_table", []) or []
-    table_by_index = {
-        int(item["index"]): item for item in source_table
-        if item.get("index") is not None
-    }
-
     citation_issues = []
 
-    # 1) 编号引用检查：正文必须用 [n] 引用，编号必须在编号表内。
-    #    用负向后行断言排除图片语法 ![alt](url) 里的方括号，避免 alt 文本
-    #    中的数字被误判为引用编号。
-    report_cites = [int(n) for n in re.findall(r"(?<!\!)\[(\d+)\]", report)]
-    unknown_cites = sorted({n for n in report_cites if n not in table_by_index})
-    cited_urls = {
-        normalize_url(table_by_index[n]["url"])
-        for n in set(report_cites) if n in table_by_index
-    }
-
-    # 2) 正文裸 URL 检查：LLM 不应把 URL 内嵌进正文（可发布文章风格）。
+    # 正文裸 URL 检查：可发布文章风格下正文不应出现任何 URL（参考文献
+    # 由代码追加，其中的 URL 都在证据集内，天然通过）。
     raw_urls = {
         normalize_url(url.rstrip(".,);]，。；）】"))
         for url in re.findall(r"https?://[^\s<>]+", report)
     }
     raw_urls.discard("")
 
-    if table_by_index and not report_cites:
-        citation_issues.append("报告没有引用任何已检索来源 URL")
-    if unknown_cites:
-        citation_issues.append(f"报告包含 {len(unknown_cites)} 个不在来源编号表中的引用编号")
-    if cited_urls - known_urls:
-        citation_issues.append(
-            f"报告引用了 {len(cited_urls - known_urls)} 个不在证据集中的来源"
-        )
     if raw_urls - known_urls:
         citation_issues.append(f"报告包含 {len(raw_urls - known_urls)} 个不在证据集中的 URL")
     if citation_issues:

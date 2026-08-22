@@ -43,6 +43,9 @@ def _patch_llm(monkeypatch, pieces=None):
                         lambda **_: _FakeLLM(pieces))
     monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
                         lambda _name, _fallback, **_kwargs: "prompt")
+    # 核心文献筛选默认恒等（原样返回全部来源），各测试按需单独覆盖
+    monkeypatch.setattr(synthesizer_module, "curate_core_references",
+                        lambda _question, table, **_kwargs: table)
 
 
 def _graph():
@@ -193,6 +196,74 @@ def test_references_chunk_is_streamed(monkeypatch):
 def test_empty_table_renders_no_references(monkeypatch):
     result = _run(monkeypatch, {"question": "测试问题", "search_results": []})
     assert "## 参考文献" not in result["report"]
+
+
+# ── 核心文献筛选 ──────────────────────────────────────
+
+def test_core_references_curated_and_renumbered(monkeypatch):
+    """筛选后的子集重新编号 1..k，只渲染被选中的来源。"""
+    table = [
+        {"index": 1, "title": "来源一", "url": _URL_A, "source": "search"},
+        {"index": 2, "title": "来源二", "url": _URL_B, "source": "search"},
+        {"index": 3, "title": "来源三", "url": "https://c.example/three", "source": "search"},
+    ]
+    _patch_llm(monkeypatch)
+    # 必须先 _patch_llm 再覆盖（_patch_llm 会设置恒等 curation）
+    monkeypatch.setattr(synthesizer_module, "curate_core_references",
+                        lambda _q, _t, **_k: [table[2], table[0]])  # 只选 3 和 1
+
+    result = _graph().invoke({"question": "测试问题", "search_results": []})
+
+    report = result["report"]
+    assert "来源三" in report and "来源一" in report
+    assert "来源二" not in report
+    # 重新编号：来源三在前（1.），来源一在后（2.）
+    assert "1. [来源三](https://c.example/three)" in report
+    assert "2. [来源一]" in report
+    assert "## 参考文献" in report
+
+
+def test_curate_core_references_picks_indexes_in_order(monkeypatch):
+    """LLM 返回 [3, 1] → 按该顺序返回对应来源，并限制数量。"""
+    table = [
+        {"index": i, "title": f"来源{i}", "url": f"https://{i}.example/x", "source": "search"}
+        for i in range(1, 7)
+    ]
+
+    class _Resp:
+        content = '{"indexes": [3, 1, 9, 1]}'  # 9 越界、1 重复 → 丢弃
+
+    monkeypatch.setattr(synthesizer_module, "create_llm",
+                        lambda **_: type("_LLM", (), {"invoke": lambda self, _p: _Resp()})())
+    monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
+                        lambda *_a, **_k: "prompt")
+
+    picked = synthesizer_module.curate_core_references("问题", table, max_refs=4)
+    assert [p["index"] for p in picked] == [3, 1]
+
+
+def test_curate_core_references_fallback_on_failure(monkeypatch):
+    """LLM 调用/解析失败 → 降级取来源列表前 max_refs 个。"""
+    table = [
+        {"index": i, "title": f"来源{i}", "url": f"https://{i}.example/x", "source": "search"}
+        for i in range(1, 11)
+    ]
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("llm down")
+
+    monkeypatch.setattr(synthesizer_module, "create_llm", _boom)
+    picked = synthesizer_module.curate_core_references("问题", table, max_refs=3)
+    assert [p["index"] for p in picked] == [1, 2, 3]
+
+
+def test_prompts_require_no_inline_citations(monkeypatch):
+    """三个 prompt 都不应再要求 [编号] 引用，也不再注入来源编号表。"""
+    for prompt in (synthesizer_module.SYNTHESIZER_PROMPT,
+                   synthesizer_module.SYNTHESIZER_INCREMENTAL_PROMPT,
+                   synthesizer_module.SYNTHESIZER_REFINE_PROMPT):
+        assert "{source_table}" not in prompt
+        assert "编号必须来自" not in prompt
 
 
 # ── 插图（视觉选图） ──────────────────────────────────

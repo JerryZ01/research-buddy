@@ -12,7 +12,7 @@
 
 | 能力 | 说明 |
 |------|------|
-| 深度研究 | 输入问题 → 拆解 1-6 个子问题 → 并行搜索 → 证据验证 → 流式生成**可发布文章**（正文编号引用 `[n]`，文末参考文献由代码生成） |
+| 深度研究 | 输入问题 → 拆解 1-6 个子问题 → 并行搜索 → 证据验证 → 流式生成**可发布文章**（正文无编号引用，文末核心参考文献由 LLM 筛选 + 代码重编号） |
 | 自适应研究 | 稳定 `sub_question_id` 追溯、自适应搜索语言、URL+内容指纹双去重、混合证据充足性判断 |
 | 循环修正 | LLM 自评报告质量 + 引用一致性校验 → 不足则补搜或重写 → 搜索/反思双预算闸防无限循环 |
 | 人机交互 | 规划后暂停让用户编辑子问题，综合后暂停让用户补充要求 |
@@ -404,11 +404,12 @@ stop_reason:
 **输入**：`question` / `search_results` / `report` / `reflection_feedback` / `is_incremental` / `has_knowledge` / `knowledge_context` / `evidence_assessments` / `validation_gaps` / `stop_reason` / `evidence_assessment_degraded` / `search_unavailable`
 **输出**：`report`（文章正文 + 文末参考文献）/ `confidence` / `research_notes` / `source_table` / `messages`
 
-**编号引用体系（核心设计）**：
-- `build_source_table()`：从 `search_results` + `known_source_urls` 按 `normalize_url` 去重构建编号表 `[{index, title, url, source}]`，本次检索在前、历史知识在后。
-- 正文引用要求：LLM 用 `[n]` 标注来源（如「……这一机制于 1992 年引入[1]」），编号必须来自注入的编号表。
-- 文末参考文献 `render_references()`：由**代码**按同一编号表生成（`## 参考文献` + `n. [标题](URL)`），与 LLM 输出无关，编号 100% 对应。参考文献与正文一样走 `report_chunk` 流。
-- 三个 prompt 均明确禁止：正文内嵌 URL、自行添加参考文献/置信度章节、写「存在矛盾/证据不足/研究局限」等元评论。
+**无正文引用 + 核心参考文献（核心设计）**：
+- `build_source_table()`：从 `search_results` + `known_source_urls` 按 `normalize_url` 去重构建来源表 `[{index, title, url, source}]`，本次检索在前、历史知识在后。
+- **正文无引用标注**：三个 prompt 均明确禁止正文出现 `[n]` 编号引用或内嵌 URL（来源统一放文末）。
+- 核心文献筛选 `curate_core_references()`：一次性非流式 LLM 调用（`research-buddy-core-refs` prompt），从全部来源中选出最核心的 `MAX_REFERENCES=8` 个（优先权威一手来源）；输出编号越界/重复被丢弃；LLM 失败时降级取来源表前 8 个（Tavily 相关度序）。
+- 文末参考文献 `render_references()`：由**代码**渲染筛选后的子集并**重新编号 1..k**（`## 参考文献` + `k. [标题](URL)`），与正文一样走 `report_chunk` 流。
+- 三个 prompt 均明确禁止：正文内嵌 URL、`[编号]` 引用、自行添加参考文献/置信度章节、写「存在矛盾/证据不足/研究局限」等元评论。
 
 **置信度由代码确定性计算**（`compute_confidence()`，不进正文）：
 
@@ -921,6 +922,7 @@ Prompt 版本管理：本地 prompt 用 Python `.format()` 语法（`{var}`）�
 | `MAX_SEARCH_RESULTS` | `5` | 每次搜索最大结果数 |
 | `MAX_SEARCH_ROUNDS` | `4` | 最大搜索轮次（补搜循环闸） |
 | `MAX_TOTAL_QUERIES` | `30` | 补搜查询预算（初始轮基础搜索不计入） |
+| `MAX_REFERENCES` | `8` | 文末参考文献最多条数（LLM 筛选核心子集） |
 | `MAX_REFLECTION_ROUNDS` | `2` | 最大反思轮次（修正循环闸） |
 | `MIN_EVIDENCE_COVERAGE` | `0.75` | 证据覆盖率硬底线 |
 | `MIN_DISTINCT_DOMAINS` | `2` | 最少独立域名数（交叉验证信号） |
@@ -1378,6 +1380,7 @@ data/                        # 运行时数据（.gitignore 已排除）
 | `MAX_SEARCH_RESULTS` | 可选 | 每次搜索最大结果数（默认 5） |
 | `MAX_SEARCH_ROUNDS` | 可选 | 最大搜索轮次（默认 4） |
 | `MAX_TOTAL_QUERIES` | 可选 | 补搜查询预算（默认 30，初始轮不计入） |
+| `MAX_REFERENCES` | 可选 | 文末参考文献条数上限（默认 8） |
 | `MAX_REFLECTION_ROUNDS` | 可选 | 最大反思轮次（默认 2） |
 | `MIN_EVIDENCE_COVERAGE` | 可选 | 证据覆盖率硬底线（默认 0.75） |
 | `MIN_DISTINCT_DOMAINS` | 可选 | 最少独立域名数（默认 2） |

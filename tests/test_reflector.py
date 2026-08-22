@@ -210,7 +210,7 @@ def test_duplicate_gap_queries_are_merged_once(monkeypatch):
     assert len(gaps) == 1
 
 
-# ── 编号引用校验（可发布文章风格） ───────────────────────
+# ── 正文引用风格（无编号引用，仅校验残留 URL） ───────────
 
 _SOURCE_TABLE = [
     {"index": 1, "title": "来源一", "url": "https://a.example/one", "source": "search"},
@@ -233,7 +233,7 @@ def _reflect(state, monkeypatch):
 
 
 def _state_with_table(report):
-    """编号引用测试用 state：search_results 与 source_table 的 URL 对齐。"""
+    """引用风格测试用 state：search_results 与 source_table 的 URL 对齐。"""
     state = _state(report)
     state["search_results"] = [
         {"sub_question_id": "sq_01", "sub_question": "子问题", "query": "query",
@@ -245,38 +245,39 @@ def _state_with_table(report):
     return state
 
 
-def test_numbered_citations_pass_with_source_table(monkeypatch):
+def test_body_without_citations_passes(monkeypatch):
+    """正文无 [n] 引用是新的正常形态：不再校验「是否引用了来源」。"""
+    state = _state_with_table("正文只有客观论述，没有引用编号。")
+    result = _reflect(state, monkeypatch)
+    assert result["reflection_pass"] is True
+
+
+def test_legacy_citation_text_in_body_does_not_fail(monkeypatch):
+    """正文残留 [1][2] 文本不判违规（引用校验已移除，风格由 prompt 约束）。"""
     state = _state_with_table("结论一[1]，结论二[2]。")
     result = _reflect(state, monkeypatch)
     assert result["reflection_pass"] is True
     assert "不在" not in result["reflection_feedback"]
 
 
-def test_unknown_citation_number_fails(monkeypatch):
-    state = _state_with_table("结论引用了[5]。")
-    result = _reflect(state, monkeypatch)
-    assert result["reflection_pass"] is False
-    assert "不在来源编号表中" in result["reflection_feedback"]
-
-
-def test_missing_citations_fail_when_table_present(monkeypatch):
-    """编号表非空但正文一个 [n] 都没有 → 视为没有引用任何来源。"""
-    state = _state_with_table("正文只有论述，没有任何引用编号。")
-    result = _reflect(state, monkeypatch)
-    assert result["reflection_pass"] is False
-    assert "没有引用任何已检索来源 URL" in result["reflection_feedback"]
-
-
-def test_citation_and_raw_known_url_both_pass(monkeypatch):
+def test_raw_known_url_in_body_passes(monkeypatch):
     """正文内嵌的裸 URL 只要在证据集内就不判违规（防回归旧风格时误伤）。"""
-    state = _state_with_table("结论[1]（来源 https://a.example/one）。")
+    state = _state_with_table("结论（来源 https://a.example/one）。")
     result = _reflect(state, monkeypatch)
     assert result["reflection_pass"] is True
 
 
-def test_historical_sources_citable_via_numbered_table(monkeypatch):
-    """增量/追踪模式：编号表里的 knowledge 来源必须可被 [n] 引用。"""
-    state = _state("历史结论[1]。")
+def test_unknown_raw_url_in_body_fails(monkeypatch):
+    """正文内嵌不在证据集的 URL → fail-closed 强制修正。"""
+    state = _state_with_table("结论（来源 https://unknown.example/outside）。")
+    result = _reflect(state, monkeypatch)
+    assert result["reflection_pass"] is False
+    assert "不在证据集" in result["reflection_feedback"]
+
+
+def test_historical_sources_stay_in_evidence_set(monkeypatch):
+    """增量/追踪模式：历史知识来源必须在证据集里，不算「不在证据集」。"""
+    state = _state("历史结论（来源 https://history.example/old）。")
     state["is_incremental"] = True
     state["known_source_urls"] = ["https://history.example/old"]
     state["source_table"] = [
@@ -310,14 +311,3 @@ def test_unselected_image_url_fails(monkeypatch):
     result = _reflect(state, monkeypatch)
     assert result["reflection_pass"] is False
     assert "不在证据集" in result["reflection_feedback"]
-
-
-def test_image_alt_numbers_are_not_citations(monkeypatch):
-    """![2024](url) 里的数字不是 [n] 引用编号（负向后行断言排除图片语法）。"""
-    state = _state_with_table("结论[1]。\n\n![2024](https://img.example/pic.jpg)\n")
-    state["selected_images"] = [{
-        "url": "https://img.example/pic.jpg", "alt": "2024", "sub_question_id": "sq_01",
-    }]
-    result = _reflect(state, monkeypatch)
-    assert result["reflection_pass"] is True
-    assert "不在来源编号表" not in result["reflection_feedback"]

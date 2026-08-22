@@ -1,8 +1,7 @@
-"""综合节点 - 将搜索结果综合为可发布的结构化报告（支持流式输出）
+"""综合节点 - 将搜索结果综合为可发布的结构化文章（支持流式输出）
 
-报告 = 纯文章正文（无评价性内容、无内嵌 URL）+ 代码生成的文末参考文献。
-- 正文引用用 [编号]（如「...引用了来源[1]」），编号来自 synthesizer 构建的 source_table
-- 参考文献（## 参考文献）由代码按同一编号表生成，与 LLM 输出无关，100% 准确
+报告 = 纯文章正文（无评价性内容、无内嵌 URL、无 [编号] 引用标注）
+       + 文末核心参考文献（LLM 从全部来源中筛选 + 代码重编号生成）。
 - 矛盾/不足/置信度等评价性信息写入 research_notes / confidence（state 字段），不进正文
 """
 
@@ -11,9 +10,10 @@ import logging
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import StreamWriter
 
+from research_buddy.config import MAX_REFERENCES
 from research_buddy.state import ResearchState
 from research_buddy.tools.images import select_images
-from research_buddy.utils import create_llm, get_prompt_from_langfuse, normalize_url
+from research_buddy.utils import create_llm, get_prompt_from_langfuse, normalize_url, parse_llm_json
 
 logger = logging.getLogger(__name__)
 
@@ -28,19 +28,16 @@ SYNTHESIZER_PROMPT = """你是一位资深研究撰稿人。根据研究问题�
 ## 检索证据
 {search_results}
 
-## 可用来源编号表
-{source_table}
-
 ## 可用插图（可选）
 {image_section}
 
 ## 撰写要求
 1. 文章结构：概述 → 各子问题分析 → 结论
-2. 论点引用来源时，在句末用方括号标注编号，如「……这一机制于 1992 年引入[1]」。编号必须来自「可用来源编号表」，一个论点可引用多个编号（如 [1][2]）
+2. 论点直接陈述，**不需要**标注引用编号或来源链接（文末参考文献由系统自动生成）
 3. 如果提供了「可用插图」，在内容最相关的位置插入 1~2 张插图：`![alt文本](图片URL)`。图片 URL 必须原样来自「可用插图」列表，禁止使用列表之外的图片；alt 文本用「可用插图」里给出的描述
 4. 只陈述客观事实与基于证据的分析，语气中立、行文流畅，达到可直接发布的质量
 5. 不评价检索过程本身：不要在正文中写「信息存在矛盾」「证据不足」「研究局限」「本报告基于……搜索」等元评论
-6. 不要在正文中直接写出任何 URL（来源只通过 [编号] 引用；插图 URL 仅出现在 `![]()` 语法中）
+6. 不要在正文中直接写出任何 URL，也不要用 `[编号]` 形式标注来源（插图 URL 仅出现在 `![]()` 语法中）
 7. 不要自行添加「参考文献」「来源」「置信度」章节（文末参考文献由系统自动生成）
 8. 使用中文撰写"""
 
@@ -55,19 +52,16 @@ SYNTHESIZER_INCREMENTAL_PROMPT = """你是一位资深研究撰稿人。请基�
 ## 新检索证据
 {search_results}
 
-## 可用来源编号表
-{source_table}
-
 ## 可用插图（可选）
 {image_section}
 
 ## 撰写要求
 1. 在已有知识基础上补充和更新信息，生成完整的更新后文章
 2. 客观陈述最新进展与既有结论之间的关系（如「截至 2024 年……」「此前的结论在最新资料中得到确认」），不使用 🆕/⚠️ 等进度标记符号
-3. 论点引用来源时，在句末用方括号标注编号（如 [1]），编号必须来自「可用来源编号表」
+3. 论点直接陈述，**不需要**标注引用编号或来源链接（文末参考文献由系统自动生成）
 4. 如果提供了「可用插图」，在内容最相关的位置插入 1~2 张插图：`![alt文本](图片URL)`。图片 URL 必须原样来自「可用插图」列表，禁止使用列表之外的图片；alt 文本用「可用插图」里给出的描述
 5. 只陈述客观事实与基于证据的分析，不评价检索过程本身（不写「存在矛盾」「证据不足」「研究局限」等元评论）
-6. 不要在正文中直接写出任何 URL
+6. 不要在正文中直接写出任何 URL，也不要用 `[编号]` 形式标注来源
 7. 不要自行添加「参考文献」「来源」「置信度」章节
 8. 文章结构：概述 → 各子问题分析 → 结论
 9. 使用中文撰写"""
@@ -80,9 +74,6 @@ SYNTHESIZER_REFINE_PROMPT = """你是一位资深研究撰稿人。以下是之�
 ## 检索证据（包含补充搜索的新结果）
 {search_results}
 
-## 可用来源编号表
-{source_table}
-
 ## 可用插图（可选）
 {image_section}
 
@@ -94,10 +85,10 @@ SYNTHESIZER_REFINE_PROMPT = """你是一位资深研究撰稿人。以下是之�
 
 ## 撰写要求
 1. 根据改进建议针对性补充和修正，保留原文中仍然有效的部分
-2. 论点引用来源时，在句末用方括号标注编号（如 [1]），编号必须来自「可用来源编号表」，新增内容使用新编号
+2. 论点直接陈述，**不需要**标注引用编号或来源链接（文末参考文献由系统自动生成）
 3. 如果提供了「可用插图」，在内容最相关的位置插入 1~2 张插图：`![alt文本](图片URL)`。图片 URL 必须原样来自「可用插图」列表，禁止使用列表之外的图片；alt 文本用「可用插图」里给出的描述
 4. 只陈述客观事实与基于证据的分析，不评价检索过程本身（不写「存在矛盾」「证据不足」「研究局限」等元评论）
-5. 不要在正文中直接写出任何 URL
+5. 不要在正文中直接写出任何 URL，也不要用 `[编号]` 形式标注来源
 6. 不要自行添加「参考文献」「来源」「置信度」章节
 7. 文章结构：概述 → 各子问题分析 → 结论
 8. 使用中文撰写"""
@@ -147,19 +138,98 @@ def format_source_table(table: list[dict]) -> str:
     )
 
 
-def render_references(table: list[dict]) -> str:
-    """生成文末参考文献的 Markdown（代码生成，编号与正文 [n] 一一对应）。"""
-    if not table:
+def render_references(refs: list[dict]) -> str:
+    """生成文末核心参考文献的 Markdown（代码生成，重新编号 1..k）。"""
+    if not refs:
         return ""
     lines = [
         "",
         "## 参考文献",
         "",
-        *[f"{item['index']}. [{item.get('title', item.get('url', ''))}]({item.get('url', '')})"
-          for item in table],
+        *[f"{i}. [{item.get('title', item.get('url', ''))}]({item.get('url', '')})"
+          for i, item in enumerate(refs, 1)],
         "",
     ]
     return "\n".join(lines)
+
+
+# ── 核心文献筛选 ──────────────────────────────────────
+
+CORE_REFS_PROMPT = """你是学术文献专家。以下是研究问题及检索到的全部来源，请选出最核心、最值得作为文章参考文献的 {max_count} 个来源。
+
+## 研究问题
+{question}
+
+## 来源列表
+{source_list}
+
+## 选择原则
+- 优先权威一手来源：官方文档、学术论文、官方报告、行业权威站
+- 优先与问题直接相关、信息密度高的来源
+- 来源足够多时尽量覆盖不同子问题的关键证据
+- 数量不超过 {max_count} 个；没有足够核心的来源时可以少于 {max_count}
+
+## 输出格式
+只返回 JSON（不要包含其他内容）：
+```json
+{{"indexes": [1, 3, 7]}}
+```
+- indexes 是来源列表里的编号，按重要程度排序"""
+
+
+def curate_core_references(question: str, source_table: list[dict],
+                           max_refs: int | None = None) -> list[dict]:
+    """从全部来源中筛选核心参考文献子集。
+
+    LLM 选择（一次性非流式调用）；失败时降级取来源列表前 max_refs 个
+    （search_results 按 Tavily 相关度排序，天然近似核心）。
+
+    Returns:
+        source_table 的子集（保持原条目结构），数量 ≤ max_refs。
+    """
+    max_refs = max_refs or MAX_REFERENCES
+    if not source_table:
+        return []
+    # 控制 prompt 大小：候选超过 max_refs*2 时先截断
+    candidates = source_table[: max_refs * 2]
+
+    source_list = "\n".join(
+        f"[{item['index']}] {item.get('title', '')} — {item.get('url', '')}"
+        for item in candidates
+    )
+    try:
+        llm = create_llm()
+        prompt = get_prompt_from_langfuse(
+            "research-buddy-core-refs", CORE_REFS_PROMPT,
+            question=question,
+            source_list=source_list,
+            max_count=max_refs,
+        )
+        response = llm.invoke(prompt)
+        parsed = parse_llm_json(response.content)
+        indexes_raw = parsed.get("indexes", []) if isinstance(parsed, dict) else []
+        picked: list[dict] = []
+        seen: set[int] = set()
+        for raw in indexes_raw:
+            try:
+                index = int(raw)
+            except (TypeError, ValueError):
+                continue
+            # 编号必须落在候选范围内，且不重复（防幻觉）
+            if index < 1 or index > len(candidates) or index in seen:
+                continue
+            seen.add(index)
+            picked.append(candidates[index - 1])
+            if len(picked) >= max_refs:
+                break
+        if picked:
+            return picked
+        logger.warning("核心文献筛选输出无效，降级为按来源顺序截取")
+    except Exception as exc:
+        logger.warning("核心文献筛选失败，降级为按来源顺序截取: %s", exc)
+
+    # 兜底：search_results 在 source_table 里按 Tavily 相关度排序
+    return source_table[:max_refs]
 
 
 def compute_confidence(state: ResearchState) -> str:
@@ -290,7 +360,6 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
     prompt_kwargs = {
         "question": question,
         "search_results": formatted_results,
-        "source_table": format_source_table(source_table),
         "image_section": image_section,
     }
 
@@ -333,8 +402,9 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
             if writer:
                 writer({"type": "report_chunk", "content": content})
 
-    # 文末参考文献由代码确定性生成：编号与正文 [n] 引用一一对应，不依赖 LLM
-    references = render_references(source_table)
+    # 文末核心参考文献：LLM 从全部来源中筛选子集，代码重新编号生成
+    core_refs = curate_core_references(question, source_table)
+    references = render_references(core_refs)
     if references:
         full_report += references
         if writer:
