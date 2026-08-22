@@ -2573,7 +2573,7 @@ select.input {
   }
 }
 </style>
-<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/app.css?v=2">
 <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
 </head>
 <body>
@@ -5340,6 +5340,27 @@ function renderMarkdown(markdown) {
     if (el.tagName === 'A') {
       el.setAttribute('target', '_blank');
       el.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+  // 插图统一包装成 figure + figcaption（alt 变题注），与正文排版协调。
+  // 图片不按原始尺寸孤悬在文字里：限宽、居中、带边框题注，小图不突兀、大图不撑破。
+  template.content.querySelectorAll('img').forEach(img => {
+    img.loading = 'lazy';
+    const alt = img.getAttribute('alt') || '';
+    const fig = document.createElement('figure');
+    fig.className = 'report-figure';
+    fig.appendChild(img);
+    if (alt) {
+      const cap = document.createElement('figcaption');
+      cap.textContent = alt;
+      fig.appendChild(cap);
+    }
+    const parent = img.parentNode;
+    // 若图片是段落里唯一内容，整段替换为 figure，避免 p 与 figure 双层外边距
+    if (parent && parent.tagName === 'P' && parent.childNodes.length === 1) {
+      parent.parentNode.replaceChild(fig, parent);
+    } else if (parent) {
+      parent.replaceChild(fig, img);
     }
   });
   return template.innerHTML;

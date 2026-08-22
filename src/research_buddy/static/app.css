@@ -804,6 +804,10 @@ kbd { padding: 1px 4px; color: inherit; background: rgba(255,255,255,.06); borde
 .report-body p { margin: 10px 0; }.report-body ul, .report-body ol { padding-left: 21px; }.report-body li { margin: 6px 0; }
 .report-body a { color: var(--cyan); text-underline-offset: 3px; }.report-body blockquote { margin: 17px 0; padding: 12px 16px; color: var(--text2); background: #f4f7f5; border-left: 3px solid var(--cyan); }.report-body code { padding: 2px 5px; color: #a4342c; background: #f5eae8; border-radius: 3px; }.report-body pre { padding: 16px; overflow-x: auto; color: #dbe4e0; background: #1e2522; border-radius: 5px; }.report-body table { width: 100%; margin: 18px 0; border-collapse: collapse; font-size: .82rem; }.report-body th, .report-body td { padding: 9px 10px; border: 1px solid var(--border); text-align: left; }.report-body th { background: var(--surface2); }
 .report-body img { display: block; width: auto; max-width: 100%; height: auto; margin: 18px auto; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 4px 18px rgba(15, 30, 25, .10); }
+/* 插图统一排版：figure 限宽居中 + 边框题注，与正文协调 */
+.report-figure { max-width: min(100%, 720px); margin: 26px auto; padding: 0; text-align: center; }
+.report-figure img { display: block; width: auto; max-width: 100%; height: auto; margin: 0 auto; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 6px 24px rgba(15, 30, 25, .12); background: #fff; }
+.report-figure figcaption { margin-top: 9px; color: var(--text3); font-size: .76rem; line-height: 1.6; overflow-wrap: anywhere; }
 .report-body p:has(> img) { text-align: center; }
 
 .empty-state { min-height: 210px; padding: 40px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px; color: var(--text3); text-align: center; }
