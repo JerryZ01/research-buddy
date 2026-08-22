@@ -24,6 +24,7 @@ class KnowledgeStore:
 
     def save_report(self, topic_id: str, question: str, report: str,
                     confidence: str = "", sources: list | None = None,
+                    research_notes: list[str] | None = None,
                     search_results_count: int = 0, reflection_rounds: int = 0,
                     is_incremental: bool = False, parent_report_id: str = "",
                     key_facts: list[str] | None = None) -> dict:
@@ -38,6 +39,7 @@ class KnowledgeStore:
             report=report,
             confidence=confidence,
             sources=sources,
+            research_notes=research_notes,
             search_results_count=search_results_count,
             reflection_rounds=reflection_rounds,
             is_incremental=is_incremental,

@@ -1,9 +1,11 @@
 """反思节点 - LLM 自评报告质量，决定是否需要修正"""
 
 import logging
+import re
 
+from research_buddy.config import MAX_REFLECTION_ROUNDS
 from research_buddy.state import ResearchState
-from research_buddy.utils import parse_llm_json, create_llm, get_prompt_from_langfuse
+from research_buddy.utils import parse_llm_json, create_llm, get_prompt_from_langfuse, normalize_url
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,12 @@ REFLECTOR_PROMPT = """你是一个研究质量评审专家。请评估以下研�
 ## 搜索结果数量
 {result_count} 条
 
+## 可用来源索引
+{source_index}
+
+## 证据覆盖评估
+{evidence_status}
+
 ## 研究报告
 {report}
 
@@ -26,7 +34,7 @@ REFLECTOR_PROMPT = """你是一个研究质量评审专家。请评估以下研�
 
 ## 评分维度
 1. **完整性**（1-5）：是否回答了所有子问题，有无遗漏
-2. **准确性**（1-5）：论点是否有充分来源支撑，有无凭空推测
+2. **准确性**（1-5）：论点是否有充分来源支撑，有无凭空推测。报告应以 [编号] 引用来源（编号来自可用来源索引），正文不应内嵌 URL
 3. **清晰度**（1-5）：结构是否清晰，逻辑是否连贯
 
 ## 输出格式
@@ -45,8 +53,56 @@ REFLECTOR_PROMPT = """你是一个研究质量评审专家。请评估以下研�
 
 - 总分 >= 12 时 pass 设为 true
 - pass 为 false 时必须提供 feedback 和 supplement_queries
-- supplement_queries 必须是英文搜索词，且简短（2-5 个关键词）
+- supplement_queries 应匹配目标信息源的语言和地区，保持简短、具体
 - 如果有用户反馈，优先针对用户反馈的不足生成补充搜索词"""
+
+
+def _supplement_targets(sub_questions: list[dict],
+                        evidence_assessments: list[dict]) -> list[dict]:
+    """给报告级补充搜索挑归属分支，覆盖率最低的排在前面。
+
+    补充缺口必须带真实的 sub_question_id：validator 只统计 sub_question_id 非空的
+    结果（results_by_id 会丢掉空 id），所以 sub_question_id="" 的补搜结果不计入
+    任何分支的覆盖率，validator 下一轮又产出同样的缺口，白烧搜索预算。
+    """
+    branches = {
+        sq["id"]: {
+            "sub_question_id": sq["id"],
+            "question": sq.get("question", ""),
+            "language": sq.get("language", "auto"),
+            "region": sq.get("region", "GLOBAL"),
+        }
+        for sq in sub_questions if sq.get("id")
+    }
+    if not branches:
+        return []
+
+    ranked = sorted(
+        (a for a in evidence_assessments if a.get("sub_question_id") in branches),
+        key=lambda a: a.get("coverage", 0),
+    )
+    targets = [branches[a["sub_question_id"]] for a in ranked]
+    # 没有评估结果（例如首轮解析失败）时按规划顺序兜底
+    targets.extend(b for b in branches.values() if b not in targets)
+    return targets
+
+
+def _merge_gaps(primary: list[dict], inherited: list[dict]) -> list[dict]:
+    """合并新缺口与上游未解决的缺口，按搜索词去重。
+
+    validation_gaps 是覆盖语义，reflector 直接返回自己的列表会把 validator 标出的
+    缺口整段擦掉：一旦 LLM 没给 supplement_queries，缺口就消失，路由改走
+    revise_report，用完全相同的证据再写一遍报告。
+    """
+    merged = []
+    seen = set()
+    for gap in [*primary, *inherited]:
+        key = " ".join(str(gap.get("search_query", "")).lower().split())
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(gap)
+    return merged
 
 
 def reflector(state: ResearchState) -> dict:
@@ -64,6 +120,10 @@ def reflector(state: ResearchState) -> dict:
     report = state.get("report", "")
     current_round = state.get("reflection_round", 0)
     user_feedback = state.get("user_feedback", "")
+    evidence_assessments = state.get("evidence_assessments", [])
+    # validator 标出但还没解决的缺口，必须带到本节点的输出里，不能被覆盖掉
+    inherited_gaps = list(state.get("validation_gaps", []))
+    supplement_targets = _supplement_targets(sub_questions, evidence_assessments)
 
     # 格式化子问题
     sq_text = "\n".join(
@@ -77,76 +137,186 @@ def reflector(state: ResearchState) -> dict:
     else:
         user_feedback_section = ""
 
+    source_table = state.get("source_table", []) or []
+    if source_table:
+        source_index = "\n".join(
+            f"- [{item.get('index', '')}] {item.get('title', '')}: {item.get('url', '')}"
+            for item in source_table
+        )
+    else:
+        source_index = "\n".join(
+            f"- {result.get('title', '')}: {result.get('url', '')}"
+            for result in search_results[:30]
+        )
+    evidence_status = "\n".join(
+        f"- {item.get('sub_question_id', '')}: {item.get('status', '')}, "
+        f"coverage={item.get('coverage', 0)}, missing={item.get('missing_evidence', [])}"
+        for item in evidence_assessments
+    )
+
     logger.info("正在反思评估报告质量...")
 
     llm = create_llm()
-    prompt_template = get_prompt_from_langfuse("research-buddy-reflector", REFLECTOR_PROMPT)
-
-    response = llm.invoke(
-        prompt_template.format(
-            question=question,
-            sub_questions=sq_text,
-            result_count=len(search_results),
-            report=report,
-            user_feedback_section=user_feedback_section,
-        )
+    prompt = get_prompt_from_langfuse(
+        "research-buddy-reflector", REFLECTOR_PROMPT,
+        question=question,
+        sub_questions=sq_text,
+        result_count=len(search_results),
+        source_index=source_index,
+        evidence_status=evidence_status,
+        report=report,
+        user_feedback_section=user_feedback_section,
     )
+
+    response = llm.invoke(prompt)
 
     # 解析 LLM 返回的 JSON
     try:
         evaluation = parse_llm_json(response.content)
-    except (ValueError, Exception):
-        logger.warning("反思节点解析失败，默认通过")
+    except Exception as exc:
+        logger.warning("反思节点解析失败，按未通过处理: %s", exc)
+        next_round = current_round + 1
+        fallback_target = supplement_targets[0] if supplement_targets else {
+            "sub_question_id": "", "question": question,
+            "language": "auto", "region": "GLOBAL",
+        }
         return {
-            "reflection_pass": True,
-            "reflection_feedback": "反思节点解析失败，默认通过",
-            "reflection_round": current_round + 1,
+            "reflection_pass": False,
+            "reflection_feedback": "反思结果无法解析，未将报告标记为通过",
+            "reflection_round": next_round,
+            "reflection_score": 0,
+            "validation_gaps": _merge_gaps([{
+                "sub_question_id": fallback_target["sub_question_id"],
+                "question": fallback_target["question"],
+                "search_query": f"{question} reliable evidence",
+                "reason": "reflection_parse_error",
+                "priority": "high",
+                "language": fallback_target["language"],
+                "region": fallback_target["region"],
+            }], inherited_gaps),
+            "stop_reason": "reflection_budget_exhausted" if next_round >= MAX_REFLECTION_ROUNDS else "",
+            "research_complete": False,
         }
 
-    passed = evaluation.get("pass", True)
-    feedback = evaluation.get("feedback", "")
-    supplement_queries = evaluation.get("supplement_queries", [])
-    total_score = evaluation.get("total_score", 0)
+    if not isinstance(evaluation, dict):
+        # parse_llm_json 成功不等于拿到了对象：模型可能返回数组或标量
+        logger.warning("反思结果不是 JSON 对象（%s），按未通过处理", type(evaluation).__name__)
+        evaluation = {}
 
-    # 验证 total_score 与维度分数之和一致
-    dim_sum = evaluation.get("completeness", 0) + evaluation.get("accuracy", 0) + evaluation.get("clarity", 0)
-    if total_score != dim_sum and dim_sum > 0:
-        logger.debug("total_score (%d) 与维度之和 (%d) 不一致，使用维度之和", total_score, dim_sum)
-        total_score = dim_sum
+    feedback = str(evaluation.get("feedback", "") or "")
+    raw_supplements = evaluation.get("supplement_queries", [])
+    # 模型有时把 supplement_queries 写成一个字符串，直接 enumerate 会逐字符展开
+    if isinstance(raw_supplements, str):
+        raw_supplements = [raw_supplements]
+    elif not isinstance(raw_supplements, list):
+        raw_supplements = []
+    supplement_queries = [str(query).strip() for query in raw_supplements if str(query).strip()]
+    dimensions = {}
+    for name in ("completeness", "accuracy", "clarity"):
+        try:
+            dimensions[name] = max(1, min(5, int(evaluation.get(name, 1))))
+        except (TypeError, ValueError):
+            dimensions[name] = 1
+    total_score = sum(dimensions.values())
+    passed = total_score >= 12 and min(dimensions.values()) >= 3
+
+    # 证据集 = 本次检索结果 + 历史知识的来源。
+    # 增量/追踪模式下 synthesizer 被要求引用 knowledge_context 里的历史来源，
+    # 这些 URL 不在 search_results 里；只用 search_results 当证据集会把每一条
+    # 历史引用都判成「不在证据集」，导致增量研究每轮必然不通过直到耗尽预算。
+    known_urls = {normalize_url(result.get("url", "")) for result in search_results}
+    known_urls.update(normalize_url(url) for url in state.get("known_source_urls", []))
+    known_urls.discard("")
+
+    # 编号引用表：synthesizer 构建，正文 [n] 与文末参考文献的单一事实来源。
+    source_table = state.get("source_table", []) or []
+    table_by_index = {
+        int(item["index"]): item for item in source_table
+        if item.get("index") is not None
+    }
+
+    citation_issues = []
+
+    # 1) 编号引用检查：正文必须用 [n] 引用，编号必须在编号表内。
+    report_cites = [int(n) for n in re.findall(r"\[(\d+)\]", report)]
+    unknown_cites = sorted({n for n in report_cites if n not in table_by_index})
+    cited_urls = {
+        normalize_url(table_by_index[n]["url"])
+        for n in set(report_cites) if n in table_by_index
+    }
+
+    # 2) 正文裸 URL 检查：LLM 不应把 URL 内嵌进正文（可发布文章风格）。
+    raw_urls = {
+        normalize_url(url.rstrip(".,);]，。；）】"))
+        for url in re.findall(r"https?://[^\s<>]+", report)
+    }
+    raw_urls.discard("")
+
+    if table_by_index and not report_cites:
+        citation_issues.append("报告没有引用任何已检索来源 URL")
+    if unknown_cites:
+        citation_issues.append(f"报告包含 {len(unknown_cites)} 个不在来源编号表中的引用编号")
+    if cited_urls - known_urls:
+        citation_issues.append(
+            f"报告引用了 {len(cited_urls - known_urls)} 个不在证据集中的来源"
+        )
+    if raw_urls - known_urls:
+        citation_issues.append(f"报告包含 {len(raw_urls - known_urls)} 个不在证据集中的 URL")
+    if citation_issues:
+        passed = False
+        feedback = "\n".join(citation_issues + ([feedback] if feedback else []))
+
+    if inherited_gaps:
+        passed = False
+        feedback = "报告生成时仍存在未解决证据缺口。\n" + feedback
+
+    # 有用户反馈时一律不通过（用户要求优先），无论评分多高
+    if user_feedback and passed:
+        logger.info("存在用户反馈，强制不通过以处理用户要求")
+        passed = False
 
     logger.info("评分: %d/15 → %s", total_score, "✅ 通过" if passed else "⚠️  需要修正")
 
-    # 如果有用户反馈但反思通过了，仍需补充搜索（用户要求优先）
-    if user_feedback and passed:
-        if supplement_queries:
-            passed = False
-        else:
-            # 有用户反馈但 LLM 没生成补充搜索词，强制不通过
-            logger.info("有用户反馈但无补充搜索词，强制不通过")
-            passed = False
-            supplement_queries = [f"{question} detailed analysis"]
-
-    # 如果未通过，生成补充搜索任务
-    gaps = []
-    if not passed and supplement_queries:
-        for query in supplement_queries:
-            gaps.append({
-                "question": f"补充搜索：{query}",
+    # 如果未通过，生成补充搜索任务；同时保留 validator 尚未解决的缺口
+    report_gaps = []
+    if not passed:
+        for index, query in enumerate(supplement_queries):
+            target = (supplement_targets[index % len(supplement_targets)]
+                      if supplement_targets else
+                      {"sub_question_id": "", "question": f"报告级补充搜索 {index + 1}",
+                       "language": "auto", "region": "GLOBAL"})
+            report_gaps.append({
+                "sub_question_id": target["sub_question_id"],
+                "question": target["question"],
                 "search_query": query,
+                "reason": "report_quality_gap",
+                "priority": "high",
+                "language": target["language"],
+                "region": target["region"],
             })
+    gaps = _merge_gaps(report_gaps, inherited_gaps) if not passed else []
 
     # 合并用户反馈到 reflection_feedback
     if user_feedback:
         feedback = f"[用户要求] {user_feedback}\n[评估反馈] {feedback}"
 
     result_msg = f"🔄 反思: 评分 {total_score}/15 → {'✅ 通过' if passed else '⚠️ 需要修正'}"
-    if not passed and supplement_queries:
-        result_msg += f"，补充搜索: {', '.join(supplement_queries[:3])}"
+    if gaps:
+        queries = [gap.get("search_query", "") for gap in gaps[:3]]
+        result_msg += f"，待补充证据 {len(gaps)} 项: {', '.join(q for q in queries if q)}"
+
+    next_round = current_round + 1
+    stop_reason = state.get("stop_reason", "")
+    if not passed and next_round >= MAX_REFLECTION_ROUNDS:
+        stop_reason = "reflection_budget_exhausted"
 
     return {
         "reflection_pass": passed,
         "reflection_feedback": feedback,
-        "reflection_round": current_round + 1,
+        "reflection_round": next_round,
+        "reflection_score": total_score,
         "validation_gaps": gaps,
+        "stop_reason": "completed" if passed else stop_reason,
+        "research_complete": passed,
         "messages": [result_msg],
     }

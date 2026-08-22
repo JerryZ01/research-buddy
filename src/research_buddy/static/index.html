@@ -819,6 +819,135 @@ select.input {
   background-position: right 8px center;
 }
 
+/* ── HITL Interrupt Panel ── */
+.hitl-panel {
+  margin-top: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  overflow: hidden;
+  animation: slideUp .3s var(--ease);
+  box-shadow: var(--shadow-md);
+  position: relative;
+}
+
+.hitl-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--purple), var(--cyan));
+}
+
+.hitl-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hitl-header .hitl-icon {
+  width: 32px;
+  height: 32px;
+  background: var(--purple-g);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.hitl-header .hitl-title {
+  font-size: .92rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.hitl-header .hitl-subtitle {
+  font-size: .76rem;
+  color: var(--text3);
+  margin-top: 2px;
+}
+
+.hitl-body {
+  padding: 20px;
+}
+
+.hitl-sq-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.hitl-sq-item:last-child {
+  border-bottom: none;
+}
+
+.hitl-sq-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--purple-g);
+  color: var(--purple2);
+  font-size: .72rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.hitl-sq-fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hitl-sq-fields .input {
+  font-size: .82rem;
+  padding: 8px 10px;
+}
+
+.hitl-report-preview {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--rs);
+  margin-bottom: 12px;
+  font-size: .84rem;
+  line-height: 1.6;
+  color: var(--text2);
+}
+
+.hitl-report-preview h1,
+.hitl-report-preview h2,
+.hitl-report-preview h3 {
+  color: var(--text);
+}
+
+.hitl-feedback-input {
+  min-height: 80px;
+}
+
+.hitl-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  background: rgba(255, 255, 255, .01);
+}
+
 /* ── Step Pipeline ── */
 .step-pipeline {
   display: flex;
@@ -1152,7 +1281,7 @@ select.input {
 /* Search result mini cards */
 .nd-sr-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -1211,7 +1340,7 @@ select.input {
 /* Reflection detail */
 .nd-refl {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 54px minmax(0, 1fr);
   gap: 4px 10px;
   font-size: .78rem;
 }
@@ -1288,6 +1417,64 @@ select.input {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+}
+
+.report-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  padding: 6px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all .2s var(--ease);
+}
+
+.report-collapse-btn:hover {
+  color: var(--text);
+  border-color: var(--border2);
+  background: var(--surface-hover);
+}
+
+.report-collapse-btn .collapse-icon {
+  transition: transform .2s var(--ease);
+}
+
+.report-collapse-btn.collapsed .collapse-icon {
+  transform: rotate(-90deg);
+}
+
+.report-collapsed-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  font-size: .84rem;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all .2s var(--ease);
+}
+
+.report-collapsed-info:hover {
+  border-color: var(--border2);
+  background: var(--surface-hover);
+}
+
+.report-content-wrapper {
+  transition: all .3s var(--ease);
+  overflow: hidden;
+}
+
+.report-content-wrapper.collapsed {
+  display: none;
 }
 
 .report-meta {
@@ -1406,6 +1593,14 @@ select.input {
 .report-body pre code {
   background: none;
   padding: 0;
+  color: var(--text2);
+}
+
+.report-body.streaming-mode {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-size: .88rem;
+  line-height: 1.8;
   color: var(--text2);
 }
 
@@ -2378,15 +2573,24 @@ select.input {
   }
 }
 </style>
+<link rel="stylesheet" href="/app.css">
+<script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
 </head>
 <body>
 
-<!-- No particle canvas or scanline — clean professional look -->
+<div class="sci-fi-layer" aria-hidden="true">
+  <div class="sci-grid"></div>
+  <div class="sci-scan"></div>
+  <span class="sci-corner sci-corner-tl"></span>
+  <span class="sci-corner sci-corner-tr"></span>
+  <span class="sci-corner sci-corner-bl"></span>
+  <span class="sci-corner sci-corner-br"></span>
+</div>
 
 <!-- Mobile Header -->
 <div class="mobile-header">
-  <button class="menu-btn" onclick="toggleSidebar()" aria-label="打开菜单">☰</button>
-  <span class="brand-text">⬡ Research Buddy</span>
+  <button class="menu-btn" onclick="toggleSidebar()" aria-label="打开菜单"><i data-lucide="menu"></i></button>
+  <span class="brand-text">Research Buddy</span>
 </div>
 <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
@@ -2394,36 +2598,36 @@ select.input {
 <!-- ═══════════ Sidebar ═══════════ -->
 <aside class="sidebar" id="sidebar" role="navigation" aria-label="主导航">
   <div class="sidebar-brand">
-    <div class="brand-title"><span class="brand-logo" aria-hidden="true">⬡</span> Research Buddy</div>
-    <div class="brand-sub">AI-Powered Deep Research Agent</div>
+    <div class="brand-title"><span class="brand-logo" aria-hidden="true"><i data-lucide="scan-search"></i></span> Research Buddy</div>
+    <div class="brand-sub">RESEARCH INTELLIGENCE DESK</div>
   </div>
   <nav class="sidebar-nav">
     <div class="nav-sec">
       <div class="nav-sec-title">Research</div>
       <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')" role="link" tabindex="0" aria-label="概览">
-        <span class="nav-icon" aria-hidden="true">⬡</span>概览
+        <span class="nav-icon" aria-hidden="true"><i data-lucide="layout-dashboard"></i></span>概览
       </div>
       <div class="nav-item" data-page="research" onclick="navigate('research')" role="link" tabindex="0" aria-label="新建研究">
-        <span class="nav-icon" aria-hidden="true">◈</span>新建研究
+        <span class="nav-icon" aria-hidden="true"><i data-lucide="search-code"></i></span>新建研究
       </div>
     </div>
     <div class="nav-sec">
       <div class="nav-sec-title">Knowledge</div>
       <div class="nav-item" data-page="topics" onclick="navigate('topics')" role="link" tabindex="0" aria-label="研究主题">
-        <span class="nav-icon" aria-hidden="true">◫</span>研究主题
+        <span class="nav-icon" aria-hidden="true"><i data-lucide="library-big"></i></span>研究主题
         <span class="nav-badge" id="topicCount">0</span>
       </div>
     </div>
     <div class="nav-sec">
       <div class="nav-sec-title">Tracking</div>
       <div class="nav-item" data-page="tracking" onclick="navigate('tracking')" role="link" tabindex="0" aria-label="追踪任务">
-        <span class="nav-icon" aria-hidden="true">◉</span>追踪任务
+        <span class="nav-icon" aria-hidden="true"><i data-lucide="radar"></i></span>追踪任务
         <span class="nav-badge" id="trackingCount">0</span>
       </div>
     </div>
   </nav>
   <div class="sidebar-footer">
-    <span class="status-dot" aria-hidden="true"></span><span>System Online · LangGraph + Langfuse</span>
+    <span class="status-dot" aria-hidden="true"></span><span>服务在线 · LangGraph 工作流</span>
     <div class="shortcuts-hint"><kbd>Ctrl</kbd>+<kbd>K</kbd> 聚焦搜索 · <kbd>Esc</kbd> 关闭</div>
   </div>
 </aside>
@@ -2438,7 +2642,8 @@ select.input {
 <!-- ── Page: Dashboard ── -->
 <div id="page-dashboard" class="page">
   <div class="page-header">
-    <div><h2>⬡ 概览</h2><p>研究活动一览</p></div>
+    <div><h2>研究总览</h2><p>你的主题资产、报告与持续追踪状态</p></div>
+    <button class="btn btn-primary" onclick="navigate('research')"><i data-lucide="plus"></i>发起研究</button>
   </div>
   <div class="dashboard-grid" id="dashboardStats"></div>
   <div class="recent-activity" id="dashboardActivity">
@@ -2457,57 +2662,116 @@ select.input {
         <span class="text-muted" style="font-size:.72rem"><kbd style="background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:.68rem">Ctrl+Enter</kbd> 开始</span>
       </div>
       <div class="research-actions">
-        <select id="researchMode" aria-label="研究模式"><option value="normal">◈ 常规研究</option></select>
+        <select id="researchMode" aria-label="研究模式"><option value="normal">◈ 常规研究</option><option value="hitl">👤 交互研究</option></select>
         <button class="btn btn-primary" id="submitBtn" onclick="startResearch()" aria-label="开始研究">
           <div class="spinner" id="spinner" style="display:none"></div>
-          <span id="btnText">开始研究</span>
+          <i data-lucide="arrow-up-right"></i><span id="btnText">开始研究</span>
         </button>
         <button class="btn btn-danger" id="cancelBtn" onclick="cancelResearch()" style="display:none" aria-label="取消研究">
           取消研究
         </button>
       </div>
     </div>
-    <div class="step-pipeline" id="stepPipeline" style="display:none">
-      <div class="step-node" data-step="knowledge_lookup"><span aria-hidden="true">◎</span>知识查询</div>
-      <div class="step-conn"></div>
-      <div class="step-node" data-step="planner"><span aria-hidden="true">◈</span>规划</div>
-      <div class="step-conn"></div>
-      <div class="step-node" data-step="searcher"><span aria-hidden="true">◉</span>搜索</div>
-      <div class="step-conn"></div>
-      <div class="step-node" data-step="validator"><span aria-hidden="true">✓</span>验证</div>
-      <div class="step-conn"></div>
-      <div class="step-node" data-step="synthesizer"><span aria-hidden="true">▯</span>综合</div>
-      <div class="step-conn"></div>
-      <div class="step-node" data-step="reflector"><span aria-hidden="true">↻</span>反思</div>
-      <div class="step-conn"></div>
-      <div class="step-node" data-step="diff_analyzer"><span aria-hidden="true">⇄</span>变化分析</div>
-      <div class="step-conn"></div>
-      <div class="step-node" data-step="knowledge_store"><span aria-hidden="true">◈</span>存储</div>
-      <div class="step-conn"></div>
-      <div class="step-node" data-step="change_notifier"><span aria-hidden="true">◉</span>通知</div>
-    </div>
   </div>
 
-  <div class="terminal" id="progressLog" role="log" aria-label="研究进度日志" aria-live="polite">
-    <div class="terminal-bar">
-      <div class="terminal-dot r" aria-hidden="true"></div><div class="terminal-dot y" aria-hidden="true"></div><div class="terminal-dot g" aria-hidden="true"></div>
-      <span class="terminal-title">research-buddy — process log</span>
+  <section class="step-pipeline research-observatory" id="stepPipeline" style="display:none" aria-label="实时研究证据图">
+    <div class="observatory-bar">
+      <div class="observatory-mode"><span class="observatory-pulse"></span>实时证据图</div>
+      <div class="observatory-state"><span id="foundryStatus">等待研究</span><span class="observatory-time" id="observatoryTime">00:00</span></div>
     </div>
-    <div class="terminal-body" id="logContent"></div>
-  </div>
+    <div class="observatory-viewport">
+      <div class="observatory-stage">
+        <canvas id="researchCanvas" aria-hidden="true"></canvas>
+        <div class="observatory-core-label">
+          <small>核心研究问题</small>
+          <strong id="foundryQuestion">等待研究问题</strong>
+        </div>
+        <div class="observatory-metrics">
+          <span><b id="metricBranches">0</b> 分支</span>
+          <span><b id="metricSources">0</b> 信号</span>
+          <span class="om-gap"><b id="metricGaps">0</b> 缺口</span>
+          <span class="om-spacer"></span>
+          <span class="om-pipeline" id="observatoryPipeline"></span>
+        </div>
+      </div>
+      <aside class="execution-narrative" aria-live="polite">
+        <div class="execution-phase">
+          <div class="execution-phase-index" id="executionPhaseIndex">00</div>
+          <div class="execution-phase-copy">
+            <small>当前进度</small>
+            <strong id="executionPhaseTitle">等待开始</strong>
+            <p id="executionPhaseSummary">输入问题后，这里会展示研究过程中的实时变化。</p>
+          </div>
+        </div>
+        <div class="execution-section">
+          <div class="execution-section-title"><span>研究分支</span><span id="executionBranchCount">0</span></div>
+          <div class="execution-branches" id="executionBranches">
+            <div class="execution-placeholder">规划完成后生成研究分支</div>
+          </div>
+        </div>
+        <div class="execution-section execution-events-section">
+          <div class="execution-section-title"><span>最近变化</span><span>实时</span></div>
+          <div class="execution-events" id="executionEvents"></div>
+        </div>
+      </aside>
+    </div>
+  </section>
 
-  <!-- Step Cards: one card per completed node, shows full detail history -->
-  <div class="step-cards" id="stepCards"></div>
+  <details class="execution-details" id="executionDetails">
+    <summary><span>执行明细</span><span class="execution-details-count">日志与节点数据</span></summary>
+    <div class="terminal" id="progressLog" role="log" aria-label="研究进度日志" aria-live="polite">
+      <div class="terminal-bar">
+        <div class="terminal-dot r" aria-hidden="true"></div><div class="terminal-dot y" aria-hidden="true"></div><div class="terminal-dot g" aria-hidden="true"></div>
+        <span class="terminal-title">执行事件流 / 实时</span>
+      </div>
+      <div class="terminal-body" id="logContent"></div>
+    </div>
+
+    <div class="step-cards" id="stepCards"></div>
+  </details>
+
+  <!-- HITL Interrupt Panel -->
+  <div class="hitl-panel" id="hitlPanel" style="display:none">
+    <div class="hitl-header">
+      <div class="hitl-icon">👤</div>
+      <div>
+        <div class="hitl-title" id="hitlTitle">需要你的确认</div>
+        <div class="hitl-subtitle" id="hitlSubtitle">审核 AI 的规划结果</div>
+      </div>
+    </div>
+    <div class="hitl-body" id="hitlBody"></div>
+    <div class="hitl-actions">
+      <button class="btn" id="hitlSkipBtn" onclick="resumeHITLResearch(true)">直接继续</button>
+      <button class="btn btn-primary" id="hitlConfirmBtn" onclick="resumeHITLResearch(false)">确认并继续</button>
+    </div>
+  </div>
 
   <div class="report-view" id="reportView">
     <div class="report-header">
       <div></div>
-      <button class="btn btn-sm" id="copyReportBtn" onclick="copyReport()" aria-label="复制报告">
-        📋 复制
-      </button>
+      <div style="display:flex;gap:8px">
+        <button class="report-collapse-btn" id="collapseBtn" onclick="toggleReportCollapse()" style="display:none" aria-label="折叠报告">
+          <span class="collapse-icon">▼</span> <span id="collapseBtnText">折叠</span>
+        </button>
+        <button class="btn btn-sm" id="copyReportBtn" onclick="copyReport()" aria-label="复制报告">
+          📋 复制
+        </button>
+      </div>
     </div>
-    <div class="report-meta" id="reportMeta"></div>
-    <div class="report-body" id="reportBody"></div>
+    <div class="report-collapsed-info" id="reportCollapsedInfo" style="display:none" onclick="toggleReportCollapse()">
+      <span>📄</span> <span id="collapsedInfoText">研究报告（点击展开）</span>
+    </div>
+    <div class="report-content-wrapper" id="reportContentWrapper">
+      <div class="report-scorecard" id="reportScorecard" hidden></div>
+      <div class="report-layout">
+        <div class="report-main">
+          <div class="report-meta" id="reportMeta"></div>
+          <div class="report-body" id="reportBody"></div>
+          <section class="report-sources" id="reportSources" hidden aria-label="来源汇总"></section>
+        </div>
+        <nav class="report-toc" id="reportToc" hidden aria-label="报告目录"></nav>
+      </div>
+    </div>
   </div>
 
   <div class="empty-state" id="emptyState">
@@ -2519,8 +2783,8 @@ select.input {
 <!-- ── Page: Topics ── -->
 <div id="page-topics" class="page" style="display:none">
   <div class="page-header">
-    <div><h2>◫ 研究主题</h2><p>管理和浏览你的研究领域</p></div>
-    <button class="btn btn-primary" onclick="showModal('createTopic')" aria-label="新建主题">+ 新建主题</button>
+    <div><h2>研究主题</h2><p>将长期问题沉淀为可复用的知识资产</p></div>
+    <button class="btn btn-primary" onclick="showModal('createTopic')" aria-label="新建主题"><i data-lucide="plus"></i>新建主题</button>
   </div>
   <div id="topicsList"></div>
 </div>
@@ -2541,7 +2805,7 @@ select.input {
 <!-- ── Page: Tracking ── -->
 <div id="page-tracking" class="page" style="display:none">
   <div class="page-header">
-    <div><h2>◉ 追踪任务</h2><p>自动监控领域变化，不遗漏重要更新</p></div>
+    <div><h2>持续追踪</h2><p>按计划发现新信息、矛盾与关键变化</p></div>
   </div>
   <div id="trackingList"></div>
 </div>
@@ -2643,13 +2907,384 @@ const appState = {
   eventSource: null,
   lastReportText: '',
   confirmResolver: null,
+  hitlThreadId: null,
+  hitlInterruptPoint: null,
+  streamingReportText: '',
+  reportCollapsed: false,
+  activeSteps: [],
+  pipelineReached: -1,
+  nodeDetails: {},
+  seenSources: new Set(),
+  tocObserver: null,
+  reportRenderTimer: null,
 };
 
 const STEPS = [
   'knowledge_lookup', 'planner', 'searcher',
   'validator', 'synthesizer', 'reflector',
-  'diff_analyzer', 'knowledge_store', 'change_notifier'
+  'knowledge_store', 'diff_analyzer', 'change_notifier'
 ];
+
+const CORE_RESEARCH_STEPS = ['planner', 'searcher', 'validator', 'synthesizer', 'reflector'];
+const KNOWLEDGE_RESEARCH_STEPS = ['knowledge_lookup', ...CORE_RESEARCH_STEPS, 'knowledge_store'];
+
+let researchViz = null;
+
+class ResearchEvidenceMap {
+  static BOTTOM_INSET = 34;
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.running = false;
+    this.startedAt = 0;
+    this.phase = 'idle';
+    this.branches = [];
+    this.sources = [];
+    this.gaps = new Set();
+    this.synthesisStartedAt = 0;
+    this.reflection = null;
+    this.hasKnowledge = false;
+    this.stored = false;
+    this.changeCount = 0;
+    this.events = [];
+    this.sourceCount = 0;
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(canvas.parentElement);
+    this.resize();
+    this.frame = this.frame.bind(this);
+    requestAnimationFrame(this.frame);
+  }
+
+  resize() {
+    const rect = this.canvas.parentElement.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    this.width = rect.width;
+    this.height = rect.height;
+    this.canvas.width = Math.round(rect.width * this.dpr);
+    this.canvas.height = Math.round(rect.height * this.dpr);
+    this.canvas.style.width = rect.width + 'px';
+    this.canvas.style.height = rect.height + 'px';
+  }
+
+  start(question) {
+    this.running = true;
+    this.startedAt = performance.now();
+    this.phase = 'start';
+    this.branches = [];
+    this.sources = [];
+    this.gaps.clear();
+    this.synthesisStartedAt = 0;
+    this.reflection = null;
+    this.hasKnowledge = false;
+    this.stored = false;
+    this.changeCount = 0;
+    this.events = [];
+    this.sourceCount = 0;
+    this.question = question;
+    this.updateMetrics();
+    this.renderNarrative('start', {});
+    $('executionDetails').open = false;
+    requestAnimationFrame(() => this.resize());
+  }
+
+  update(node, detail = {}) {
+    this.phase = node;
+    if (node === 'knowledge_lookup') this.hasKnowledge = !!detail.has_knowledge;
+
+    if (node === 'planner' && detail.sub_questions) {
+      this.branches = detail.sub_questions.map((item, index, list) => ({
+        question: item.question || `研究分支 ${index + 1}`,
+        query: item.search_query || '',
+        angle: -Math.PI / 2 + (Math.PI * 2 * index / Math.max(list.length, 1)),
+        born: performance.now() + index * 110,
+        status: 'open',
+      }));
+    }
+
+    if (node === 'searcher') {
+      this.branches.forEach(branch => { if (branch.status === 'open') branch.status = 'searching'; });
+      this.sourceCount += detail.results_count || 0;
+      const previews = detail.results_preview || [];
+      previews.forEach((item, index) => {
+        this.sources.push({
+          title: item.title || '来源信号',
+          branch: this.branches.length ? index % this.branches.length : 0,
+          seed: Math.random(),
+          born: performance.now() + index * 70,
+          score: item.score || 0,
+        });
+      });
+      if (!previews.length && detail.results_count) {
+        const count = Math.min(detail.results_count, 18);
+        for (let i = 0; i < count; i++) {
+          this.sources.push({ title: '来源信号', branch: this.branches.length ? i % this.branches.length : 0, seed: Math.random(), born: performance.now() + i * 45, score: 0 });
+        }
+      }
+      this.sources = this.sources.slice(-60);
+    }
+
+    if (node === 'validator') {
+      this.gaps = new Set((detail.gaps || []).map(g => g.question));
+      this.branches.forEach(branch => {
+        branch.status = this.gaps.has(branch.question) ? 'gap' : 'verified';
+      });
+    }
+
+    if (node === 'synthesizer') {
+      this.synthesisStartedAt = performance.now();
+      this.branches.forEach(branch => { if (branch.status !== 'gap') branch.status = 'gathering'; });
+    }
+    if (node === 'reflector') this.reflection = { pass: !!detail.reflection_pass, round: detail.reflection_round || 0, at: performance.now() };
+    if (node === 'knowledge_store') this.stored = true;
+    if (node === 'diff_analyzer') this.changeCount = detail.changes_count || 0;
+    this.updateMetrics(detail.results_count);
+    this.renderNarrative(node, detail);
+  }
+
+  complete() {
+    this.running = false;
+    this.phase = 'complete';
+    this.branches.forEach(branch => { if (branch.status !== 'gap') branch.status = 'verified'; });
+    this.renderNarrative('complete', {});
+  }
+
+  updateMetrics(reportedSourceCount) {
+    $('metricBranches').textContent = this.branches.length;
+    this.sourceCount = Math.max(this.sourceCount, reportedSourceCount || 0, this.sources.length);
+    $('metricSources').textContent = this.sourceCount;
+    $('metricGaps').textContent = this.gaps.size;
+  }
+
+  eventText(node, detail) {
+    if (node === 'start') return '研究问题已进入分析队列';
+    if (node === 'knowledge_lookup') return detail.has_knowledge ? '已找到可复用的历史知识' : '未发现历史知识，将执行全新研究';
+    if (node === 'planner') return `生成 ${this.branches.length} 个研究分支`;
+    if (node === 'searcher') return `接入 ${detail.results_count || 0} 条来源信号`;
+    if (node === 'validator') return this.gaps.size ? `发现 ${this.gaps.size} 个证据缺口` : '全部研究分支证据充足';
+    if (node === 'synthesizer') return '证据开始向报告结构收束';
+    if (node === 'reflector') return detail.reflection_pass ? `第 ${detail.reflection_round || 0} 轮质量检查通过` : `第 ${detail.reflection_round || 0} 轮检查需要补充研究`;
+    if (node === 'knowledge_store') return '研究结果已写入知识库';
+    if (node === 'diff_analyzer') return `检测到 ${detail.changes_count || 0} 项变化`;
+    if (node === 'change_notifier') return detail.notification_sent ? '关键变化通知已发送' : '本轮无需发送通知';
+    if (node === 'complete') return '所有证据已收束，研究报告生成完成';
+    return '研究状态已更新';
+  }
+
+  renderNarrative(node, detail) {
+    const meta = NODE_META[node];
+    const phaseIndex = appState.activeSteps.indexOf(node);
+    $('executionPhaseIndex').textContent = node === 'complete' ? 'OK' : phaseIndex >= 0 ? String(phaseIndex + 1).padStart(2, '0') : '00';
+    $('executionPhaseTitle').textContent = node === 'start' ? '建立研究上下文' : node === 'complete' ? '研究完成' : meta ? meta.title : '研究进行中';
+    const eventText = this.eventText(node, detail);
+    $('executionPhaseSummary').textContent = eventText;
+
+    this.events.push({ text: eventText, at: new Date() });
+    this.events = this.events.slice(-4);
+    const eventsEl = $('executionEvents');
+    eventsEl.replaceChildren(...this.events.map(event => {
+      const row = document.createElement('div');
+      row.className = 'execution-event';
+      const dot = document.createElement('span');
+      dot.className = 'execution-event-dot';
+      const text = document.createElement('span');
+      text.textContent = event.text;
+      const time = document.createElement('time');
+      time.textContent = event.at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      row.append(dot, text, time);
+      return row;
+    }));
+
+    $('executionBranchCount').textContent = this.branches.length;
+    const branchesEl = $('executionBranches');
+    if (!this.branches.length) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'execution-placeholder';
+      placeholder.textContent = '规划完成后生成研究分支';
+      branchesEl.replaceChildren(placeholder);
+      return;
+    }
+
+    const statusLabel = { open: '待搜索', searching: '搜索中', gap: '需补充', verified: '已验证', gathering: '汇总中' };
+    branchesEl.replaceChildren(...this.branches.map((branch, index) => {
+      const row = document.createElement('div');
+      row.className = `execution-branch is-${branch.status}`;
+      const number = document.createElement('span');
+      number.className = 'execution-branch-number';
+      number.textContent = String(index + 1).padStart(2, '0');
+      const copy = document.createElement('span');
+      copy.className = 'execution-branch-copy';
+      const question = document.createElement('strong');
+      question.textContent = branch.question;
+      const query = document.createElement('small');
+      query.textContent = branch.query || '等待搜索词';
+      copy.append(question, query);
+      const status = document.createElement('span');
+      status.className = 'execution-branch-status';
+      status.textContent = statusLabel[branch.status] || '处理中';
+      row.append(number, copy, status);
+      return row;
+    }));
+  }
+
+  /** 舞台底部 34px 是指标状态条，几何中心相应上移，避免图形贴住状态条 */
+  get centerY() { return (this.height - ResearchEvidenceMap.BOTTOM_INSET) / 2; }
+
+  pointForBranch(branch, index) {
+    const cx = this.width / 2;
+    const cy = this.centerY;
+    const rx = Math.min(this.width * (this.width < 600 ? .29 : .36), 390);
+    const ry = Math.min((this.height - ResearchEvidenceMap.BOTTOM_INSET) * .38, 168);
+    const angle = branch ? branch.angle : -Math.PI / 2 + index;
+    return { x: cx + Math.cos(angle) * rx, y: cy + Math.sin(angle) * ry };
+  }
+
+  drawHex(x, y, radius, fill, stroke, rotation = 0) {
+    const ctx = this.ctx;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const angle = rotation + Math.PI / 3 * i;
+      const px = x + Math.cos(angle) * radius;
+      const py = y + Math.sin(angle) * radius;
+      if (!i) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.stroke(); }
+  }
+
+  frame(now) {
+    this.draw(now);
+    requestAnimationFrame(this.frame);
+  }
+
+  draw(now) {
+    if (!this.width || !this.height) return;
+    const ctx = this.ctx;
+    const w = this.width;
+    const h = this.height;
+    const cx = w / 2;
+    const cy = this.centerY;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    ctx.fillStyle = '#0d1311';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(77, 133, 121, .08)';
+    ctx.lineWidth = 1;
+    for (let x = (now * .006) % 32; x < w; x += 32) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+    for (let y = 0; y < h; y += 32) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+
+    const radarRadius = Math.min(w, h - ResearchEvidenceMap.BOTTOM_INSET) * .42;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.strokeStyle = 'rgba(60, 139, 122, .12)';
+    [0.35, 0.68, 1].forEach(scale => { ctx.beginPath(); ctx.ellipse(0, 0, radarRadius * scale, radarRadius * scale * .58, 0, 0, Math.PI * 2); ctx.stroke(); });
+    ctx.rotate((now * .00012) % (Math.PI * 2));
+    const sweep = ctx.createLinearGradient(0, 0, radarRadius, 0);
+    sweep.addColorStop(0, 'rgba(65, 201, 178, .16)');
+    sweep.addColorStop(1, 'rgba(65, 201, 178, 0)');
+    ctx.fillStyle = sweep;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, radarRadius, -.18, .18); ctx.closePath(); ctx.fill();
+    ctx.restore();
+
+    if (this.hasKnowledge) {
+      ctx.strokeStyle = 'rgba(223, 77, 63, .22)';
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, 76 + i * 11 + Math.sin(now * .002 + i) * 3, Math.PI * .72, Math.PI * 1.28);
+        ctx.stroke();
+      }
+    }
+
+    this.branches.forEach((branch, index) => {
+      const target = this.pointForBranch(branch, index);
+      const progress = Math.max(0, Math.min(1, (now - branch.born) / 650));
+      const x = cx + (target.x - cx) * progress;
+      const y = cy + (target.y - cy) * progress;
+      const gap = branch.status === 'gap';
+      const verified = branch.status === 'verified';
+      const color = gap ? '#d49a38' : verified ? '#55bb86' : '#43bcae';
+
+      ctx.save();
+      ctx.strokeStyle = gap ? 'rgba(212,154,56,.58)' : verified ? 'rgba(85,187,134,.48)' : 'rgba(67,188,174,.42)';
+      ctx.lineWidth = gap ? 1.5 : 1;
+      if (gap) ctx.setLineDash([5, 7]);
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.stroke();
+      ctx.setLineDash([]);
+      this.drawHex(x, y, gap ? 9 : 7, '#13201c', color, Math.PI / 6);
+      if (gap) {
+        ctx.strokeStyle = 'rgba(212,154,56,.32)';
+        ctx.beginPath(); ctx.arc(x, y, 15 + Math.sin(now * .006) * 3, 0, Math.PI * 2); ctx.stroke();
+      }
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = color;
+      ctx.font = '700 8px ui-monospace, monospace';
+      ctx.fillText(String(index + 1), x, y + .5);
+      ctx.restore();
+    });
+
+    this.sources.forEach((source, index) => {
+      const branch = this.branches[source.branch];
+      if (!branch) return;
+      const target = this.pointForBranch(branch, source.branch);
+      const angle = branch.angle + (source.seed - .5) * .75;
+      const outer = Math.max(w, h) * .62;
+      const origin = { x: cx + Math.cos(angle) * outer, y: cy + Math.sin(angle) * outer * .55 };
+      let t = ((now - source.born) * .00024 + source.seed) % 1;
+      let tx = target.x;
+      let ty = target.y;
+      if (this.synthesisStartedAt) {
+        const gather = Math.min(1, (now - this.synthesisStartedAt) / 2400);
+        tx += (cx - tx) * gather;
+        ty += (cy - ty) * gather;
+        t = Math.max(t, gather);
+      }
+      const x = origin.x + (tx - origin.x) * t;
+      const y = origin.y + (ty - origin.y) * t;
+      ctx.fillStyle = source.score > .6 ? '#72dbc8' : 'rgba(114,219,200,.65)';
+      ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+      if (index < 14) {
+        ctx.strokeStyle = 'rgba(114,219,200,.08)';
+        ctx.beginPath(); ctx.moveTo(origin.x, origin.y); ctx.lineTo(x, y); ctx.stroke();
+      }
+    });
+
+    const pulse = 1 + Math.sin(now * .003) * .06;
+    ctx.save();
+    ctx.shadowColor = this.reflection && !this.reflection.pass ? 'rgba(212,154,56,.7)' : 'rgba(67,188,174,.62)';
+    ctx.shadowBlur = this.running ? 22 : 10;
+    this.drawHex(cx, cy, 72 * pulse, 'rgba(18,29,25,.96)', this.reflection && !this.reflection.pass ? '#d49a38' : '#43bcae', Math.PI / 6);
+    ctx.restore();
+    this.drawHex(cx, cy, 60, 'rgba(32,49,43,.8)', 'rgba(119,219,195,.24)', Math.PI / 6);
+
+    if (this.reflection) {
+      const age = now - this.reflection.at;
+      ctx.save();
+      ctx.strokeStyle = this.reflection.pass ? 'rgba(85,187,134,.75)' : 'rgba(212,154,56,.75)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 8]);
+      ctx.beginPath(); ctx.arc(cx, cy, 82 + (age * .025) % 42, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+
+    if (this.stored) {
+      ctx.fillStyle = 'rgba(85,187,134,.85)';
+      ctx.fillRect(cx - 16, cy + 56, 32, 2);
+    }
+    if (this.changeCount) {
+      ctx.fillStyle = '#d49a38';
+      for (let i = 0; i < Math.min(this.changeCount, 8); i++) ctx.fillRect(cx - 28 + i * 8, cy - 66, 4, 4);
+    }
+
+    if (this.startedAt) {
+      const seconds = Math.max(0, Math.floor((now - this.startedAt) / 1000));
+      $('observatoryTime').textContent = String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
+    }
+  }
+}
 
 /* ═══════════════════════════════════════════════
    Toast Notification System
@@ -2896,7 +3531,7 @@ async function loadDashboard() {
     let allReports = [];
     for (const t of topics) {
       try {
-        const reports = await api(`/topics/${t.id}/reports?limit=5`);
+        const reports = await api(`/topics/${t.id}/reports?limit=10000`);
         reports.forEach(r => { r.topic_name = t.name; r.topic_id = t.id; });
         allReports.push(...reports);
       } catch { /* skip */ }
@@ -2994,38 +3629,47 @@ function addLog(html) {
   body.scrollTop = body.scrollHeight;
 }
 
-function setStep(node) {
-  const idx = STEPS.indexOf(node);
+function setStep(node, detail = {}) {
+  const flow = appState.activeSteps.length ? appState.activeSteps : STEPS;
+  const idx = flow.indexOf(node);
   if (idx < 0) return;
+  const meta = NODE_META[node];
+  if ($('foundryStatus')) $('foundryStatus').textContent = meta ? meta.status : node;
+  renderPipelineStrip(flow, node);
+  if (researchViz) researchViz.update(node, detail);
+}
 
-  $$('.step-node').forEach((el, i) => {
-    if (i < idx) {
-      el.classList.add('done');
-      el.classList.remove('active');
-    } else if (i === idx) {
-      el.classList.add('active');
-      el.classList.remove('done');
-    } else {
-      el.classList.remove('done', 'active');
+/**
+ * 画布底部状态条右侧的节点流水线：一眼看出当前停在哪一步。
+ * 补搜/重写会让节点重复经过，所以「已完成」只按首次到达的最远位置算。
+ */
+function renderPipelineStrip(flow, activeNode) {
+  const host = $('observatoryPipeline');
+  if (!host) return;
+  const activeIdx = flow.indexOf(activeNode);
+  appState.pipelineReached = Math.max(appState.pipelineReached || 0, activeIdx);
+  const frag = document.createDocumentFragment();
+  flow.forEach((step, i) => {
+    if (i > 0) {
+      const sep = document.createElement('i');
+      sep.className = 'om-sep';
+      sep.textContent = '›';
+      frag.appendChild(sep);
     }
+    const el = document.createElement('i');
+    el.className = 'om-step' + (i === activeIdx ? ' is-active' : (i <= appState.pipelineReached ? ' is-done' : ''));
+    el.textContent = (NODE_META[step] || {}).title || step;
+    frag.appendChild(el);
   });
-
-  $$('.step-conn').forEach((el, i) => {
-    el.classList.remove('done', 'active');
-    if (i < idx) el.classList.add('done');
-    else if (i === idx) el.classList.add('active');
-  });
+  host.replaceChildren(frag);
 }
 
 function setAllDone() {
-  $$('.step-node').forEach(el => {
-    el.classList.add('done');
-    el.classList.remove('active');
-  });
-  $$('.step-conn').forEach(el => {
-    el.classList.add('done');
-    el.classList.remove('active');
-  });
+  if (researchViz) researchViz.complete();
+  if ($('foundryStatus')) $('foundryStatus').textContent = '证据已收束，报告完成';
+  const flow = appState.activeSteps.length ? appState.activeSteps : STEPS;
+  appState.pipelineReached = flow.length - 1;
+  renderPipelineStrip(flow, flow[flow.length - 1]);
 }
 
 function startResearch(topicId, isIncremental) {
@@ -3036,11 +3680,26 @@ function startResearch(topicId, isIncremental) {
   }
   if (appState.isResearchRunning) return;
 
-  appState.isResearchRunning = true;
-  appState.researchStartTime = Date.now();
-
   const mode = $('researchMode').value;
   const useTopic = topicId || (mode !== 'normal' ? mode : '');
+
+  // HITL mode manages its own running state and UI setup.
+  if (mode === 'hitl') {
+    startHITLResearch();
+    return;
+  }
+
+  appState.isResearchRunning = true;
+  appState.researchStartTime = Date.now();
+  appState.activeSteps = useTopic ? KNOWLEDGE_RESEARCH_STEPS : CORE_RESEARCH_STEPS;
+  appState.pipelineReached = -1;
+  appState.nodeDetails = {};
+  appState.seenSources = new Set();
+  renderPipelineStrip(appState.activeSteps, '');
+  document.body.classList.add('research-active');
+  $('foundryQuestion').textContent = question;
+  $('foundryStatus').textContent = '正在建立研究图';
+  if (researchViz) researchViz.start(question);
 
   // Update UI
   $('submitBtn').disabled = true;
@@ -3051,12 +3710,8 @@ function startResearch(topicId, isIncremental) {
   $('stepPipeline').style.display = 'flex';
   $('progressLog').classList.add('visible');
   $('logContent').innerHTML = '';
-  $('stepCards').innerHTML = '';
+  resetNodePanels();
   $('reportView').classList.remove('visible');
-
-  // Reset steps
-  $$('.step-node').forEach(el => el.classList.remove('done', 'active'));
-  $$('.step-conn').forEach(el => el.classList.remove('done', 'active'));
 
   addLog(`启动研究: <strong>${esc(question)}</strong>${isIncremental ? ' <span class="text-cyan">[增量模式]</span>' : ''}`);
 
@@ -3082,6 +3737,8 @@ function cancelResearch() {
     appState.abortController = null;
   }
   addLog('<span class="text-amber">研究已取消</span>');
+  $('foundryStatus').textContent = '研究已取消';
+  if (researchViz) researchViz.running = false;
   finishResearch();
   toast('研究已取消', 'warning');
 }
@@ -3154,13 +3811,25 @@ function setupSSEHandlers(es) {
 
   es.addEventListener('progress', e => handleSSEEvent('progress', e.data));
   es.addEventListener('message', e => handleSSEEvent('message', e.data));
+  es.addEventListener('report_chunk', e => handleSSEEvent('report_chunk', e.data));
   es.addEventListener('report', e => handleSSEEvent('report', e.data));
   es.addEventListener('done', () => {
     es.close();
     appState.eventSource = null;
     finishResearch();
   });
-  es.addEventListener('error', () => {
+  es.addEventListener('error', e => {
+    // SSE 的具名 error 事件（服务端主动发的）和 EventSource 的传输错误
+    // 共用同一个监听器。带 data 的是服务端消息，必须交给 handleSSEEvent
+    // 显示出来 —— 否则后端「搜索层不可用」这类错误会被当成断线，
+    // 用户只看到「SSE 重连中」，真正的原因永远不显示。
+    if (e && typeof e.data === 'string' && e.data) {
+      handleSSEEvent('error', e.data);
+      es.close();
+      appState.eventSource = null;
+      finishResearch();
+      return;
+    }
     // Don't immediately close on transient errors
     if (es.readyState === EventSource.CLOSED) {
       appState.eventSource = null;
@@ -3182,12 +3851,27 @@ function setupSSEHandlers(es) {
   };
 }
 
+/**
+ * 记住每个节点最近一次的 detail，报告区的指标卡和来源清单要用。
+ * 搜索来源逐轮累积，用于区分「本次检索」和「历史知识/仅报告引用」。
+ */
+function rememberNodeDetail(node, detail) {
+  appState.nodeDetails[node] = detail;
+  (detail.results_preview || []).forEach(r => {
+    if (r && r.url) appState.seenSources.add(normalizeUrlKey(r.url));
+  });
+}
+
 function handleSSEEvent(type, raw) {
   try {
     const d = JSON.parse(raw);
 
     if (type === 'progress') {
-      if (STEPS.includes(d.node)) setStep(d.node);
+      if (STEPS.includes(d.node)) {
+        setStep(d.node, d.detail || {});
+        rememberNodeDetail(d.node, d.detail || {});
+      }
+      if (d.message) addLog(esc(d.message));
       if (d.summary) {
         const nodeMeta = NODE_META[d.node];
         const label = nodeMeta ? `<strong style="color:var(--${nodeMeta.color})">${nodeMeta.title}</strong> ` : '';
@@ -3200,7 +3884,12 @@ function handleSSEEvent(type, raw) {
       showReport(d);
       setAllDone();
       addLog('<span class="text-green">研究报告生成完成</span>');
+    } else if (type === 'report_chunk') {
+      handleReportChunk(d);
+    } else if (type === 'interrupt') {
+      handleInterrupt(d);
     } else if (type === 'error') {
+      $('executionDetails').open = true;
       addLog(`<span class="text-red">错误: ${esc(d.message || '未知')}</span>`);
       toast(d.message || '研究出错', 'error', '研究错误');
     }
@@ -3210,24 +3899,251 @@ function handleSSEEvent(type, raw) {
 }
 
 /* ═══════════════════════════════════════════════
+   HITL (Human-in-the-Loop)
+   ═══════════════════════════════════════════════ */
+function startHITLResearch() {
+  const question = $('question').value.trim();
+  if (!question) { $('question').focus(); return; }
+  if (appState.isResearchRunning) return;
+
+  appState.isResearchRunning = true;
+  appState.researchStartTime = Date.now();
+  appState.activeSteps = CORE_RESEARCH_STEPS;
+  appState.pipelineReached = -1;
+  appState.nodeDetails = {};
+  appState.seenSources = new Set();
+  renderPipelineStrip(appState.activeSteps, '');
+  document.body.classList.add('research-active');
+  $('foundryQuestion').textContent = question;
+  $('foundryStatus').textContent = '正在建立交互研究图';
+  if (researchViz) researchViz.start(question);
+
+  // Update UI
+  $('submitBtn').disabled = true;
+  $('spinner').style.display = 'block';
+  $('btnText').textContent = '研究中...';
+  $('cancelBtn').style.display = 'inline-flex';
+  $('emptyState').style.display = 'none';
+  $('stepPipeline').style.display = 'flex';
+  $('progressLog').classList.add('visible');
+  $('logContent').innerHTML = '';
+  resetNodePanels();
+  $('reportView').classList.remove('visible');
+  $('hitlPanel').style.display = 'none';
+  $('reportContentWrapper').classList.remove('collapsed');
+  $('reportCollapsedInfo').style.display = 'none';
+  $('collapseBtn').style.display = 'none';
+  $('collapseBtn').classList.remove('collapsed');
+  $('collapseBtnText').textContent = '折叠';
+  appState.streamingReportText = '';
+  appState.reportCollapsed = false;
+
+  addLog(`启动 <strong class="text-purple2">交互研究</strong>: <strong>${esc(question)}</strong>`);
+
+  // Use fetch + ReadableStream for POST-based SSE
+  appState.abortController = new AbortController();
+  fetch('/research/hitl/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question }),
+    signal: appState.abortController.signal,
+  })
+    .then(res => {
+      if (!res.ok) throw new Error('Request failed');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let retryCount = 0;
+
+      function read() {
+        reader.read()
+          .then(({ done, value }) => {
+            if (done) { finishResearch(); return; }
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split('\n');
+            buf = lines.pop() || '';
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].startsWith('event: ')) {
+                const ev = lines[i].slice(7).trim();
+                const dl = lines[i + 1];
+                if (dl && dl.startsWith('data: ')) {
+                  handleSSEEvent(ev, dl.slice(6));
+                }
+              }
+            }
+            read();
+          })
+          .catch(err => {
+            if (err.name === 'AbortError') return;
+            if (retryCount < 2) { retryCount++; setTimeout(read, 3000); }
+            else { addLog(`<span class="text-red">连接失败: ${esc(err.message)}</span>`); finishResearch(); }
+          });
+      }
+      read();
+    })
+    .catch(err => {
+      if (err.name === 'AbortError') return;
+      addLog(`<span class="text-red">连接失败: ${esc(err.message)}</span>`);
+      finishResearch();
+    });
+}
+
+function handleInterrupt(data) {
+  appState.hitlThreadId = data.thread_id;
+  appState.hitlInterruptPoint = data.interrupt_point;
+
+  const panel = $('hitlPanel');
+  const body = $('hitlBody');
+
+  if (data.interrupt_point === 'confirm_sub_questions') {
+    // 子问题确认面板
+    $('hitlTitle').textContent = '确认研究规划';
+    $('hitlSubtitle').textContent = '审核 AI 拆解的子问题，可编辑后继续';
+    $('hitlSkipBtn').textContent = '直接继续';
+    $('hitlConfirmBtn').textContent = '确认并继续';
+
+    const sqs = data.sub_questions || [];
+    body.innerHTML = '<div style="margin-bottom:12px;font-size:.82rem;color:var(--text2)">AI 将研究问题拆解为以下子问题，你可以修改后继续：</div>' +
+      sqs.map((sq, i) => `
+        <div class="hitl-sq-item">
+          <div class="hitl-sq-num">${i + 1}</div>
+          <div class="hitl-sq-fields">
+            <input class="input hitl-sq-question" value="${esc(sq.question || '')}" placeholder="子问题（中文）">
+            <input class="input hitl-sq-search" value="${esc(sq.search_query || '')}" placeholder="主搜索词（语言自适应）" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:.78rem">
+          </div>
+        </div>
+      `).join('');
+
+    addLog('<span class="text-purple2">👤 等待确认子问题...</span>');
+
+  } else if (data.interrupt_point === 'review_report') {
+    // 报告审核面板
+    $('hitlTitle').textContent = '审核研究报告';
+    $('hitlSubtitle').textContent = '查看报告草稿，可补充要求后继续';
+    $('hitlSkipBtn').textContent = '直接通过';
+    $('hitlConfirmBtn').textContent = '提交反馈';
+
+    const report = data.report || '';
+    let reportHtml = '';
+    try { reportHtml = renderMarkdown(report); } catch { reportHtml = esc(report); }
+
+    body.innerHTML = `
+      <div class="hitl-report-preview">${reportHtml}</div>
+      <div style="font-size:.82rem;color:var(--text2);margin-bottom:8px">补充要求或改进建议（可选）：</div>
+      <textarea class="input hitl-feedback-input" id="hitlFeedback" placeholder="例如：请补充更多数据支撑、请增加对比分析..."></textarea>
+    `;
+
+    addLog('<span class="text-purple2">👤 等待审核报告...</span>');
+  }
+
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function resumeHITLResearch(skip) {
+  const threadId = appState.hitlThreadId;
+  const interruptPoint = appState.hitlInterruptPoint;
+  if (!threadId) return;
+
+  // 隐藏中断面板
+  $('hitlPanel').style.display = 'none';
+
+  let resumeData = { interrupt_point: interruptPoint };
+
+  if (!skip && interruptPoint === 'confirm_sub_questions') {
+    // 收集编辑后的子问题
+    const questions = document.querySelectorAll('.hitl-sq-question');
+    const searches = document.querySelectorAll('.hitl-sq-search');
+    const subQuestions = [];
+    questions.forEach((q, i) => {
+      subQuestions.push({
+        question: q.value.trim(),
+        search_query: searches[i] ? searches[i].value.trim() : '',
+      });
+    });
+    resumeData.sub_questions = subQuestions;
+    addLog('<span class="text-green">✓ 子问题已确认</span>');
+
+  } else if (!skip && interruptPoint === 'review_report') {
+    // 收集用户反馈
+    const feedback = $('hitlFeedback') ? $('hitlFeedback').value.trim() : '';
+    resumeData.user_feedback = feedback;
+    if (feedback) {
+      addLog(`<span class="text-green">✓ 反馈已提交: ${esc(feedback.slice(0, 50))}</span>`);
+    } else {
+      addLog('<span class="text-green">✓ 报告已确认</span>');
+    }
+
+  } else {
+    addLog('<span class="text-amber">跳过交互，直接继续</span>');
+  }
+
+  // 调用恢复端点
+  appState.abortController = new AbortController();
+  fetch('/research/hitl/resume/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ thread_id: threadId, resume_data: resumeData }),
+    signal: appState.abortController.signal,
+  })
+    .then(res => {
+      if (!res.ok) throw new Error('Resume failed');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      function read() {
+        reader.read()
+          .then(({ done, value }) => {
+            if (done) { finishResearch(); return; }
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split('\n');
+            buf = lines.pop() || '';
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].startsWith('event: ')) {
+                const ev = lines[i].slice(7).trim();
+                const dl = lines[i + 1];
+                if (dl && dl.startsWith('data: ')) {
+                  handleSSEEvent(ev, dl.slice(6));
+                }
+              }
+            }
+            read();
+          })
+          .catch(err => {
+            if (err.name === 'AbortError') return;
+            addLog(`<span class="text-red">恢复失败: ${esc(err.message)}</span>`);
+            finishResearch();
+          });
+      }
+      read();
+    })
+    .catch(err => {
+      addLog(`<span class="text-red">恢复失败: ${esc(err.message)}</span>`);
+      finishResearch();
+    });
+}
+
+/* ═══════════════════════════════════════════════
    Node Detail Rendering — step card history
    ═══════════════════════════════════════════════ */
 const NODE_META = {
-  knowledge_lookup: { icon: '◎', title: '知识查询', color: 'cyan' },
-  planner: { icon: '◈', title: '问题规划', color: 'purple' },
-  searcher: { icon: '◉', title: '并行搜索', color: 'purple' },
-  validator: { icon: '✓', title: '结果验证', color: 'green' },
-  synthesizer: { icon: '▯', title: '报告综合', color: 'purple' },
-  reflector: { icon: '↻', title: '质量反思', color: 'amber' },
-  knowledge_store: { icon: '◈', title: '知识存储', color: 'green' },
-  diff_analyzer: { icon: '⇄', title: '变化分析', color: 'amber' },
-  change_notifier: { icon: '◉', title: '变更通知', color: 'green' },
+  knowledge_lookup: { icon: '◎', title: '知识查询', status: '正在读取历史知识', color: 'cyan' },
+  planner: { icon: '◈', title: '问题规划', status: '研究问题正在形成分支', color: 'purple' },
+  searcher: { icon: '◉', title: '并行搜索', status: '外部来源信号正在汇入', color: 'purple' },
+  validator: { icon: '✓', title: '结果验证', status: '正在标记证据缺口', color: 'green' },
+  synthesizer: { icon: '▯', title: '报告综合', status: '证据正在向核心收束', color: 'purple' },
+  reflector: { icon: '↻', title: '质量反思', status: '正在扫描结论稳定性', color: 'amber' },
+  knowledge_store: { icon: '◈', title: '知识存储', status: '研究结果正在归档', color: 'green' },
+  diff_analyzer: { icon: '⇄', title: '变化分析', status: '正在标记时间差异', color: 'amber' },
+  change_notifier: { icon: '◉', title: '变更通知', status: '正在发送关键变化', color: 'green' },
 };
 
-function showNodeDetail(node, detail) {
-  if (!detail || Object.keys(detail).length === 0) return;
-
-  const meta = NODE_META[node] || { icon: '●', title: node, color: 'purple' };
+/**
+ * 构建某个节点的卡片正文与角标。
+ * 只负责产出 HTML，不碰 DOM —— 由 showNodeDetail 决定放到哪张面板里。
+ */
+function buildNodeBody(node, detail) {
   let body = '';
   let badge = '';
 
@@ -3252,7 +4168,7 @@ function showNodeDetail(node, detail) {
     body = detail.sub_questions.map((sq, i) => `
       <div class="nd-sq">
         <div class="nd-sq-num">${i + 1}</div>
-        <div>
+        <div class="nd-sq-copy">
           <div class="nd-sq-q">${esc(sq.question)}</div>
           <div class="nd-sq-kw">▸ ${esc(sq.search_query)}</div>
         </div>
@@ -3283,10 +4199,13 @@ function showNodeDetail(node, detail) {
     if (gc > 0) {
       body = `<div class="nd-warn">⚠ ${gc} 个子问题需要补充搜索</div>`;
       if (detail.gaps) {
-        body += detail.gaps.map(g => `
+        body += detail.gaps.map((g, i) => `
           <div class="nd-gap">
-            <div class="nd-gap-q">${esc(g.question)}</div>
-            <div class="nd-gap-kw">▸ ${esc(g.search_query)}</div>
+            <div class="nd-gap-num">${String(i + 1).padStart(2, '0')}</div>
+            <div class="nd-gap-copy">
+              <div class="nd-gap-q">${esc(g.question)}</div>
+              <div class="nd-gap-kw">▸ ${esc(g.search_query)}</div>
+            </div>
           </div>
         `).join('');
       }
@@ -3306,7 +4225,8 @@ function showNodeDetail(node, detail) {
   if (node === 'reflector') {
     const passed = detail.reflection_pass;
     const round = detail.reflection_round || 0;
-    badge = `第${round}轮 · ${passed ? '✓ 通过' : '✗ 修正'}`;
+    // 轮次由卡片头部的 .sc-round 芯片显示，角标只留判定结果
+    badge = passed ? '✓ 通过' : '✗ 需修正';
     body = `
       <div class="nd-refl">
         <dt>轮次</dt><dd>${round}</dd>
@@ -3342,29 +4262,118 @@ function showNodeDetail(node, detail) {
     body = `<div class="${detail.notification_sent ? 'nd-ok' : 'text-muted'}" style="font-size:.76rem">${detail.notification_sent ? '✓ 通知已发送' : '— 无需通知'}</div>`;
   }
 
-  if (!body) return;
+  return { body, badge };
+}
 
-  // Append a step card to the history
+/* ── 节点面板：每个节点一张卡，原地更新，旧轮次收进折叠区 ──────────
+   以前是每来一个事件就 append 一张新卡片，补搜/重写循环会让 validator、
+   searcher、synthesizer 各堆出四五张几乎一样的卡片（实测 7000px 高）。 */
+const nodePanels = new Map();
+
+function resetNodePanels() {
+  nodePanels.clear();
   const container = $('stepCards');
-  const card = document.createElement('div');
+  if (container) container.replaceChildren();
+}
+
+/** 取到（必要时创建）某节点的面板，并按图的节点顺序插入，而不是按到达顺序 */
+function ensureNodePanel(node, meta) {
+  const existing = nodePanels.get(node);
+  if (existing) return existing;
+
+  const flow = appState.activeSteps.length ? appState.activeSteps : STEPS;
+  const order = flow.indexOf(node) >= 0 ? flow.indexOf(node) : flow.length + nodePanels.size;
+
+  const card = document.createElement('section');
   card.className = `step-card sc-${meta.color}`;
+  card.dataset.order = String(order);
   card.innerHTML = `
     <div class="sc-header">
       <div class="sc-icon">${meta.icon}</div>
-      <span class="sc-title">${meta.title}</span>
-      ${badge ? `<span class="sc-badge">${esc(badge)}</span>` : ''}
+      <span class="sc-title">${esc(meta.title)}</span>
+      <span class="sc-round" hidden></span>
+      <span class="sc-badge"></span>
     </div>
-    <div class="sc-body">${body}</div>
+    <div class="sc-body"></div>
+    <details class="sc-history" hidden>
+      <summary><span class="sc-history-label">历史轮次</span></summary>
+      <div class="sc-history-body"></div>
+    </details>
   `;
-  container.appendChild(card);
 
-  // Scroll into view smoothly
-  setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+  const container = $('stepCards');
+  const next = [...container.children].find(el => Number(el.dataset.order) > order);
+  container.insertBefore(card, next || null);
+
+  const panel = {
+    card,
+    bodyEl: card.querySelector('.sc-body'),
+    badgeEl: card.querySelector('.sc-badge'),
+    roundEl: card.querySelector('.sc-round'),
+    historyEl: card.querySelector('.sc-history'),
+    historyBodyEl: card.querySelector('.sc-history-body'),
+    historyLabelEl: card.querySelector('.sc-history-label'),
+    rounds: 0,
+  };
+  nodePanels.set(node, panel);
+  return panel;
+}
+
+/** 把当前正文挪进历史折叠区，标上它属于第几轮 */
+function archiveNodeRound(panel) {
+  const round = panel.rounds - 1;
+  const entry = document.createElement('div');
+  entry.className = 'sc-history-entry';
+  const label = document.createElement('div');
+  label.className = 'sc-history-round';
+  label.textContent = `第 ${round} 轮${panel.badgeEl.textContent ? ' · ' + panel.badgeEl.textContent : ''}`;
+  entry.appendChild(label);
+  const holder = document.createElement('div');
+  holder.innerHTML = panel.bodyEl.innerHTML;
+  entry.appendChild(holder);
+  panel.historyBodyEl.prepend(entry);
+
+  const count = panel.historyBodyEl.children.length;
+  panel.historyLabelEl.textContent = `历史轮次（${count}）`;
+  panel.historyEl.hidden = false;
+}
+
+function showNodeDetail(node, detail) {
+  if (!detail || Object.keys(detail).length === 0) return;
+
+  const meta = NODE_META[node] || { icon: '●', title: node, color: 'purple' };
+  const { body, badge } = buildNodeBody(node, detail);
+  if (!body) return;
+
+  const panel = ensureNodePanel(node, meta);
+  panel.rounds += 1;
+  if (panel.rounds > 1) archiveNodeRound(panel);
+
+  panel.badgeEl.textContent = badge || '';
+  panel.roundEl.textContent = `第 ${panel.rounds} 轮`;
+  panel.roundEl.hidden = panel.rounds < 2;
+  panel.bodyEl.innerHTML = body;
+  panel.card.classList.remove('is-updated');
+  // 强制重排以便重复触发高亮动画
+  void panel.card.offsetWidth;
+  panel.card.classList.add('is-updated');
+
+  if ($('executionDetails').open) {
+    setTimeout(() => panel.card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+  }
 }
 
 function showReport(data) {
   const v = $('reportView');
   v.classList.add('visible');
+
+  // 如果之前有实时渲染的原始文本，先保存
+  if (appState.streamingReportText) {
+    appState.lastReportText = appState.streamingReportText;
+    appState.streamingReportText = '';
+  } else {
+    appState.lastReportText = data.report || '';
+  }
 
   const m = $('reportMeta');
   const items = [
@@ -3383,26 +4392,377 @@ function showReport(data) {
     </div>
   `).join('');
 
-  // Store report text for copy
-  appState.lastReportText = data.report || '';
-
-  // Render markdown with error handling
+  // 用完整 Markdown 替换实时渲染的原始文本
+  const body = $('reportBody');
   try {
-    $('reportBody').innerHTML = marked.parse(data.report || '');
+    body.innerHTML = renderMarkdown(appState.lastReportText);
   } catch (e) {
-    $('reportBody').innerHTML = `<p class="text-red">报告渲染失败: ${esc(e.message)}</p><pre>${esc(data.report || '')}</pre>`;
+    body.innerHTML = `<p class="text-red">报告渲染失败: ${esc(e.message)}</p><pre>${esc(appState.lastReportText)}</pre>`;
   }
-  $('reportBody').classList.add('typing');
+  body.classList.remove('streaming-mode', 'is-streaming');
+  // 从流式草稿平滑过渡到定稿排版，而不是直接跳变
+  body.classList.remove('is-settled');
+  void body.offsetWidth;
+  body.classList.add('is-settled', 'typing');
+
+  buildReportScorecard(data);
+  buildReportToc();
+  buildReportSources(data);
+
+  // 显示折叠按钮
+  $('collapseBtn').style.display = 'inline-flex';
+  $('collapsedInfoText').textContent = `研究报告 · ${appState.lastReportText.length} 字符（点击展开）`;
+}
+
+/* ── 报告顶部证据质量指标卡 ─────────────────────────── */
+
+function buildReportScorecard(data) {
+  const host = $('reportScorecard');
+  if (!host) return;
+
+  const validator = appState.nodeDetails.validator || {};
+  const total = validator.branch_total || (data.sub_questions || []).length;
+  const sufficient = validator.branch_sufficient || 0;
+  const coverage = typeof validator.avg_coverage === 'number' ? validator.avg_coverage : null;
+  const score = data.reflection_score || (appState.nodeDetails.reflector || {}).reflection_score || 0;
+  // 新报告：置信度由后端代码从证据质量计算（data.confidence）；
+  // 旧报告：正文里可能还有「置信度：高/中/低」文本，回退用 extractConfidence
+  let confidence;
+  const _conf = String(data.confidence || '');
+  if (_conf === '高' || _conf === '中' || _conf === '低') {
+    const _tones = { '高': 'good', '中': 'warn', '低': 'bad' };
+    confidence = { text: _conf, tone: _tones[_conf], note: '证据质量评估' };
+  } else {
+    confidence = extractConfidence(appState.lastReportText);
+  }
+
+  const tiles = [
+    {
+      label: '整体置信度',
+      value: confidence.text,
+      tone: confidence.tone,
+      note: confidence.note,
+    },
+    {
+      label: '分支证据充足',
+      value: total ? `${sufficient}/${total}` : '—',
+      tone: !total ? 'muted' : (sufficient === total ? 'good' : (sufficient === 0 ? 'bad' : 'warn')),
+      note: coverage === null ? '未评估覆盖度' : `平均覆盖度 ${(coverage * 100).toFixed(0)}%`,
+    },
+    {
+      label: '质量评分',
+      value: score ? `${score}/15` : '—',
+      // 硬规则（引用一致性、未解决缺口、用户反馈）可以在评分达标时仍然判不通过，
+      // 所以色调看的是「是否通过」，不是分数本身，否则会出现 15/15 却未通过的错觉
+      tone: !score ? 'muted' : (data.reflection_pass ? 'good' : (score >= 12 ? 'warn' : 'bad')),
+      note: data.reflection_pass
+        ? `第 ${data.reflection_round || 1} 轮通过`
+        : (score >= 12
+          ? '评分达标，但引用或缺口未过硬规则'
+          : `第 ${data.reflection_round || 1} 轮未通过`),
+    },
+    {
+      label: '检索来源',
+      value: String(data.search_results_count || 0),
+      tone: (data.search_results_count || 0) > 0 ? 'good' : 'bad',
+      note: data.is_incremental ? '增量模式（含历史知识）' : '本次检索去重后',
+    },
+  ];
+
+  const warnings = [];
+  if (data.search_unavailable) warnings.push('搜索层不可用，本次未获得新证据');
+  if (data.evidence_assessment_degraded) warnings.push('语义证据评估不可用，仅做了机械校验');
+  if (data.stop_reason === 'search_budget_exhausted') warnings.push('搜索预算耗尽，仍有未解决缺口');
+  if (data.stop_reason === 'reflection_budget_exhausted') warnings.push('反思轮次用尽，结论未通过质量门槛');
+  if (data.stop_reason === 'no_new_queries') warnings.push('已无新的补充查询可执行');
+
+  host.replaceChildren();
+  const grid = document.createElement('div');
+  grid.className = 'rs-grid';
+  tiles.forEach(t => {
+    const tile = document.createElement('div');
+    tile.className = `rs-tile is-${t.tone}`;
+    const l = document.createElement('span');
+    l.className = 'rs-label';
+    l.textContent = t.label;
+    const val = document.createElement('strong');
+    val.className = 'rs-value';
+    val.textContent = t.value;
+    const n = document.createElement('span');
+    n.className = 'rs-note';
+    n.textContent = t.note;
+    tile.append(l, val, n);
+    grid.appendChild(tile);
+  });
+  host.appendChild(grid);
+
+  if (warnings.length) {
+    const box = document.createElement('div');
+    box.className = 'rs-warnings';
+    warnings.forEach(w => {
+      const row = document.createElement('div');
+      row.className = 'rs-warning';
+      row.textContent = `⚠ ${w}`;
+      box.appendChild(row);
+    });
+    host.appendChild(box);
+  }
+
+  // 研究说明：局限/降级/未解决缺口等评价性信息，存于后端 research_notes，
+  // 默认折叠展示，不影响文章正文的可发布性
+  const notes = Array.isArray(data.research_notes) ? data.research_notes : [];
+  if (notes.length) {
+    const det = document.createElement('details');
+    det.className = 'rs-notes';
+    const sum = document.createElement('summary');
+    sum.textContent = `研究说明（${notes.length}）`;
+    const list = document.createElement('ul');
+    notes.forEach(n => {
+      const li = document.createElement('li');
+      li.textContent = n;
+      list.appendChild(li);
+    });
+    det.append(sum, list);
+    host.appendChild(det);
+  }
+  host.hidden = false;
+}
+
+/** 从报告正文里读「整体置信度：高/中/低」，兼容加粗等写法 */
+function extractConfidence(text) {
+  const m = /(?:整体)?置信度[：:\s*]*\**\s*([高中低])/.exec(text || '');
+  const level = m ? m[1] : '';
+  if (level === '高') return { text: '高', tone: 'good', note: '报告自评' };
+  if (level === '中') return { text: '中', tone: 'warn', note: '报告自评' };
+  if (level === '低') return { text: '低', tone: 'bad', note: '报告自评' };
+  return { text: '未标注', tone: 'muted', note: '报告未给出置信度' };
+}
+
+/* ── 章节目录 ──────────────────────────────────────── */
+
+function buildReportToc() {
+  const toc = $('reportToc');
+  const body = $('reportBody');
+  if (!toc || !body) return;
+
+  if (appState.tocObserver) {
+    appState.tocObserver.disconnect();
+    appState.tocObserver = null;
+  }
+
+  const heads = [...body.querySelectorAll('h2, h3')];
+  if (heads.length < 2) {
+    toc.hidden = true;
+    toc.replaceChildren();
+    return;
+  }
+
+  const title = document.createElement('div');
+  title.className = 'toc-title';
+  title.textContent = '章节目录';
+  const list = document.createElement('ul');
+  list.className = 'toc-list';
+
+  heads.forEach((h, i) => {
+    const id = `report-sec-${i}`;
+    h.id = id;
+    const li = document.createElement('li');
+    li.className = `toc-item toc-${h.tagName.toLowerCase()}`;
+    const a = document.createElement('a');
+    a.href = `#${id}`;
+    a.textContent = (h.textContent || '').trim();
+    a.dataset.target = id;
+    a.addEventListener('click', ev => {
+      ev.preventDefault();
+      h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    li.appendChild(a);
+    list.appendChild(li);
+  });
+
+  toc.replaceChildren(title, list);
+  toc.hidden = false;
+
+  // 阅读位置高亮：取当前视口内最靠上的可见标题
+  const links = new Map([...list.querySelectorAll('a')].map(a => [a.dataset.target, a]));
+  appState.tocObserver = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      links.forEach(a => a.classList.remove('is-active'));
+      const a = links.get(entry.target.id);
+      if (a) a.classList.add('is-active');
+    });
+  }, { rootMargin: '-12% 0px -80% 0px', threshold: 0 });
+  heads.forEach(h => appState.tocObserver.observe(h));
+}
+
+/* ── 来源汇总清单 ──────────────────────────────────── */
+
+function buildReportSources(data) {
+  const host = $('reportSources');
+  if (!host) return;
+
+  const cited = new Map();  // normalized url → {url, fromRun}
+  $('reportBody').querySelectorAll('a[href^="http"]').forEach(a => {
+    const url = a.getAttribute('href');
+    cited.set(normalizeUrlKey(url), { url, fromRun: appState.seenSources.has(normalizeUrlKey(url)) });
+  });
+  // 正文里以纯文本形式写出的 URL 也算引用
+  (appState.lastReportText.match(/https?:\/\/[^\s<>)）】"'，。;；]+/g) || []).forEach(url => {
+    const key = normalizeUrlKey(url);
+    if (!cited.has(key)) cited.set(key, { url, fromRun: appState.seenSources.has(key) });
+  });
+
+  if (!cited.size) {
+    host.hidden = true;
+    host.replaceChildren();
+    return;
+  }
+
+  const byDomain = new Map();
+  cited.forEach(entry => {
+    let host_ = '';
+    try { host_ = new URL(entry.url).hostname.replace(/^www\./, ''); } catch { host_ = '其他'; }
+    if (!byDomain.has(host_)) byDomain.set(host_, []);
+    byDomain.get(host_).push(entry);
+  });
+  const domains = [...byDomain.entries()].sort((a, b) => b[1].length - a[1].length);
+
+  host.replaceChildren();
+  const head = document.createElement('div');
+  head.className = 'rsrc-head';
+  const h = document.createElement('h3');
+  h.textContent = '来源汇总';
+  const count = document.createElement('span');
+  count.className = 'rsrc-count';
+  count.textContent = `${cited.size} 条引用 · ${domains.length} 个独立域名`;
+  head.append(h, count);
+  host.appendChild(head);
+
+  domains.forEach(([domain, entries]) => {
+    const group = document.createElement('div');
+    group.className = 'rsrc-group';
+    const dn = document.createElement('div');
+    dn.className = 'rsrc-domain';
+    dn.textContent = domain;
+    const badge = document.createElement('span');
+    badge.className = 'rsrc-domain-count';
+    badge.textContent = String(entries.length);
+    dn.appendChild(badge);
+    group.appendChild(dn);
+
+    entries.forEach(entry => {
+      const row = document.createElement('div');
+      row.className = 'rsrc-row';
+      const a = document.createElement('a');
+      a.href = entry.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = entry.url.replace(/^https?:\/\//, '');
+      const tag = document.createElement('span');
+      tag.className = `rsrc-tag ${entry.fromRun ? 'is-run' : 'is-history'}`;
+      tag.textContent = entry.fromRun ? '本次检索' : (data.is_incremental ? '历史知识' : '报告引用');
+      row.append(a, tag);
+      group.appendChild(row);
+    });
+    host.appendChild(group);
+  });
+  host.hidden = false;
+}
+
+/** 与后端 utils.normalize_url 同思路的轻量版，仅用于前端去重比对 */
+function normalizeUrlKey(url) {
+  try {
+    const u = new URL(url);
+    const path = u.pathname.replace(/\/$/, '') || '/';
+    return u.hostname.replace(/^www\./, '').toLowerCase() + path.toLowerCase();
+  } catch {
+    return String(url || '').trim().toLowerCase().replace(/\/$/, '');
+  }
+}
+
+function handleReportChunk(d) {
+  const chunk = d.chunk || '';
+  if (!chunk) return;
+
+  const v = $('reportView');
+  const body = $('reportBody');
+
+  // 第一次收到 chunk 时初始化
+  if (!v.classList.contains('visible')) {
+    v.classList.add('visible');
+    appState.streamingReportText = '';
+    body.replaceChildren();
+    body.classList.add('streaming-mode', 'is-streaming', 'typing');
+    body.classList.remove('is-settled');
+    // 生成中先隐藏定稿后才有意义的模块
+    ['reportScorecard', 'reportToc', 'reportSources'].forEach(id => {
+      const el = $(id);
+      if (el) el.hidden = true;
+    });
+  }
+
+  // 累积原始 Markdown 文本
+  appState.streamingReportText += chunk;
+
+  // 节流渲染完整 Markdown，避免逐 token 解析和原始 Markdown 排版混乱。
+  if (!appState.reportRenderTimer) {
+    appState.reportRenderTimer = setTimeout(() => {
+      appState.reportRenderTimer = null;
+      try {
+        body.innerHTML = renderMarkdown(appState.streamingReportText);
+      } catch {
+        body.textContent = appState.streamingReportText;
+      }
+      // 光标跟在正文末尾，表示还在生成
+      const caret = document.createElement('span');
+      caret.className = 'report-caret';
+      caret.setAttribute('aria-hidden', 'true');
+      body.appendChild(caret);
+      body.scrollTop = body.scrollHeight;
+    }, 140);
+  }
+}
+
+function toggleReportCollapse() {
+  const wrapper = $('reportContentWrapper');
+  const collapsedInfo = $('reportCollapsedInfo');
+  const btn = $('collapseBtn');
+  const btnText = $('collapseBtnText');
+
+  if (wrapper.classList.contains('collapsed')) {
+    // 展开
+    wrapper.classList.remove('collapsed');
+    collapsedInfo.style.display = 'none';
+    btn.classList.remove('collapsed');
+    btnText.textContent = '折叠';
+  } else {
+    // 折叠
+    wrapper.classList.add('collapsed');
+    collapsedInfo.style.display = 'flex';
+    btn.classList.add('collapsed');
+    btnText.textContent = '展开';
+  }
 }
 
 function finishResearch() {
   appState.isResearchRunning = false;
+  if (researchViz) researchViz.running = false;
+  document.body.classList.remove('research-active');
   $('submitBtn').disabled = false;
   $('spinner').style.display = 'none';
   $('btnText').textContent = '开始研究';
   $('cancelBtn').style.display = 'none';
   appState.abortController = null;
   appState.eventSource = null;
+  appState.hitlThreadId = null;
+  appState.hitlInterruptPoint = null;
+  appState.activeSteps = [];
+  if (appState.reportRenderTimer) {
+    clearTimeout(appState.reportRenderTimer);
+    appState.reportRenderTimer = null;
+  }
+  appState.streamingReportText = '';
   setTimeout(() => $('reportBody')?.classList.remove('typing'), 1500);
 }
 
@@ -3670,7 +5030,7 @@ async function loadTopicTrackingConfig(topicId) {
           </div>
         </div>
         <button class="btn btn-sm" onclick="openTrackingConfig('${topicId}')">✏ 编辑</button>
-        <button class="btn btn-sm" style="margin-left:8px" onclick="runTrackingNow('${topicId}')">▶ 立即追踪</button>
+        <button class="btn btn-sm" style="margin-left:8px" onclick="runTrackingNow('${topicId}', this)">▶ 立即追踪</button>
       </div>
     </div>
   `;
@@ -3781,13 +5141,22 @@ async function saveTrackingConfig() {
   }
 
   try {
-    await api('/topics/' + tid, {
+    const saved = await api('/topics/' + tid, {
       method: 'PUT',
       body: { tracking_keywords: kw, tracking_cron: cr, tracking_enabled: en },
     });
     hideModal('trackingConfig');
     loadTopicDetail(tid);
-    toast('追踪配置已保存', 'success');
+    // 后端返回 tracking_scheduled 表示定时任务是否真的注册进调度器
+    if (saved.tracking_warning) {
+      toast(saved.tracking_warning, 'warning');
+    } else if (en && cr && !saved.tracking_scheduled) {
+      toast('配置已保存，但定时任务未注册，请检查服务端日志', 'warning');
+    } else if (en && cr) {
+      toast('追踪配置已保存，定时任务已生效', 'success');
+    } else {
+      toast('追踪配置已保存', 'success');
+    }
   } catch (e) {
     toast('保存失败: ' + e.message, 'error');
   }
@@ -3806,8 +5175,7 @@ async function testNotification() {
   }
 }
 
-async function runTrackingNow(topicId) {
-  const btn = event.target;
+async function runTrackingNow(topicId, btn) {
   const origText = btn.textContent;
   btn.disabled = true;
   btn.textContent = '⏳ 追踪中…';
@@ -3885,7 +5253,7 @@ async function loadReportDetail(reportId) {
 
     let reportHtml = '';
     try {
-      reportHtml = marked.parse(r.report || '');
+      reportHtml = renderMarkdown(r.report || '');
     } catch (e) {
       reportHtml = `<p class="text-red">报告渲染失败</p><pre>${esc(r.report || '')}</pre>`;
     }
@@ -3900,12 +5268,20 @@ async function loadReportDetail(reportId) {
           <h3 class="section-title">📎 参考来源</h3>
           <div style="display:flex;flex-direction:column;gap:5px">
             ${r.sources.map(s => `
-              <a href="${esc(s.url)}" target="_blank" class="source-link">
+              <a href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer" class="source-link">
                 <span class="source-icon" aria-hidden="true">◈</span>${esc(s.title || s.url)}
               </a>
             `).join('')}
           </div>
         </div>
+      ` : ''}
+      ${r.research_notes && r.research_notes.length ? `
+        <details class="rs-notes" style="margin-top:16px">
+          <summary>研究说明（${r.research_notes.length}）</summary>
+          <ul style="margin:8px 0 0;padding-left:20px;color:var(--text-2, #8899aa)">
+            ${r.research_notes.map(n => `<li>${esc(n)}</li>`).join('')}
+          </ul>
+        </details>
       ` : ''}
     `;
   } catch (e) {
@@ -4001,11 +5377,12 @@ async function loadTrackingPage() {
     if (jobs.length) {
       h += '<h3 class="section-title">调度任务</h3><div class="card"><div style="overflow:hidden">';
       for (const j of jobs) {
+        const jobTopic = topics.find(t => t.id === j.topic_id);
         h += `
           <div class="tracking-log-item">
             <div class="log-status completed"></div>
             <div class="log-info">
-              <div class="log-time">${esc(j.topic_name || j.topic_id || '未知')}</div>
+              <div class="log-time">${esc(j.topic_name || (jobTopic && jobTopic.name) || j.topic_id || '未知')}</div>
               <div class="log-summary">下次运行: ${esc(j.next_run || '未安排')}</div>
             </div>
           </div>
@@ -4028,6 +5405,36 @@ async function loadTrackingPage() {
 /* ═══════════════════════════════════════════════
    Utility
    ═══════════════════════════════════════════════ */
+function safeUrl(value) {
+  try {
+    const url = new URL(String(value || ''), window.location.origin);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '#';
+  } catch {
+    return '#';
+  }
+}
+
+function renderMarkdown(markdown) {
+  const template = document.createElement('template');
+  template.innerHTML = marked.parse(markdown || '');
+  template.content.querySelectorAll('script, style, iframe, object, embed, link, meta').forEach(el => el.remove());
+  template.content.querySelectorAll('*').forEach(el => {
+    for (const attr of [...el.attributes]) {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith('on') || name === 'style' || name === 'srcdoc') {
+        el.removeAttribute(attr.name);
+      }
+    }
+    if (el.hasAttribute('href')) el.setAttribute('href', safeUrl(el.getAttribute('href')));
+    if (el.hasAttribute('src')) el.setAttribute('src', safeUrl(el.getAttribute('src')));
+    if (el.tagName === 'A') {
+      el.setAttribute('target', '_blank');
+      el.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+  return template.innerHTML;
+}
+
 function esc(s) {
   if (!s) return '';
   const d = document.createElement('div');
@@ -4039,6 +5446,14 @@ function esc(s) {
    Init
    ═══════════════════════════════════════════════ */
 async function init() {
+  if (window.lucide) {
+    window.lucide.createIcons();
+  } else {
+    window.addEventListener('load', () => window.lucide && window.lucide.createIcons(), { once: true });
+  }
+
+  researchViz = new ResearchEvidenceMap($('researchCanvas'));
+
   // Load dashboard as landing page
   loadDashboard();
 

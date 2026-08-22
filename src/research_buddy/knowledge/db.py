@@ -59,6 +59,7 @@ class Database:
                 report TEXT NOT NULL DEFAULT '',
                 confidence TEXT DEFAULT '',
                 sources TEXT DEFAULT '[]',
+                research_notes TEXT DEFAULT '[]',
                 search_results_count INTEGER DEFAULT 0,
                 reflection_rounds INTEGER DEFAULT 0,
                 is_incremental INTEGER DEFAULT 0,
@@ -95,7 +96,20 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_tracking_topic ON tracking_logs(topic_id);
             CREATE INDEX IF NOT EXISTS idx_changes_log ON changes(tracking_log_id);
         """)
+        self._migrate(conn)
         conn.commit()
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        """旧库迁移：为已存在的表补上新列（幂等）。
+
+        CREATE TABLE IF NOT EXISTS 不会给已存在的表加列，
+        早期版本建的 reports 表没有 research_notes 列。
+        """
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(reports)").fetchall()}
+        if "research_notes" not in cols:
+            conn.execute(
+                "ALTER TABLE reports ADD COLUMN research_notes TEXT DEFAULT '[]'"
+            )
 
     # ── Topic CRUD ──────────────────────────────────────
 
@@ -154,6 +168,7 @@ class Database:
 
     def create_report(self, topic_id: str, question: str, report: str,
                       confidence: str = "", sources: list | None = None,
+                      research_notes: list[str] | None = None,
                       search_results_count: int = 0, reflection_rounds: int = 0,
                       is_incremental: bool = False, parent_report_id: str = "",
                       key_facts: list[str] | None = None) -> dict:
@@ -161,12 +176,13 @@ class Database:
         report_id = uuid.uuid4().hex[:12]
         self.conn.execute(
             """INSERT INTO reports
-               (id, topic_id, question, report, confidence, sources,
+               (id, topic_id, question, report, confidence, sources, research_notes,
                 search_results_count, reflection_rounds, is_incremental,
                 parent_report_id, key_facts)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (report_id, topic_id, question, report, confidence,
              json.dumps(sources or [], ensure_ascii=False),
+             json.dumps(research_notes or [], ensure_ascii=False),
              search_results_count, reflection_rounds,
              1 if is_incremental else 0, parent_report_id,
              json.dumps(key_facts or [], ensure_ascii=False)),
@@ -281,6 +297,7 @@ class Database:
     def _row_to_report(row: sqlite3.Row) -> dict:
         d = dict(row)
         d["sources"] = json.loads(d.get("sources", "[]"))
+        d["research_notes"] = json.loads(d.get("research_notes", "[]"))
         d["key_facts"] = json.loads(d.get("key_facts", "[]"))
         d["is_incremental"] = bool(d.get("is_incremental", 0))
         return d

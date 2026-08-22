@@ -4,9 +4,21 @@ import logging
 
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.state import ResearchState
-from research_buddy.utils import parse_llm_json, create_llm, normalize_url
+from research_buddy.utils import parse_llm_json, create_llm, normalize_url, get_prompt_from_langfuse
 
 logger = logging.getLogger(__name__)
+
+
+KEY_FACTS_PROMPT = """从以下研究报告中提取 5-8 个最关键的事实要点。
+每个要点用一句话概括，只陈述客观事实，不要评价。
+
+研究报告：
+{report}
+
+请返回 JSON 数组格式（不要包含其他内容）：
+```json
+["事实1", "事实2", "事实3"]
+```"""
 
 
 def knowledge_store(state: ResearchState) -> dict:
@@ -47,6 +59,7 @@ def knowledge_store(state: ResearchState) -> dict:
         report=report,
         confidence=_extract_confidence(state),
         sources=sources,
+        research_notes=state.get("research_notes", []),
         search_results_count=len(state.get("search_results", [])),
         reflection_rounds=state.get("reflection_round", 0),
         is_incremental=is_incremental,
@@ -83,16 +96,10 @@ def _extract_key_facts(state: ResearchState) -> list[str]:
         try:
             llm = create_llm()
 
-            prompt = f"""从以下研究报告中提取 5-8 个最关键的事实要点。
-每个要点用一句话概括，只陈述客观事实，不要评价。
-
-研究报告：
-{report[:3000]}
-
-请返回 JSON 数组格式（不要包含其他内容）：
-```json
-["事实1", "事实2", "事实3"]
-```"""
+            prompt = get_prompt_from_langfuse(
+                "research-buddy-key-facts", KEY_FACTS_PROMPT,
+                report=report[:3000],
+            )
 
             response = llm.invoke(prompt)
             facts = parse_llm_json(response.content)
@@ -131,7 +138,16 @@ def _extract_sources(state: ResearchState) -> list[dict]:
 
 
 def _extract_confidence(state: ResearchState) -> str:
-    """从报告中提取置信度"""
+    """取置信度。
+
+    置信度由 synthesizer 从证据质量代码计算（state["confidence"]），
+    不再从报告正文匹配文本（正文已是可发布文章，不含「置信度：高/中/低」）。
+    兼容旧报告/旧 state：正文里若还有置信度文本则回退匹配，否则默认「中」。
+    """
+    confidence = state.get("confidence", "")
+    if confidence in {"高", "中", "低"}:
+        return confidence
+
     report = state.get("report", "")
     if "整体置信度：高" in report or "置信度：高" in report:
         return "高"
