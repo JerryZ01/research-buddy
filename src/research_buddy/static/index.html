@@ -5346,24 +5346,31 @@ function renderMarkdown(markdown) {
     }
   });
   // 插图统一包装成 figure + figcaption（alt 变题注），与正文排版协调。
-  // 图片不按原始尺寸孤悬在文字里：限宽、居中、带边框题注，小图不突兀、大图不撑破。
+  // 顺序很重要：先记录原父节点并完成 DOM 替换，再把 img 移进 figure——
+  // 若先 appendChild 把 img 移进 figure，img.parentNode 就变成 figure 自己，
+  // 之后 replaceChild 会抛 "The new child element contains the parent"。
   template.content.querySelectorAll('img').forEach(img => {
-    img.loading = 'lazy';
-    const alt = img.getAttribute('alt') || '';
-    const fig = document.createElement('figure');
-    fig.className = 'report-figure';
-    fig.appendChild(img);
-    if (alt) {
-      const cap = document.createElement('figcaption');
-      cap.textContent = alt;
-      fig.appendChild(cap);
-    }
-    const parent = img.parentNode;
-    // 若图片是段落里唯一内容，整段替换为 figure，避免 p 与 figure 双层外边距
-    if (parent && parent.tagName === 'P' && parent.childNodes.length === 1) {
-      parent.parentNode.replaceChild(fig, parent);
-    } else if (parent) {
-      parent.replaceChild(fig, img);
+    try {
+      img.loading = 'lazy';
+      const parent = img.parentNode;
+      const onlyChild = !!(parent && parent.tagName === 'P' && parent.childNodes.length === 1);
+      const fig = document.createElement('figure');
+      fig.className = 'report-figure';
+      if (onlyChild && parent && parent.parentNode) {
+        parent.parentNode.replaceChild(fig, parent);   // 整个 p 换成 figure
+      } else if (parent) {
+        parent.replaceChild(fig, img);                 // 仅把 img 换成 figure
+      }
+      fig.appendChild(img);                            // 把 img 移进 figure（此时已脱离原位置）
+      const alt = img.getAttribute('alt') || '';
+      if (alt) {
+        const cap = document.createElement('figcaption');
+        cap.textContent = alt;
+        fig.appendChild(cap);
+      }
+    } catch (e) {
+      // 单张图包装失败不影响整篇渲染
+      console.warn('插图包装失败，跳过:', e);
     }
   });
   return template.innerHTML;
