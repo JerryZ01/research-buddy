@@ -266,6 +266,26 @@ def test_prompts_require_no_inline_citations(monkeypatch):
         assert "编号必须来自" not in prompt
 
 
+def test_prompts_include_mermaid_and_render():
+    """技术架构/原理类话题应画 Mermaid 图解；prompt 里的花括号转义不能破坏 format。"""
+    for prompt in (synthesizer_module.SYNTHESIZER_PROMPT,
+                   synthesizer_module.SYNTHESIZER_INCREMENTAL_PROMPT,
+                   synthesizer_module.SYNTHESIZER_REFINE_PROMPT):
+        assert "```mermaid" in prompt
+        assert "技术图解" in prompt
+        # 模拟 fallback 渲染路径：花括号必须正确转义（mermaid 的 { } 节点语法）
+        kwargs = {"question": "Q", "search_results": "R", "image_section": "I"}
+        if "{knowledge_context}" in prompt:
+            kwargs["knowledge_context"] = "K"
+        if "{report}" in prompt:
+            kwargs["report"] = "Rp"
+        if "{feedback}" in prompt:
+            kwargs["feedback"] = "Fb"
+        rendered = prompt.format(**kwargs)
+        assert "C{鉴权}" in rendered  # {{鉴权}} 渲染回 {鉴权}
+        assert "{{" not in rendered.split("```mermaid")[0]  # 图解之外不应有未转义双花括号
+
+
 # ── 插图（视觉选图） ──────────────────────────────────
 
 def test_selected_images_injected_into_prompt(monkeypatch):

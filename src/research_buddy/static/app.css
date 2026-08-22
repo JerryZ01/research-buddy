@@ -808,6 +808,9 @@ kbd { padding: 1px 4px; color: inherit; background: rgba(255,255,255,.06); borde
 .report-figure { max-width: min(100%, 720px); margin: 26px auto; padding: 0; text-align: center; }
 .report-figure img { display: block; width: auto; max-width: 100%; height: auto; margin: 0 auto; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 6px 24px rgba(15, 30, 25, .12); background: #fff; }
 .report-figure figcaption { margin-top: 9px; color: var(--text3); font-size: .76rem; line-height: 1.6; overflow-wrap: anywhere; }
+/* LLM 自绘 Mermaid 图解（架构图/流程图） */
+.report-mermaid { max-width: 100%; margin: 22px auto; padding: 14px 10px; overflow-x: auto; text-align: center; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 4px 18px rgba(15, 30, 25, .08); }
+.report-mermaid svg { max-width: 100%; height: auto; }
 .report-body p:has(> img) { text-align: center; }
 
 .empty-state { min-height: 210px; padding: 40px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px; color: var(--text3); text-align: center; }

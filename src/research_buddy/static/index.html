@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Research Buddy</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <style>
 /* ═══════════════════════════════════════════════
    Reset & Variables
@@ -4395,6 +4396,7 @@ function showReport(data) {
     body.innerHTML = `<p class="text-red">报告渲染失败: ${esc(e.message)}</p><pre>${esc(appState.lastReportText)}</pre>`;
   }
   attachImageFallbacks(body);
+  renderMermaidBlocks(body);
   body.classList.remove('streaming-mode', 'is-streaming');
   // 从流式草稿平滑过渡到定稿排版，而不是直接跳变
   body.classList.remove('is-settled');
@@ -5197,6 +5199,7 @@ async function loadReportDetail(reportId) {
       ` : ''}
     `;
     attachImageFallbacks(c);
+    renderMermaidBlocks(c);
   } catch (e) {
     c.innerHTML = `
       <div class="empty-state">
@@ -5385,6 +5388,47 @@ function attachImageFallbacks(root) {
     img.dataset.imgFallback = '1';
     img.addEventListener('error', () => { img.style.display = 'none'; });
   });
+}
+
+/* ── Mermaid 图解渲染（LLM 自绘架构图/流程图） ────────── */
+
+let _mermaidReady = false;
+let _mermaidSeq = 0;
+
+function initMermaid() {
+  if (!window.mermaid || _mermaidReady) return;
+  _mermaidReady = true;
+  window.mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',          // 防止图内脚本注入
+    theme: 'default',
+    fontFamily: "'DM Sans','PingFang SC',sans-serif",
+    flowchart: { curve: 'basis', padding: 12 },
+  });
+}
+
+/** 把正文里的 ```mermaid 代码块渲染成 SVG（marked 渲染为
+ * <pre><code class="language-mermaid">），渲染失败保留原代码块。 */
+async function renderMermaidBlocks(root) {
+  if (!window.mermaid || !root) return;
+  try { initMermaid(); } catch (e) { return; }
+  const blocks = root.querySelectorAll('pre > code.language-mermaid');
+  for (const code of blocks) {
+    const pre = code.parentNode;
+    if (!pre || pre.dataset.mermaidDone) continue;
+    pre.dataset.mermaidDone = '1';
+    try {
+      const id = 'mmd' + (++_mermaidSeq);
+      const { svg } = await window.mermaid.render(id, code.textContent);
+      const holder = document.createElement('div');
+      holder.className = 'report-mermaid';
+      holder.innerHTML = svg;
+      pre.replaceWith(holder);
+    } catch (e) {
+      console.warn('Mermaid 图解渲染失败，保留源码:', e);
+      pre.dataset.mermaidDone = '';
+    }
+  }
 }
 
 function esc(s) {
