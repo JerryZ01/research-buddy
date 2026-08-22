@@ -118,7 +118,8 @@ def register_prompts() -> None:
     - 不存在 → 创建新 prompt（带 production 标签）
     """
     from research_buddy.nodes.planner import PLANNER_PROMPT, INCREMENTAL_PLANNER_PROMPT
-    from research_buddy.nodes.synthesizer import SYNTHESIZER_PROMPT, SYNTHESIZER_INCREMENTAL_PROMPT, SYNTHESIZER_REFINE_PROMPT
+    from research_buddy.nodes.synthesizer import (SYNTHESIZER_PROMPT, SYNTHESIZER_INCREMENTAL_PROMPT,
+                                                  SYNTHESIZER_REFINE_PROMPT, CORE_REFS_PROMPT)
     from research_buddy.nodes.reflector import REFLECTOR_PROMPT
     from research_buddy.nodes.validator import EVIDENCE_EVALUATOR_PROMPT
     from research_buddy.tracking.diff import DIFF_ANALYZER_PROMPT
@@ -138,6 +139,7 @@ def register_prompts() -> None:
         "research-buddy-diff-analyzer": DIFF_ANALYZER_PROMPT,
         "research-buddy-judge": JUDGE_PROMPT,
         "research-buddy-key-facts": KEY_FACTS_PROMPT,
+        "research-buddy-core-refs": CORE_REFS_PROMPT,
     }
 
     for name, template in prompts.items():
