@@ -122,6 +122,7 @@ function startResearch(topicId, isIncremental) {
 function cancelResearch() {
   appState.userCancelled = true;
   stopPollRun();
+  clearLastRun();  // 主动取消，不保留恢复记录
   if (appState.eventSource) {
     appState.eventSource.close();
     appState.eventSource = null;
@@ -211,6 +212,7 @@ function setupSSEHandlers(es) {
   es.addEventListener('done', () => {
     es.close();
     appState.eventSource = null;
+    clearLastRun();  // 正常完成，无需再恢复
     finishResearch();
   });
   es.addEventListener('error', e => {
@@ -311,7 +313,7 @@ function handleSSEEvent(type, raw) {
     const d = JSON.parse(raw);
 
     if (type === 'progress') {
-      if (d.run_id) appState.runId = d.run_id;
+      if (d.run_id) { appState.runId = d.run_id; saveLastRun(d.run_id); }
       if (STEPS.includes(d.node)) {
         setStep(d.node, d.detail || {});
         rememberNodeDetail(d.node, d.detail || {});

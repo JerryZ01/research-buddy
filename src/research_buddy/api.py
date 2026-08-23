@@ -23,6 +23,7 @@ from research_buddy.graph import (
     run_tracking,
 )
 from research_buddy.state import ResearchState
+from research_buddy.knowledge.db import get_db
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.tracking.scheduler import get_scheduler
 from research_buddy.utils import stream_and_accumulate, merge_state_update, track_run_tokens
@@ -46,6 +47,11 @@ async def lifespan(app: FastAPI):
         logger.info("向量 embedding 后端: %s", describe_embedding_backend())
     except Exception as e:
         logger.warning("解析向量 embedding 后端失败: %s", e)
+    try:
+        get_db().mark_stale_runs()
+        get_db().delete_old_runs(_RUNS_TTL_SECONDS)
+    except Exception:
+        pass
     scheduler = get_scheduler()
     scheduler.start()
     yield
@@ -82,13 +88,17 @@ def _prune_research_runs() -> None:
     ]
     for rid in done_ids:
         _research_runs.pop(rid, None)
-    # 数量上限：超了丢最旧的已完成记录
+    # 数量上限：超了丢最旧的已完成记录（内存 + DB 同步清）
     if len(_research_runs) > _RUNS_MAX_ENTRIES:
         for rid in sorted(
             (r for r in _research_runs.items() if r[1]["status"] != "running"),
             key=lambda kv: kv[1].get("created_at", 0),
         )[:len(_research_runs) - _RUNS_MAX_ENTRIES]:
             _research_runs.pop(rid[0], None)
+    try:
+        get_db().delete_old_runs(_RUNS_TTL_SECONDS)
+    except Exception:
+        pass
 
 
 # ── 请求/响应模型 ──────────────────────────────────────
@@ -238,6 +248,22 @@ async def get_research_run(run_id: str):
     前端拿到 run_id（SSE 首个 progress 事件）后可轮询本接口取回。
     """
     run = _research_runs.get(run_id)
+    if not run:
+        # 重启后内存已清空：从 SQLite 恢复（断线恢复的核心）
+        try:
+            row = get_db().get_run(run_id)
+            if row:
+                run = {
+                    "status": row.get("status", "error"),
+                    "question": row.get("question", ""),
+                    "style": row.get("style", ""),
+                    "result": row.get("result"),
+                    "error": row.get("error", ""),
+                    "created_at": row.get("created_at", 0),
+                }
+                _research_runs[run_id] = run
+        except Exception:
+            pass
     if not run:
         return JSONResponse(status_code=404, content={"error": "运行记录不存在或已过期"})
     resp: dict = {"status": run["status"], "question": run["question"]}
@@ -639,6 +665,10 @@ def _event_generator(question: str, topic_id: str = "",
             "error": None,
             "created_at": time.time(),
         }
+        try:
+            get_db().create_run(run_id, question, style)
+        except Exception:
+            pass  # 持久化失败不影响本次运行
         _prune_research_runs()
 
         def _run_graph():
@@ -665,6 +695,10 @@ def _event_generator(question: str, topic_id: str = "",
                 # 存结果（即使客户端已断开，后台线程也会执行到这里）
                 _research_runs[run_id]["result"] = result
                 _research_runs[run_id]["status"] = "done"
+                try:
+                    get_db().update_run(run_id, "done", result=result)
+                except Exception:
+                    pass
 
                 queue.put_nowait({
                     "event": "report",
@@ -680,6 +714,10 @@ def _event_generator(question: str, topic_id: str = "",
                 logger.error("SSE 图执行失败: %s", e)
                 _research_runs[run_id]["status"] = "error"
                 _research_runs[run_id]["error"] = str(e)
+                try:
+                    get_db().update_run(run_id, "error", error=str(e))
+                except Exception:
+                    pass
                 queue.put_nowait({
                     "event": "error",
                     "data": json.dumps({"message": str(e)}),

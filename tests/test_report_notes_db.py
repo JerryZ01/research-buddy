@@ -94,3 +94,27 @@ def test_old_schema_without_research_notes_is_migrated(tmp_path):
     assert row["research_notes"] == []
     assert row["total_tokens"] == 0
     assert row["report"] == ""
+
+
+def test_run_persistence_crud_and_stale_marking(db):
+    """研究运行记录：CRUD + 重启残留标记 + 超龄清理。"""
+    import time as _t
+
+    db.create_run("run1", "问题1", "tech-blog")
+    db.create_run("run2", "问题2", created_at=_t.time() - 3 * 3600)  # 旧 running
+
+    # 更新 done
+    db.update_run("run1", "done", result={"report": "x", "confidence": "高"})
+    r = db.get_run("run1")
+    assert r["status"] == "done"
+    assert r["result"]["report"] == "x"
+
+    # 重启残留：旧 running 标记为 error
+    marked = db.mark_stale_runs(max_age_seconds=2 * 3600)
+    assert marked >= 1
+    assert db.get_run("run2")["status"] == "error"
+
+    # 超龄清理：done/error 被删，running 保留
+    db.delete_old_runs(max_age_seconds=0)
+    assert db.get_run("run1") is None
+    assert db.get_run("run2") is None

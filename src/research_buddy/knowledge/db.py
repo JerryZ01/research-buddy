@@ -3,6 +3,7 @@
 import json
 import sqlite3
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -94,10 +95,21 @@ class Database:
                 FOREIGN KEY (tracking_log_id) REFERENCES tracking_logs(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS runs (
+                run_id TEXT PRIMARY KEY,
+                status TEXT DEFAULT 'running',
+                question TEXT DEFAULT '',
+                style TEXT DEFAULT '',
+                result TEXT DEFAULT '{}',
+                error TEXT DEFAULT '',
+                created_at REAL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_reports_topic ON reports(topic_id);
             CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at);
             CREATE INDEX IF NOT EXISTS idx_tracking_topic ON tracking_logs(topic_id);
             CREATE INDEX IF NOT EXISTS idx_changes_log ON changes(tracking_log_id);
+            CREATE INDEX IF NOT EXISTS idx_runs_created ON runs(created_at);
         """)
         self._migrate(conn)
         conn.commit()
@@ -308,6 +320,61 @@ class Database:
         d["key_facts"] = json.loads(d.get("key_facts", "[]"))
         d["is_incremental"] = bool(d.get("is_incremental", 0))
         return d
+
+    # ── 研究运行记录（断线恢复，重启不丢） ────────────────
+
+    def create_run(self, run_id: str, question: str, style: str = "",
+                   created_at: float | None = None) -> None:
+        """记录一次研究运行（running 状态）。"""
+        self.conn.execute(
+            "INSERT INTO runs (run_id, status, question, style, created_at) "
+            "VALUES (?, 'running', ?, ?, ?)",
+            (run_id, question, style, created_at if created_at is not None else time.time()),
+        )
+        self.conn.commit()
+
+    def update_run(self, run_id: str, status: str,
+                   result: dict | None = None, error: str = "") -> None:
+        """更新运行状态（done/error）与结果。"""
+        self.conn.execute(
+            "UPDATE runs SET status=?, result=?, error=? WHERE run_id=?",
+            (status, json.dumps(result or {}, ensure_ascii=False), error, run_id),
+        )
+        self.conn.commit()
+
+    def get_run(self, run_id: str) -> dict | None:
+        """取运行记录（含解析后的 result）。"""
+        row = self.conn.execute(
+            "SELECT run_id, status, question, style, result, error, created_at "
+            "FROM runs WHERE run_id=?", (run_id,),
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["result"] = json.loads(d.get("result") or "{}")
+        except json.JSONDecodeError:
+            d["result"] = {}
+        return d
+
+    def mark_stale_runs(self, max_age_seconds: float = 2 * 3600) -> int:
+        """把服务重启后残留的 running 记录标记为 error（运行已中断）。"""
+        cutoff = time.time() - max_age_seconds
+        cur = self.conn.execute(
+            "UPDATE runs SET status='error', error='服务重启，运行已中断' "
+            "WHERE status='running' AND created_at < ?", (cutoff,),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def delete_old_runs(self, max_age_seconds: float = 30 * 60) -> int:
+        """删除超龄的已完成/错误记录（保留 running）。"""
+        cutoff = time.time() - max_age_seconds
+        cur = self.conn.execute(
+            "DELETE FROM runs WHERE status != 'running' AND created_at < ?", (cutoff,),
+        )
+        self.conn.commit()
+        return cur.rowcount
 
     def close(self) -> None:
         conn = getattr(self._local, 'conn', None)
