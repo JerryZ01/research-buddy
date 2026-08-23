@@ -266,16 +266,27 @@ def test_prompts_require_no_inline_citations(monkeypatch):
         assert "编号必须来自" not in prompt
 
 
-def test_prompts_include_mermaid_and_render():
-    """技术架构/原理类话题应画 Mermaid 图解；prompt 里的花括号转义不能破坏 format。"""
+def test_writing_rules_contain_all_shared_requirements():
+    """共享写作规范（单一事实来源）应包含 mermaid/意图范围/去AI味/结构等全部规则。"""
+    rules = synthesizer_module.WRITING_RULES
+    for phrase in ("```mermaid", "技术图解", "先理解问题意图再决定写什么",
+                   "只覆盖问题明确问到的范围", "去 AI 味", "归因节制",
+                   "小标题风格要多样", "通常 4~6 张", "氛围装饰图", "因题而异",
+                   "不要每次都写「结论：1. 2. 3.」"):
+        assert phrase in rules, f"WRITING_RULES 缺少: {phrase}"
+    # image_limit 占位符在 WRITING_RULES 里，注入时渲染为具体数字
+    assert "{image_limit}" in rules
+
+
+def test_prompts_render_with_writing_rules():
+    """三个 prompt 模板 + 共享规范拼接后能正常 format（花括号转义正确）。"""
     for prompt in (synthesizer_module.SYNTHESIZER_PROMPT,
                    synthesizer_module.SYNTHESIZER_INCREMENTAL_PROMPT,
                    synthesizer_module.SYNTHESIZER_REFINE_PROMPT):
-        assert "```mermaid" in prompt
-        assert "技术图解" in prompt
-        # 模拟 fallback 渲染路径：花括号必须正确转义（mermaid 的 { } 节点语法）
+        assert "{writing_rules}" in prompt  # 模板不再内嵌规则
         kwargs = {"question": "Q", "search_results": "R", "image_section": "I",
-                  "style_section": "测试文风", "image_limit": "8"}
+                  "style_section": "测试文风", "image_limit": "8",
+                  "writing_rules": synthesizer_module.WRITING_RULES.format(image_limit="8")}
         if "{knowledge_context}" in prompt:
             kwargs["knowledge_context"] = "K"
         if "{report}" in prompt:
@@ -283,8 +294,9 @@ def test_prompts_include_mermaid_and_render():
         if "{feedback}" in prompt:
             kwargs["feedback"] = "Fb"
         rendered = prompt.format(**kwargs)
-        assert "C{鉴权}" in rendered  # {{鉴权}} 渲染回 {鉴权}
-        assert "{{" not in rendered.split("```mermaid")[0]  # 图解之外不应有未转义双花括号
+        assert "C{鉴权}" in rendered       # {{鉴权}} 渲染回 {鉴权}
+        assert "整篇最多 8 张" in rendered  # image_limit 已渲染进规则
+        assert "{{" not in rendered.split("```mermaid")[0]  # 图解外无未转义双花括号
 
 
 # ── 插图（视觉选图） ──────────────────────────────────
@@ -487,10 +499,12 @@ def test_normalize_headings_fallback_on_invalid_llm_output(monkeypatch):
 
 
 def test_prompts_scope_to_question_intent():
-    """prompt 必须要求先理解问题意图，只覆盖问题问到的范围（防擅自展开）。"""
+    """每个模板都带意图范围行，共享规范里也有意图限定（防擅自展开）。"""
     for prompt in (synthesizer_module.SYNTHESIZER_PROMPT,
                    synthesizer_module.SYNTHESIZER_INCREMENTAL_PROMPT,
                    synthesizer_module.SYNTHESIZER_REFINE_PROMPT):
         assert "先理解问题的意图与范围再动笔" in prompt
-        assert "只覆盖问题明确问到的范围" in prompt
-        assert "先理解问题意图再决定写什么" in prompt
+    assert "先理解问题意图再决定写什么" in synthesizer_module.WRITING_RULES
+    assert "只覆盖问题明确问到的范围" in synthesizer_module.WRITING_RULES
+    # 增量 prompt 保留自己的增量语义行
+    assert "增量补充" in synthesizer_module.SYNTHESIZER_INCREMENTAL_PROMPT

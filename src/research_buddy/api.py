@@ -528,6 +528,34 @@ async def test_notification():
 _STREAM_MODES = ["updates", "custom"]
 
 
+def _report_payload(result: dict, question: str, topic_id: str = "",
+                      is_incremental: bool = False) -> dict:
+    """SSE report 事件的统一载荷构造（三个生成器共用，避免改一处漏三处）。"""
+    return {
+        "question": result.get("question", question),
+        "report": result.get("report", ""),
+        "confidence": result.get("confidence", ""),
+        "research_notes": result.get("research_notes", []),
+        "sub_questions": result.get("sub_questions", []),
+        "search_results_count": len(result.get("search_results", [])),
+        "reflection_round": result.get("reflection_round", 0),
+        "reflection_pass": result.get("reflection_pass", False),
+        "reflection_score": result.get("reflection_score", 0),
+        "stop_reason": result.get("stop_reason", ""),
+        "evidence_assessment_degraded": bool(result.get("evidence_assessment_degraded")),
+        "search_unavailable": bool(result.get("search_unavailable")),
+        "topic_id": topic_id,
+        "report_id": result.get("saved_report_id", ""),
+        "is_incremental": is_incremental,
+        "token_usage": result.get("token_usage", {}),
+    }
+
+
+def _done_payload(result: dict) -> dict:
+    """SSE done 事件的统一载荷构造。"""
+    return {"message": "研究完成", "token_usage": result.get("token_usage", {})}
+
+
 def _emit_stream_event(queue, mode: str, payload, result: dict) -> None:
     """把 graph.stream 的一个 (mode, payload) 事件转成 SSE 队列条目，并累积状态。
 
@@ -640,32 +668,12 @@ def _event_generator(question: str, topic_id: str = "",
 
                 queue.put_nowait({
                     "event": "report",
-                    "data": json.dumps({
-                        "question": result.get("question", question),
-                        "report": result.get("report", ""),
-                        "confidence": result.get("confidence", ""),
-                        "research_notes": result.get("research_notes", []),
-                        "sub_questions": result.get("sub_questions", []),
-                        "search_results_count": len(result.get("search_results", [])),
-                        "reflection_round": result.get("reflection_round", 0),
-                        "reflection_pass": result.get("reflection_pass", False),
-                        "reflection_score": result.get("reflection_score", 0),
-                        "stop_reason": result.get("stop_reason", ""),
-                        "evidence_assessment_degraded": bool(result.get("evidence_assessment_degraded")),
-                        "search_unavailable": bool(result.get("search_unavailable")),
-                        "topic_id": topic_id,
-                        "report_id": result.get("saved_report_id", ""),
-                        "is_incremental": is_incremental,
-                        "token_usage": result.get("token_usage", {}),
-                    }),
+                    "data": json.dumps(_report_payload(result, question, topic_id, is_incremental)),
                 })
 
                 queue.put_nowait({
                     "event": "done",
-                    "data": json.dumps({
-                        "message": "研究完成",
-                        "token_usage": result.get("token_usage", {}),
-                    }),
+                    "data": json.dumps(_done_payload(result)),
                 })
 
             except Exception as e:
@@ -781,28 +789,11 @@ def _hitl_event_generator(question: str, style: str = "tech-blog"):
                     result.setdefault("question", question)
                     queue.put_nowait({
                         "event": "report",
-                        "data": json.dumps({
-                            "question": result.get("question", question),
-                            "report": result.get("report", ""),
-                            "confidence": result.get("confidence", ""),
-                            "research_notes": result.get("research_notes", []),
-                            "sub_questions": result.get("sub_questions", []),
-                            "search_results_count": len(result.get("search_results", [])),
-                            "reflection_round": result.get("reflection_round", 0),
-                            "reflection_pass": result.get("reflection_pass", False),
-                            "reflection_score": result.get("reflection_score", 0),
-                            "stop_reason": result.get("stop_reason", ""),
-                            "evidence_assessment_degraded": bool(result.get("evidence_assessment_degraded")),
-                            "search_unavailable": bool(result.get("search_unavailable")),
-                            "token_usage": result.get("token_usage", {}),
-                        }),
+                        "data": json.dumps(_report_payload(result, question)),
                     })
                     queue.put_nowait({
                         "event": "done",
-                        "data": json.dumps({
-                            "message": "研究完成",
-                            "token_usage": result.get("token_usage", {}),
-                        }),
+                        "data": json.dumps(_done_payload(result)),
                     })
                     # 清理会话
                     _hitl_sessions.pop(thread_id, None)
@@ -923,28 +914,11 @@ def _hitl_resume_event_generator(thread_id: str, resume_data: dict):
                     # 图正常结束
                     queue.put_nowait({
                         "event": "report",
-                        "data": json.dumps({
-                            "question": result.get("question", ""),
-                            "report": result.get("report", ""),
-                            "confidence": result.get("confidence", ""),
-                            "research_notes": result.get("research_notes", []),
-                            "sub_questions": result.get("sub_questions", []),
-                            "search_results_count": len(result.get("search_results", [])),
-                            "reflection_round": result.get("reflection_round", 0),
-                            "reflection_pass": result.get("reflection_pass", False),
-                            "reflection_score": result.get("reflection_score", 0),
-                            "stop_reason": result.get("stop_reason", ""),
-                            "evidence_assessment_degraded": bool(result.get("evidence_assessment_degraded")),
-                            "search_unavailable": bool(result.get("search_unavailable")),
-                            "token_usage": result.get("token_usage", {}),
-                        }),
+                        "data": json.dumps(_report_payload(result, result.get("question", ""))),
                     })
                     queue.put_nowait({
                         "event": "done",
-                        "data": json.dumps({
-                            "message": "研究完成",
-                            "token_usage": result.get("token_usage", {}),
-                        }),
+                        "data": json.dumps(_done_payload(result)),
                     })
                     _hitl_sessions.pop(thread_id, None)
 

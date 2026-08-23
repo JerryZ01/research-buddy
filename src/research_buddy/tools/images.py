@@ -280,6 +280,8 @@ def _vision_select(question: str, images: list[tuple[dict, bytes, str]],
 
 # 单次请求图片数上限：中转站/DeepSeek 对多图请求有数量限制，超了会 400
 _MAX_VISION_BATCH = 4
+# 子问题间视觉调用并发上限（避免触发中转站限流）
+_MAX_VISION_PARALLEL = 3
 
 
 def _record_vision_observation(payload: dict, data: dict) -> None:
@@ -385,46 +387,54 @@ def select_images(sub_questions: list[dict],
     if not by_subq:
         return []
 
+    def _select_for_subq(item: tuple[str, list[dict]]) -> list[dict]:
+        """单个子问题的选图流程（下载 + 视觉调用），供线程池并行。"""
+        sq_id, candidates = item
+        question = question_by_id.get(sq_id) or candidates[0].get("query", "")
+        if not question:
+            return []
+
+        # 下载候选图（并行，最多 4 并发）——httpx.Client 线程安全，
+        # pool.map 保持输入顺序，视觉模型的 index 映射不会错位。
+        # 只保留下载成功的图，累计字节不超单次调用上限。
+        candidates_pool = candidates[:MAX_CANDIDATES_PER_SUB_QUESTION]
+        downloaded_all: list[tuple[dict, bytes, str]] = []
+        with ThreadPoolExecutor(max_workers=min(4, len(candidates_pool))) as pool:
+            for cand, result in pool.map(
+                lambda c: (c, _download_image(client, c.get("url", ""))),
+                candidates_pool,
+            ):
+                if result:
+                    downloaded_all.append((cand, result[0], result[1]))
+
+        images: list[tuple[dict, bytes, str]] = []
+        total = 0
+        for item_ in downloaded_all:
+            if total + len(item_[1]) > MAX_PAYLOAD_BYTES:
+                continue
+            total += len(item_[1])
+            images.append(item_)
+            if len(images) >= MAX_CANDIDATES_PER_SUB_QUESTION:
+                break
+
+        if not images:
+            return []
+
+        try:
+            picked = _vision_select_with_retry(question, images)
+            if picked:
+                logger.info("子问题 %s 选中 %d 张插图", sq_id, len(picked))
+            return picked
+        except Exception as exc:
+            logger.warning("视觉选图失败（子问题 %s），该子问题无插图: %s", sq_id, exc)
+            return []
+
+    # 子问题之间并行（≤3 并发，pool.map 保持顺序，截断/去重不受影响）
     selected: list[dict] = []
     with httpx.Client() as client:
-        for sq_id, candidates in by_subq.items():
-            question = question_by_id.get(sq_id) or candidates[0].get("query", "")
-            if not question:
-                continue
-
-            # 下载候选图（并行，最多 4 并发）——httpx.Client 线程安全，
-            # pool.map 保持输入顺序，视觉模型的 index 映射不会错位。
-            # 只保留下载成功的图，累计字节不超单次调用上限。
-            candidates_pool = candidates[:MAX_CANDIDATES_PER_SUB_QUESTION]
-            downloaded_all: list[tuple[dict, bytes, str]] = []
-            with ThreadPoolExecutor(max_workers=min(4, len(candidates_pool))) as pool:
-                for cand, result in pool.map(
-                    lambda c: (c, _download_image(client, c.get("url", ""))),
-                    candidates_pool,
-                ):
-                    if result:
-                        downloaded_all.append((cand, result[0], result[1]))
-
-            images: list[tuple[dict, bytes, str]] = []
-            total = 0
-            for item in downloaded_all:
-                if total + len(item[1]) > MAX_PAYLOAD_BYTES:
-                    continue
-                total += len(item[1])
-                images.append(item)
-                if len(images) >= MAX_CANDIDATES_PER_SUB_QUESTION:
-                    break
-
-            if not images:
-                continue
-
-            try:
-                picked = _vision_select_with_retry(question, images)
+        with ThreadPoolExecutor(max_workers=min(_MAX_VISION_PARALLEL, len(by_subq))) as pool:
+            for picked in pool.map(_select_for_subq, list(by_subq.items())):
                 selected.extend(picked)
-                if picked:
-                    logger.info("子问题 %s 选中 %d 张插图", sq_id, len(picked))
-            except Exception as exc:
-                logger.warning("视觉选图失败（子问题 %s），该子问题无插图: %s", sq_id, exc)
 
     # 全局上限：宁可少图也不要塞一堆不相关的
     if len(selected) > MAX_TOTAL_IMAGES:

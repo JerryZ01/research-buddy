@@ -83,3 +83,28 @@ class TestResearchState:
         hints = get_type_hints(ResearchState, include_extras=True)
         args = get_args(hints["evidence_assessments"])
         assert not any(arg is operator.add for arg in args if not isinstance(arg, type))
+
+
+def test_overwrite_list_keys_stay_in_sync_with_state_annotations():
+    """防漂移：所有 list 字段要么是 operator.add（追加），要么在 utils 的覆盖白名单里。
+
+    utils._OVERWRITE_LIST_KEYS 与 state 注解、api.py 的 merge 是镜像关系，
+    漏一个就会出现「明明覆盖语义却 append 了」或反之的 bug。
+    """
+    from typing import get_type_hints, get_args
+    from research_buddy.utils import _OVERWRITE_LIST_KEYS
+
+    hints = get_type_hints(ResearchState, include_extras=True)
+    for field, hint in hints.items():
+        # 只检查 list 类型字段（含 Annotated[list, ...]）
+        args = get_args(hint)
+        is_list = hint is list or any(a is list for a in args if not isinstance(a, type))
+        if not is_list:
+            continue
+        has_add = any(a is operator.add for a in args if not isinstance(a, type))
+        if has_add:
+            assert field not in _OVERWRITE_LIST_KEYS, \
+                f"{field} 用了 operator.add 却又在覆盖白名单里"
+        else:
+            assert field in _OVERWRITE_LIST_KEYS, \
+                f"{field} 是普通 list 字段但不在覆盖白名单里（会被误 append）"
