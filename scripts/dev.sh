@@ -22,28 +22,33 @@ get_pid() {
     lsof -ti :$PORT 2>/dev/null || true
 }
 
-# 杀掉占用端口的进程
+# 杀掉整棵 research-buddy 进程树（reload 父 + worker + dev.sh 包装）
+# 关键：uvicorn --reload 是「reload 父进程 + worker 子进程」两个进程，
+# worker 占端口、父进程不占端口。只杀端口占用者的话，reload 父会带着
+# 旧环境变量重新拉起 worker —— 这就是改 .env 不生效、进程越堆越多的根源。
 kill_port() {
+    # 1) 杀所有 uvicorn（cmdline 都含 research_buddy.api，reload 父 + worker 一网打尽）
+    pkill -9 -f "research_buddy.api" 2>/dev/null || true
+    sleep 0.5
+    # 2) 端口兜底（万一有非 uvicorn 进程占着）
     local pid
     pid=$(get_pid)
     if [ -n "$pid" ]; then
-        echo "🛑 发现端口 $PORT 被进程 $pid 占用，正在终止..."
-        kill $pid 2>/dev/null || true
-        # 等待最多 5 秒让进程退出
-        for i in $(seq 1 10); do
-            if ! get_pid >/dev/null 2>&1; then
-                break
-            fi
-            sleep 0.5
-        done
-        # 如果还没退出，强杀
-        pid=$(get_pid)
-        if [ -n "$pid" ]; then
-            echo "⚠️  进程未响应，强制终止..."
-            kill -9 $pid 2>/dev/null || true
-            sleep 0.5
+        echo "🛑 发现端口 $PORT 残留进程 $pid，强制终止..."
+        echo "$pid" | xargs -r kill -9 2>/dev/null || true
+    fi
+    # 3) 清理遗留的 dev.sh 包装进程（排除自己，防止自杀）
+    local me=$$
+    for p in $(pgrep -f "scripts/dev.sh" 2>/dev/null); do
+        if [ "$p" != "$me" ] && [ "$p" != "$PPID" ]; then
+            kill -9 "$p" 2>/dev/null || true
         fi
-        echo "✅ 旧进程已终止"
+    done
+    sleep 1
+    if get_pid >/dev/null 2>&1; then
+        echo "⚠️  端口 $PORT 仍被占用（可能是其他终端/沙箱外的进程），请手动检查"
+    else
+        echo "✅ 端口已释放"
     fi
 }
 
