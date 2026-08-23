@@ -4,7 +4,10 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# override=True：.env 永远是配置的事实来源。
+# 否则终端里残留的 export TAVILY_API_KEY 会覆盖 .env 的新值，
+# 导致「改了 .env 重启后仍用旧 key」这类难以排查的问题。
+load_dotenv(override=True)
 
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
