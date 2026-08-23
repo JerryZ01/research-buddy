@@ -146,9 +146,12 @@ _SELFQA_LIMIT = 2
 _GUIDE_LIMIT = 3
 _GUIDE_OR_SELFQA_COMBINED_LIMIT = 3
 
-# 冒号式小标题（「名词：副题」）占比 ≥ 60% 且 ≥3 个 → 标题模板腔
-_COLON_HEADING_RATIO_LIMIT = 0.6
-_COLON_HEADING_MIN = 3
+# 冒号式小标题（「名词：副题」）占比 ≥ 50% 且 ≥2 个 → 标题模板腔。
+# 同时覆盖 markdown（##/###）与独立一行的粗体标题。
+_COLON_HEADING_RATIO_LIMIT = 0.5
+_COLON_HEADING_MIN = 2
+_HEADING_MD_RE = re.compile(r"^#{2,3}\s*.+$", re.M)
+_HEADING_BOLD_RE = re.compile(r"^\*\*.+\*\*\s*$", re.M)
 
 
 def _ai_flavor_issues(report: str) -> list[str]:
@@ -191,8 +194,9 @@ def _ai_flavor_issues(report: str) -> list[str]:
             "请重写时直接陈述，不要自问自答、不要铺设引导句"
         )
 
-    # 冒号式小标题过密（「名词：副题」整篇重复）
-    headings = re.findall(r"^#{2,3}\s*[^#\n]+$", report, re.M)
+    # 冒号式小标题过密（「名词：副题」整篇重复，markdown 与粗体都算）
+    headings = (_HEADING_MD_RE.findall(report)
+                + [h for h in _HEADING_BOLD_RE.findall(report) if "：" in h])
     if len(headings) >= _COLON_HEADING_MIN:
         colon_headings = [h for h in headings if "：" in h]
         if len(colon_headings) >= _COLON_HEADING_MIN \

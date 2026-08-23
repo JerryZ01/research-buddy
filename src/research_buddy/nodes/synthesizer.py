@@ -380,6 +380,97 @@ def curate_core_references(question: str, source_table: list[dict],
     return source_table[:max_refs]
 
 
+# ── 标题去模板化（防「名词：副题」式冒号标题） ──────────
+
+import re as _re
+
+_HEADING_MD_RE = _re.compile(r"^#{2,3}\s*(.+?)\s*$", _re.M)
+_HEADING_BOLD_RE = _re.compile(r"^\*\*(.+?)\*\*\s*$")
+_COLON_HEADING_RATIO = 0.5      # 冒号式标题占比 ≥ 50% 且 ≥2 个 → 重写
+_COLON_HEADING_MIN = 2
+
+HEADING_REWRITE_PROMPT = """下面是一篇文章的标题列表，其中大量是「名词：副题」式冒号标题，读起来千篇一律。请把它们重写为风格多样的标题：
+
+要求：
+- 不要再用冒号「：」
+- 交替使用陈述句标题、疑问句标题、短语式标题
+- 标题必须准确对应原内容，不能改变含义或丢失信息
+- 输出 JSON 对象：{"titles": ["新标题1", "新标题2", ...]}，与输入顺序一一对应
+
+## 文章主题
+{question}
+
+## 原标题（按顺序）
+{headings}"""
+
+
+def _collect_headings(report: str) -> list[dict]:
+    """收集文章标题（##/### markdown 或独立一行的 **粗体**），跳过代码块内部。"""
+    items: list[dict] = []
+    in_code = False
+    for line in report.split("\n"):
+        if line.strip().startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        m = _HEADING_MD_RE.match(line)
+        if m:
+            items.append({"text": m.group(1), "is_md": True})
+            continue
+        m = _HEADING_BOLD_RE.match(line)
+        if m:
+            items.append({"text": m.group(1), "is_md": False})
+    return items
+
+
+def _colon_heading_ratio(headings: list[dict]) -> tuple[float, int]:
+    """返回 (冒号式标题占比, 冒号式标题数量)。"""
+    if not headings:
+        return 0.0, 0
+    colon = sum(1 for h in headings if "：" in h["text"])
+    return colon / len(headings), colon
+
+
+def _normalize_headings(question: str, report: str) -> str:
+    """若冒号式标题过多，用一次小 LLM 调用重写标题（代码级保底）。
+
+    在 synthesizer 出稿前执行，不依赖反思循环是否拦截；
+    LLM 失败/结果不合法时保留原标题，不影响出稿。
+    """
+    headings = _collect_headings(report)
+    ratio, colon_count = _colon_heading_ratio(headings)
+    if not headings or colon_count < _COLON_HEADING_MIN or ratio < _COLON_HEADING_RATIO:
+        return report
+    try:
+        llm = create_llm()
+        prompt = get_prompt_from_langfuse(
+            "research-buddy-heading-rewrite", HEADING_REWRITE_PROMPT,
+            question=question,
+            headings="\n".join(f"- {h['text']}" for h in headings),
+        )
+        response = llm.invoke(prompt)
+        parsed = parse_llm_json(response.content)
+        titles = parsed.get("titles", []) if isinstance(parsed, dict) else []
+        if not isinstance(titles, list) or len(titles) != len(headings):
+            raise ValueError(f"标题重写数量不匹配: {len(titles)} != {len(headings)}")
+        titles = [str(t).strip() for t in titles]
+        if any(not t or "：" in t for t in titles):
+            raise ValueError("重写结果仍含冒号或为空标题")
+        # 按原文精确替换（保留 ## / ** 前缀），从前往后逐个替换
+        changed = 0
+        for h, new_title in zip(headings, titles):
+            if h["text"] in report:
+                report = report.replace(h["text"], new_title, 1)
+                changed += 1
+        if changed:
+            logger.info("标题去模板化：重写 %d/%d 个冒号式标题", changed, len(headings))
+        return report
+    except Exception as exc:
+        logger.warning("标题重写失败，保留原标题: %s", exc)
+        return report
+
+
 def compute_confidence(state: ResearchState) -> str:
     """由代码从证据质量确定性计算置信度（高/中/低），不进报告正文。
 
@@ -555,6 +646,10 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
             # 推送 chunk 到 SSE 层，实现前端实时显示
             if writer:
                 writer({"type": "report_chunk", "content": content})
+
+    # 标题去模板化（代码级保底）：模型即使反复写「名词：副题」式冒号标题，
+    # 这里也直接重写标题让风格多样——不依赖反思循环是否拦住。
+    full_report = _normalize_headings(question, full_report)
 
     # 文末核心参考文献：LLM 从全部来源中筛选子集，代码重新编号生成。
     # 跨轮次复用：来源集（URL 签名）未变时直接复用上一轮的筛选结果，

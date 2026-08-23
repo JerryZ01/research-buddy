@@ -428,3 +428,59 @@ def test_unknown_style_falls_back_to_default(monkeypatch):
 
     _graph().invoke({"question": "测试问题", "search_results": [], "style": "不存在的风格"})
     assert "专业、克制、自信的技术博客文风" in captured["prompt"]["style_section"]
+
+
+# ── 标题去模板化（防「名词：副题」式冒号标题） ───────────
+
+def test_collect_headings_finds_md_and_bold_skips_code():
+    report = ("## 自注意力：当每个 token 都成为检索者\n正文\n\n"
+              "**多头注意力：从一种相关性到多种**\n\n"
+              "```\n## 代码里的注释\n```\n\n"
+              "### 位置编码\n正文\n")
+    texts = [h["text"] for h in synthesizer_module._collect_headings(report)]
+    assert texts == ["自注意力：当每个 token 都成为检索者",
+                     "多头注意力：从一种相关性到多种", "位置编码"]
+    assert "代码里的注释" not in texts
+
+
+def test_normalize_headings_rewrites_via_llm(monkeypatch):
+    report = ("## 自注意力：当每个 token 都成为检索者\n正文\n\n"
+              "## 多头注意力：从一种相关性到多种\n正文\n")
+    resp = '{"titles": ["当每个 token 都成为检索者", "从一种相关性到多种"]}'
+
+    class _Resp:
+        content = resp
+
+    monkeypatch.setattr(synthesizer_module, "create_llm",
+                        lambda **_: type("_LLM", (), {"invoke": lambda self, p: _Resp()})())
+    monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
+                        lambda *a, **k: "prompt")
+    out = synthesizer_module._normalize_headings("问题", report)
+    assert "## 当每个 token 都成为检索者" in out
+    assert "## 从一种相关性到多种" in out
+    assert "：" not in out
+
+
+def test_normalize_headings_noop_when_already_mixed(monkeypatch):
+    """冒号标题占比不足时不触发（不调 LLM）。"""
+    report = "## 为什么需要自注意力\n正文\n\n## B：副题\n正文\n\n## 一个被低估的设计\n正文\n"
+
+    def _boom(*a, **k):
+        raise AssertionError("冒号占比不足，不应调用 LLM")
+
+    monkeypatch.setattr(synthesizer_module, "create_llm", _boom)
+    assert synthesizer_module._normalize_headings("问题", report) == report
+
+
+def test_normalize_headings_fallback_on_invalid_llm_output(monkeypatch):
+    """LLM 输出数量不匹配/仍含冒号时保留原标题，不抛异常。"""
+    report = "## A：副题一\n正文\n\n## B：副题二\n正文\n\n## C：副题三\n正文\n"
+
+    class _BadResp:
+        content = '{"titles": ["只有一个"]}'  # 数量不匹配
+
+    monkeypatch.setattr(synthesizer_module, "create_llm",
+                        lambda **_: type("_LLM", (), {"invoke": lambda self, p: _BadResp()})())
+    monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
+                        lambda *a, **k: "prompt")
+    assert synthesizer_module._normalize_headings("问题", report) == report
