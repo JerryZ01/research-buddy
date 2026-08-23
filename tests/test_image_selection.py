@@ -233,3 +233,47 @@ def test_truncated_json_retries_with_larger_max_tokens(monkeypatch):
     )
     assert calls == [1024, 2048]
     assert [p["url"] for p in picked] == ["https://img.example/a.jpg"]
+
+
+# ── 插图质量过滤（尺寸/宽高比） ────────────────────────
+
+def _png_bytes(w: int, h: int) -> bytes:
+    import struct as _s
+    return (b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0d" + b"IHDR"
+            + _s.pack(">II", w, h) + b"\x00" * 8)
+
+
+class _SizeClient:
+    """按 URL 返回不同尺寸 PNG 的假客户端。"""
+
+    def __init__(self, size_for):
+        self.size_for = size_for
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def get(self, url, **_kw):
+        size = self.size_for(url)
+        return _FakeResp(content=_png_bytes(*size), headers={"content-type": "image/png"})
+
+
+def test_image_size_parses_png():
+    assert images_module._image_size(_png_bytes(800, 500)) == (800, 500)
+    # 非图片字节（如 HTML）返回 None，不拦截
+    assert images_module._image_size(b"<!DOCTYPE html>...") is None
+
+
+def test_tiny_and_extreme_ratio_images_rejected():
+    client = _SizeClient(lambda url: (200, 200) if "tiny" in url else (1200, 100))
+    assert images_module._download_image(client, "https://img.example/tiny.png") is None
+    assert images_module._download_image(client, "https://img.example/banner.png") is None
+
+
+def test_ok_size_image_passes():
+    client = _SizeClient(lambda url: (800, 500))
+    result = images_module._download_image(client, "https://img.example/ok.png")
+    assert result is not None
+    assert result[1] == "image/png"

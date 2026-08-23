@@ -6,6 +6,8 @@
 <title>Research Buddy</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
 <style>
 /* ═══════════════════════════════════════════════
    Reset & Variables
@@ -5430,8 +5432,18 @@ function safeUrl(value) {
 }
 
 function renderMarkdown(markdown) {
+  // 1) 先抽出 LaTeX 公式（$$…$$ 独立公式、$…$ 行内公式），换成占位符，
+  //    避免 marked 把 $ 当作普通文本、也避免被下面的净化逻辑干扰。
+  const mathStore = [];
+  const mathRe = /(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g;
+  const stripped = (markdown || '').replace(mathRe, m => {
+    const id = '\u0001M' + mathStore.length + '\u0001';
+    mathStore.push(m);
+    return id;
+  });
+
   const template = document.createElement('template');
-  template.innerHTML = marked.parse(markdown || '');
+  template.innerHTML = marked.parse(stripped);
   template.content.querySelectorAll('script, style, iframe, object, embed, link, meta').forEach(el => el.remove());
   template.content.querySelectorAll('*').forEach(el => {
     for (const attr of [...el.attributes]) {
@@ -5447,7 +5459,30 @@ function renderMarkdown(markdown) {
       el.setAttribute('rel', 'noopener noreferrer');
     }
   });
-  // 插图统一包装成 figure + figcaption（alt 变题注），与正文排版协调。
+
+  // 2) 把占位符替换回 KaTeX 渲染的公式
+  if (mathStore.length) {
+    const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+    textNodes.forEach(node => {
+      const text = node.nodeValue;
+      if (!text || text.indexOf('\u0001M') === -1) return;
+      const frag = document.createDocumentFragment();
+      const parts = text.split(/\u0001M(\d+)\u0001/);
+      for (let i = 0; i < parts.length; i++) {
+        if (i % 2 === 0) {
+          if (parts[i]) frag.appendChild(document.createTextNode(parts[i]));
+        } else {
+          const raw = mathStore[Number(parts[i])];
+          frag.appendChild(buildMathElement(raw));
+        }
+      }
+      node.parentNode.replaceChild(frag, node);
+    });
+  }
+
+  // 3) 插图统一包装成 figure + figcaption（alt 变题注），与正文排版协调。
   // 顺序很重要：先记录原父节点并完成 DOM 替换，再把 img 移进 figure——
   // 若先 appendChild 把 img 移进 figure，img.parentNode 就变成 figure 自己，
   // 之后 replaceChild 会抛 "The new child element contains the parent"。
@@ -5476,6 +5511,27 @@ function renderMarkdown(markdown) {
     }
   });
   return template.innerHTML;
+}
+
+/** 用 KaTeX 渲染一段 LaTeX 公式（$$…$$ 或 $…$），失败/无 KaTeX 时回退为源码 */
+function buildMathElement(raw) {
+  const display = raw.startsWith('$$');
+  const tex = raw.replace(/^\$\$?/, '').replace(/\$\$?$/, '').trim();
+  const el = document.createElement('span');
+  if (window.katex) {
+    try {
+      el.innerHTML = window.katex.renderToString(tex, {
+        throwOnError: false, displayMode: display, output: 'html',
+      });
+      el.className = display ? 'report-math report-math-display' : 'report-math';
+      return el;
+    } catch (e) {
+      // fall through
+    }
+  }
+  el.textContent = raw;
+  el.className = 'report-math report-math-fallback';
+  return el;
 }
 
 /** 插图加载失败自动隐藏（热链接的第三方图片可能失效/防盗链）。

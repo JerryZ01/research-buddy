@@ -15,6 +15,7 @@
 import base64
 import json
 import logging
+import struct
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
@@ -30,8 +31,42 @@ MAX_CANDIDATES_PER_SUB_QUESTION = 6   # 每个子问题最多提交给视觉模�
 MAX_IMAGES_PER_SUB_QUESTION = 3       # 每个子问题最多选中的插图数
 MAX_DOWNLOAD_BYTES = 3 * 1024 * 1024  # 单张图片下载大小上限（3MB）
 MAX_PAYLOAD_BYTES = 4 * 1024 * 1024   # 单次视觉调用累计原始字节上限（4MB）
+# 插图质量下限：过小的图（logo/图标）和宽高比极端的图（横幅）放进文章很难看
+MIN_IMAGE_WIDTH = 400
+MIN_IMAGE_HEIGHT = 300
+MIN_ASPECT_RATIO = 0.25   # 1:4
+MAX_ASPECT_RATIO = 4.0    # 4:1
 _DOWNLOAD_TIMEOUT = 10.0
 _VISION_TIMEOUT = 60.0
+
+
+def _image_size(data: bytes) -> tuple[int, int] | None:
+    """从图片字节解析宽高（PNG/JPEG/GIF；WebP 布局复杂，返回 None 不拦截）。"""
+    if len(data) < 24:
+        return None
+    try:
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            w, h = struct.unpack(">II", data[16:24])
+            return w, h
+        if data[:6] in (b"GIF87a", b"GIF89a"):
+            w, h = struct.unpack("<HH", data[6:10])
+            return w, h
+        if data[:2] == b"\xff\xd8":  # JPEG：扫描 SOF 标记取宽高
+            i = 2
+            while i + 9 < len(data):
+                if data[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = data[i + 1]
+                if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                              0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    h, w = struct.unpack(">HH", data[i + 5:i + 9])
+                    return w, h
+                length = struct.unpack(">H", data[i + 2:i + 4])[0]
+                i += 2 + length
+    except (struct.error, IndexError):
+        return None
+    return None
 
 SELECT_IMAGES_PROMPT = """你是图片选图专家。下面是一个研究子问题及其候选图片。
 
@@ -48,7 +83,7 @@ SELECT_IMAGES_PROMPT = """你是图片选图专家。下面是一个研究子问
 ## 选择偏好
 - 技术/架构/原理类话题：**优先选择能说明结构、原理、流程的图解**
   （架构图、流程图、示意图、时序图、数据可视化），其次才是配图/照片
-- 避免：logo、图标、截图横幅、与内容无关的装饰图
+- 避免：logo、图标、头像、横幅广告、模糊或低清晰度图片、与内容无关的装饰图
 
 ## 输出格式
 只返回 JSON（不要包含其他内容）：
@@ -88,6 +123,19 @@ def _download_image(client: httpx.Client, url: str) -> tuple[bytes, str] | None:
             return None
         if not mime:
             mime = "image/jpeg"
+
+        # 质量下限：小图/logo 和宽高比极端的横幅放进文章很难看
+        size = _image_size(content)
+        if size:
+            width, height = size
+            if width < MIN_IMAGE_WIDTH or height < MIN_IMAGE_HEIGHT:
+                logger.warning("图片尺寸过小（%dx%d），跳过: %s", width, height, url[:60])
+                return None
+            ratio = width / max(height, 1)
+            if ratio < MIN_ASPECT_RATIO or ratio > MAX_ASPECT_RATIO:
+                logger.warning("图片宽高比极端（%.2f），跳过: %s", ratio, url[:60])
+                return None
+
         return content, mime
     except Exception as exc:
         logger.warning("图片下载失败，跳过: %s (%s)", url[:60], exc)
