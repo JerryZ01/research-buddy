@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 # 候选与选中上限（与 searcher 聚合共用语义）
 MAX_CANDIDATES_PER_SUB_QUESTION = 6   # 每个子问题最多提交给视觉模型的候选数
 MAX_IMAGES_PER_SUB_QUESTION = 3       # 每个子问题最多选中的插图数
-MAX_TOTAL_IMAGES = 6                  # 整篇文章最多选中的插图总数（宁缺毋滥）
+# 全局供图上限：要足够多，让文章模型能按 MAX_IMAGES_IN_ARTICLE 配图
+MAX_TOTAL_IMAGES = 12
 MAX_DOWNLOAD_BYTES = 3 * 1024 * 1024  # 单张图片下载大小上限（3MB）
 MAX_PAYLOAD_BYTES = 4 * 1024 * 1024   # 单次视觉调用累计原始字节上限（4MB）
 # 插图质量下限：过小的图（logo/图标）和宽高比极端的图（横幅）放进文章很难看

@@ -280,7 +280,7 @@ def test_ok_size_image_passes():
 
 
 def test_global_image_cap_limits_total(monkeypatch):
-    """选中插图总数不得超过 MAX_TOTAL_IMAGES（宁可少图不要不相关）。"""
+    """供图总数不得超过 MAX_TOTAL_IMAGES（供图池有上限，文章模型在池内按需配图）。"""
     _enable_vision(monkeypatch)
     monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
     calls = {"n": 0}
@@ -290,11 +290,12 @@ def test_global_image_cap_limits_total(monkeypatch):
         return _FakeResp(json_body=_vision_reply([(1, "图1"), (2, "图2"), (3, "图3")]))
 
     monkeypatch.setattr(images_module.httpx, "post", fake_post)
-    sub_questions = [{"id": f"sq_0{i}", "question": f"问题{i}"} for i in range(1, 4)]
+    sub_questions = [{"id": f"sq_0{i}", "question": f"问题{i}"} for i in range(1, 6)]
     candidates = [
         _candidate(f"https://img.example/s{i}/a{j}.jpg", f"sq_0{i}")
-        for i in range(1, 4) for j in range(1, 4)
+        for i in range(1, 6) for j in range(1, 4)
     ]
     picked = images_module.select_images(sub_questions, candidates)
-    assert calls["n"] == 3           # 3 个子问题各一次视觉调用
-    assert len(picked) == images_module.MAX_TOTAL_IMAGES  # 9 选 → 截断到 6
+    assert calls["n"] == 5                      # 5 个子问题各一次视觉调用
+    assert len(picked) == images_module.MAX_TOTAL_IMAGES  # 15 选 → 截断到 12
+    assert images_module.MAX_TOTAL_IMAGES >= 8  # 供图池要足够文章模型配图

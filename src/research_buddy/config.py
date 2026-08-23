@@ -50,6 +50,8 @@ MAX_SEARCH_ROUNDS = int(os.getenv("MAX_SEARCH_ROUNDS", "4"))
 MAX_TOTAL_QUERIES = int(os.getenv("MAX_TOTAL_QUERIES", "30"))
 # 文末参考文献最多展示条数（LLM 从全部来源中筛选核心子集）
 MAX_REFERENCES = int(os.getenv("MAX_REFERENCES", "8"))
+# 单篇文章插图数量上限（视觉选图供图 + synthesizer 插入共用）
+MAX_IMAGES_IN_ARTICLE = int(os.getenv("MAX_IMAGES_IN_ARTICLE", "8"))
 MIN_EVIDENCE_COVERAGE = float(os.getenv("MIN_EVIDENCE_COVERAGE", "0.75"))
 MIN_DISTINCT_DOMAINS = int(os.getenv("MIN_DISTINCT_DOMAINS", "2"))
 MIN_RESULTS_PER_SUB_QUESTION = int(os.getenv("MIN_RESULTS_PER_SUB_QUESTION", "2"))

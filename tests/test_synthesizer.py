@@ -275,7 +275,7 @@ def test_prompts_include_mermaid_and_render():
         assert "技术图解" in prompt
         # 模拟 fallback 渲染路径：花括号必须正确转义（mermaid 的 { } 节点语法）
         kwargs = {"question": "Q", "search_results": "R", "image_section": "I",
-                  "style_section": "测试文风"}
+                  "style_section": "测试文风", "image_limit": "8"}
         if "{knowledge_context}" in prompt:
             kwargs["knowledge_context"] = "K"
         if "{report}" in prompt:
