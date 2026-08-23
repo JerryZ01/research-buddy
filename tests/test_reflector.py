@@ -370,3 +370,20 @@ def test_single_self_qa_does_not_trigger():
     """单处自问自答不误伤（阈值从宽）。"""
     report = "这意味着什么？因为这关系到架构选择。\n正常正文。\n"
     assert _ai_issues(report) == []
+
+
+def test_ai_flavor_colon_headings_detected():
+    report = ("## 自注意力：当每个 token 都成为检索者\n正文。\n"
+              "## 多头注意力：从一种相关性到多种相关性\n正文。\n"
+              "## 位置编码：给序列注入顺序感\n正文。\n"
+              "## 前馈网络：逐位置的变换\n正文。\n")
+    issues = _ai_issues(report)
+    assert any("冒号标题" in i for i in issues)
+
+
+def test_mixed_heading_styles_pass():
+    report = ("## 为什么 I/O 密集场景不受 GIL 影响\n正文。\n"
+              "## 自注意力：当每个 token 都成为检索者\n正文。\n"
+              "## 一个被低估的取舍\n正文。\n"
+              "## 这值得在生产环境用吗\n正文。\n")
+    assert _ai_issues(report) == []

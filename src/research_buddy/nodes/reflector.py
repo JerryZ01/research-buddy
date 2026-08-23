@@ -146,6 +146,10 @@ _SELFQA_LIMIT = 2
 _GUIDE_LIMIT = 3
 _GUIDE_OR_SELFQA_COMBINED_LIMIT = 3
 
+# 冒号式小标题（「名词：副题」）占比 ≥ 60% 且 ≥3 个 → 标题模板腔
+_COLON_HEADING_RATIO_LIMIT = 0.6
+_COLON_HEADING_MIN = 3
+
 
 def _ai_flavor_issues(report: str) -> list[str]:
     """检测文章的 AI 模板痕迹，返回问题描述列表（空 = 通过）。
@@ -186,6 +190,18 @@ def _ai_flavor_issues(report: str) -> list[str]:
             f"{guide_count} 处引导/教学腔（「拆解这个定义需要一点耐心」「让我们先看看」），"
             "请重写时直接陈述，不要自问自答、不要铺设引导句"
         )
+
+    # 冒号式小标题过密（「名词：副题」整篇重复）
+    headings = re.findall(r"^#{2,3}\s*[^#\n]+$", report, re.M)
+    if len(headings) >= _COLON_HEADING_MIN:
+        colon_headings = [h for h in headings if "：" in h]
+        if len(colon_headings) >= _COLON_HEADING_MIN \
+                and len(colon_headings) / len(headings) >= _COLON_HEADING_RATIO_LIMIT:
+            issues.append(
+                f"{len(colon_headings)}/{len(headings)} 个小标题都是「名词：副题」式冒号标题"
+                "（如「自注意力：当每个 token 都成为检索者」），请让标题风格多样化——"
+                "交替使用陈述句、疑问句、短语式标题"
+            )
 
     return issues
 
