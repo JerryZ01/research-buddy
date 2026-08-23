@@ -21,7 +21,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from research_buddy.config import OPENAI_API_BASE, OPENAI_API_KEY, VISION_MODEL
+from research_buddy.config import (OPENAI_API_BASE, OPENAI_API_KEY,
+                              VISION_API_BASE, VISION_API_KEY, VISION_MODEL)
 from research_buddy.utils import add_tokens, parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,16 @@ SELECT_IMAGES_PROMPT = """你是图片选图专家。下面是一个研究子问
 ```
 - index 必须是候选列表中的编号
 - 没有合适的图片就返回 {{"images": []}}"""
+
+
+def _vision_base() -> str:
+    """视觉 API base：VISION_API_BASE 优先，未配回退 OPENAI_API_BASE。"""
+    return (VISION_API_BASE or OPENAI_API_BASE).rstrip("/")
+
+
+def _vision_key() -> str:
+    """视觉 API key：VISION_API_KEY 优先，未配回退 OPENAI_API_KEY。"""
+    return VISION_API_KEY or OPENAI_API_KEY
 
 
 def _is_http_url(url: str) -> bool:
@@ -220,9 +231,9 @@ def _vision_select(question: str, images: list[tuple[dict, bytes, str]],
         "max_tokens": max_tokens,
     }
     resp = httpx.post(
-        f"{OPENAI_API_BASE.rstrip('/')}/chat/completions",
+        f"{_vision_base()}/chat/completions",
         json=payload,
-        headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+        headers={"Authorization": f"Bearer {_vision_key()}"},
         timeout=_VISION_TIMEOUT,
     )
     resp.raise_for_status()
@@ -351,7 +362,7 @@ def select_images(sub_questions: list[dict],
     Returns:
         [{url, alt, sub_question_id, query}]；功能未配置或全部失败时返回 []。
     """
-    if not VISION_MODEL or not OPENAI_API_KEY:
+    if not VISION_MODEL or not _vision_key():
         return []
 
     # 子问题 id → 问题文本

@@ -336,3 +336,29 @@ def test_wide_chart_image_passes_size_filter():
     client = _SizeClient(lambda url: (576, 152))
     result = images_module._download_image(client, "https://img.example/chart.png")
     assert result is not None
+
+
+def test_vision_uses_separate_credentials(monkeypatch):
+    """VISION_API_KEY/BASE 独立配置时，视觉调用走自己的凭据（文本 key 为空也不影响）。"""
+    monkeypatch.setattr(images_module, "VISION_MODEL", "vision-model-x")
+    monkeypatch.setattr(images_module, "VISION_API_KEY", "sk-vision")
+    monkeypatch.setattr(images_module, "VISION_API_BASE", "https://vision.example/v1")
+    monkeypatch.setattr(images_module, "OPENAI_API_KEY", "")   # 文本 key 置空
+    monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
+    captured = {}
+
+    def fake_post(url, json=None, **kw):
+        captured["url"] = url
+        captured["auth"] = kw["headers"]["Authorization"]
+        captured["model"] = json["model"]
+        return _FakeResp(json_body=_vision_reply([(1, "图")]))
+
+    monkeypatch.setattr(images_module.httpx, "post", fake_post)
+    picked = images_module.select_images(
+        [{"id": "sq_01", "question": "问题？"}],
+        [_candidate("https://img.example/a.jpg", "sq_01")],
+    )
+    assert picked  # 即使文本 key 为空也能选图
+    assert captured["url"] == "https://vision.example/v1/chat/completions"
+    assert captured["auth"] == "Bearer sk-vision"
+    assert captured["model"] == "vision-model-x"
