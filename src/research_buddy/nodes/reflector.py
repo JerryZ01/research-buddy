@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 
 from research_buddy.config import MAX_REFLECTION_ROUNDS
 from research_buddy.state import ResearchState
-from research_buddy.utils import parse_llm_json, create_llm, get_prompt_from_langfuse, normalize_url
+from research_buddy.utils import invoke_llm, parse_llm_json, create_llm, get_prompt_from_langfuse, normalize_url
 
 logger = logging.getLogger(__name__)
 
@@ -275,7 +275,7 @@ def reflector(state: ResearchState, config: RunnableConfig | None = None) -> dic
         user_feedback_section=user_feedback_section,
     )
 
-    response = llm.invoke(prompt, config=config)
+    response = invoke_llm(llm, prompt, config=config)
 
     # 解析 LLM 返回的 JSON
     try:

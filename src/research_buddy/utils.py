@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -112,6 +113,49 @@ class _UsageRecorder(BaseCallbackHandler):
             add_tokens(usage)
         except Exception:
             pass
+
+
+# ── LLM 调用重试（瞬时错误韧性） ─────────────────────────
+
+# 瞬时错误：限流(429)与 5xx（服务端过载/抖动）——重试有意义；
+# 400/401/403 等重试无意义，直接抛。
+_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
+_LLM_RETRY_SLEEP = (1.5, 3.0)
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """判断异常是否为可重试的瞬时错误（openai.APIStatusError 等带 status_code）。"""
+    status = getattr(exc, "status_code", None)
+    if status is not None:
+        try:
+            return int(status) in _TRANSIENT_STATUS
+        except (TypeError, ValueError):
+            return False
+    # 兜底：错误消息里带 503/429/5xx 字样也算瞬时
+    msg = str(exc)
+    return any(token in msg for token in ("503", "429", "502", "504", "temporarily unavailable"))
+
+
+def invoke_llm(llm, prompt: str, config: dict | None = None,
+               max_retries: int = 2) -> Any:
+    """调用 LLM，瞬时错误（429/5xx）自动退避重试。
+
+    搜索层已有重试，但 LLM 调用此前是一次性的——一个瞬时 503 就能让
+    10 分钟的研究整体失败。这里给非流式调用补上重试。
+    """
+    last_error: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            return llm.invoke(prompt, config=config)
+        except Exception as exc:
+            last_error = exc
+            if not _is_transient_error(exc) or attempt >= max_retries:
+                raise
+            delay = _LLM_RETRY_SLEEP[min(attempt, len(_LLM_RETRY_SLEEP) - 1)]
+            logger.warning("LLM 调用瞬时失败（第 %d/%d 次，%.1fs 后重试）: %s",
+                           attempt + 1, max_retries + 1, delay, str(exc)[:120])
+            time.sleep(delay)
+    raise last_error
 
 
 def create_llm(streaming: bool = False, max_tokens: int | None = None) -> ChatOpenAI:

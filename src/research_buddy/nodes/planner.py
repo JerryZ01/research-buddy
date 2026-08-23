@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 
 from research_buddy.config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL
 from research_buddy.state import ResearchState
-from research_buddy.utils import parse_llm_json, create_llm, get_prompt_from_langfuse
+from research_buddy.utils import invoke_llm, parse_llm_json, create_llm, get_prompt_from_langfuse
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ def planner(state: ResearchState, config: RunnableConfig | None = None) -> dict:
 
     llm = create_llm()
     # 传 config：让 graph 级 callbacks（含 Langfuse CallbackHandler）传播到本次调用
-    response = llm.invoke(prompt, config=config)
+    response = invoke_llm(llm, prompt, config=config)
 
     # 解析 LLM 返回的 JSON（统一用 parse_llm_json，含 try/except）
     try:

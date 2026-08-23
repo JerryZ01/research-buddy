@@ -11,7 +11,7 @@ import logging
 
 from langchain_core.runnables import RunnableConfig
 
-from research_buddy.utils import parse_llm_json, create_llm, get_prompt_from_langfuse
+from research_buddy.utils import invoke_llm, parse_llm_json, create_llm, get_prompt_from_langfuse
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,7 @@ class DiffAnalyzer:
 
         try:
             llm = create_llm()
-            response = llm.invoke(prompt, config=config)
+            response = invoke_llm(llm, prompt, config=config)
 
             # 使用统一的 parse_llm_json
             changes = parse_llm_json(response.content)

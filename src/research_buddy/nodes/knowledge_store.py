@@ -6,7 +6,7 @@ from langchain_core.runnables import RunnableConfig
 
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.state import ResearchState
-from research_buddy.utils import get_current_token_usage, parse_llm_json, create_llm, normalize_url, get_prompt_from_langfuse
+from research_buddy.utils import invoke_llm, get_current_token_usage, parse_llm_json, create_llm, normalize_url, get_prompt_from_langfuse
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ def _extract_key_facts(state: ResearchState,
                 report=report[:3000],
             )
 
-            response = llm.invoke(prompt, config=config)
+            response = invoke_llm(llm, prompt, config=config)
             facts = parse_llm_json(response.content)
             if isinstance(facts, list) and facts:
                 return [str(f) for f in facts[:8]]

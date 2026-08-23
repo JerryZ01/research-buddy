@@ -6,6 +6,7 @@
 """
 
 import logging
+import time
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import StreamWriter
@@ -14,7 +15,8 @@ from research_buddy.config import MAX_ARTICLE_TOKENS, MAX_IMAGES_IN_ARTICLE, MAX
 from research_buddy.state import ResearchState
 from research_buddy.styles import get_style_section
 from research_buddy.tools.images import select_images
-from research_buddy.utils import create_llm, get_prompt_from_langfuse, normalize_url, parse_llm_json
+from research_buddy.utils import (_is_transient_error, create_llm, get_prompt_from_langfuse,
+                              invoke_llm, normalize_url, parse_llm_json)
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +259,7 @@ def curate_core_references(question: str, source_table: list[dict],
             source_list=source_list,
             max_count=max_refs,
         )
-        response = llm.invoke(prompt, config=config)
+        response = invoke_llm(llm, prompt, config=config)
         parsed = parse_llm_json(response.content)
         indexes_raw = parsed.get("indexes", []) if isinstance(parsed, dict) else []
         picked: list[dict] = []
@@ -354,7 +356,7 @@ def _normalize_headings(question: str, report: str,
             question=question,
             headings="\n".join(f"- {h['text']}" for h in headings),
         )
-        response = llm.invoke(prompt, config=config)
+        response = invoke_llm(llm, prompt, config=config)
         parsed = parse_llm_json(response.content)
         titles = parsed.get("titles", []) if isinstance(parsed, dict) else []
         if not isinstance(titles, list) or len(titles) != len(headings):
@@ -544,16 +546,42 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
 
     logger.info("正在生成研究文章（%s模式）...", mode)
 
-    # 流式输出正文
+    # 流式输出正文。流式中途失败无法干净重试（已推送的 chunk 会重复），
+    # 但首个 chunk 前的瞬时错误（503/429 等）可以整段重试——否则一次
+    # 上游抖动就让整个研究失败。
     full_report = ""
-    for chunk in llm.stream(prompt, config=config):
+    stream = llm.stream(prompt, config=config)
+    first_chunk = None
+    for attempt in range(3):
+        try:
+            first_chunk = next(stream)
+            break
+        except StopIteration:
+            break
+        except Exception as exc:
+            if not _is_transient_error(exc) or attempt >= 2:
+                raise
+            logger.warning("文章流式生成在首个 chunk 前失败，整段重试（第 %d/3 次）: %s",
+                           attempt + 1, str(exc)[:120])
+            time.sleep(1.5 * (attempt + 1))
+            stream = llm.stream(prompt, config=config)
+
+    def _emit(chunk) -> None:
+        nonlocal full_report
         content = chunk.content
         if content:
             print(content, end="", flush=True)
             full_report += content
-            # 推送 chunk 到 SSE 层，实现前端实时显示
             if writer:
                 writer({"type": "report_chunk", "content": content})
+
+    if first_chunk is not None:
+        _emit(first_chunk)
+        try:
+            while True:
+                _emit(next(stream))
+        except StopIteration:
+            pass
 
     # 标题去模板化（代码级保底）：模型即使反复写「名词：副题」式冒号标题，
     # 这里也直接重写标题让风格多样——不依赖反思循环是否拦住。

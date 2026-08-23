@@ -112,3 +112,39 @@ def test_llm_propagates_config_callbacks():
     except Exception:
         pass
     assert events == ["start"], "config callbacks 必须传播到 LLM 调用（否则 Langfuse 收不到 Generation）"
+
+
+def test_invoke_llm_retries_on_transient_error():
+    """瞬时错误（503/429/5xx）自动重试，成功返回。"""
+    from research_buddy.utils import invoke_llm
+    calls = {"n": 0}
+
+    class _Flaky:
+        def invoke(self, prompt, config=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                err = Exception("503 Service Temporarily Unavailable")
+                err.status_code = 503
+                raise err
+            return "ok"
+
+    assert invoke_llm(_Flaky(), "p") == "ok"
+    assert calls["n"] == 2
+
+
+def test_invoke_llm_does_not_retry_non_transient():
+    """非瞬时错误（400）不重试，直接抛。"""
+    import pytest
+    from research_buddy.utils import invoke_llm
+    calls = {"n": 0}
+
+    class _Bad:
+        def invoke(self, prompt, config=None):
+            calls["n"] += 1
+            err = Exception("400 Bad Request")
+            err.status_code = 400
+            raise err
+
+    with pytest.raises(Exception):
+        invoke_llm(_Bad(), "p")
+    assert calls["n"] == 1
