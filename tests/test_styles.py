@@ -40,3 +40,16 @@ def test_colloquialism_level_differs_by_style():
     for sid in STYLES:
         assert "口语化要自然" in get_style_section(sid)
         assert "不要每段硬塞" in get_style_section(sid)
+
+
+def test_plainness_level_differs_by_style():
+    """朴实度按风格分级：科普最高、研报中、且都带「朴实原则」防华丽造词。"""
+    assert "朴实度：最高" in get_style_section("popular")
+    assert "朴实度：高" in get_style_section("essay")
+    assert "朴实度：中高" in get_style_section("tech-blog")
+    assert "朴实度：中" in get_style_section("report")
+    for sid in STYLES:
+        t = get_style_section(sid)
+        assert "朴实原则" in t
+        assert "逻辑严密" in t
+        assert "不要生造词" in t or "生造词" in t
