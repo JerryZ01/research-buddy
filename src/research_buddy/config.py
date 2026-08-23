@@ -57,6 +57,10 @@ MAX_TOTAL_QUERIES = int(os.getenv("MAX_TOTAL_QUERIES", "30"))
 MAX_REFERENCES = int(os.getenv("MAX_REFERENCES", "8"))
 # 单篇文章插图数量上限（视觉选图供图 + synthesizer 插入共用）
 MAX_IMAGES_IN_ARTICLE = int(os.getenv("MAX_IMAGES_IN_ARTICLE", "8"))
+# 文章正文最大生成长度（token）。0 = 不限制（默认，由模型/提供商自然决定）；
+# 设具体值（如 4000）会限制 synthesizer 流式生成的长度，参考文献/图解
+# 由代码追加不受影响。注意别设太小导致文章被截断。
+MAX_ARTICLE_TOKENS = int(os.getenv("MAX_ARTICLE_TOKENS", "0"))
 MIN_EVIDENCE_COVERAGE = float(os.getenv("MIN_EVIDENCE_COVERAGE", "0.75"))
 MIN_DISTINCT_DOMAINS = int(os.getenv("MIN_DISTINCT_DOMAINS", "2"))
 MIN_RESULTS_PER_SUB_QUESTION = int(os.getenv("MIN_RESULTS_PER_SUB_QUESTION", "2"))

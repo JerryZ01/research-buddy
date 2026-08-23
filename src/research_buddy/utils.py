@@ -114,11 +114,12 @@ class _UsageRecorder(BaseCallbackHandler):
             pass
 
 
-def create_llm(streaming: bool = False) -> ChatOpenAI:
+def create_llm(streaming: bool = False, max_tokens: int | None = None) -> ChatOpenAI:
     """创建 ChatOpenAI 实例（统一配置，每次调用自动累计 token 用量）
 
     Args:
         streaming: 是否启用流式输出（流式时请求 usage 字段，token 统计才完整）
+        max_tokens: 单次生成最大 token 数；None 不限制（由提供商默认决定）
 
     Returns:
         配置好的 ChatOpenAI 实例
@@ -130,6 +131,7 @@ def create_llm(streaming: bool = False) -> ChatOpenAI:
         temperature=0,
         streaming=streaming,
         stream_usage=streaming,
+        max_tokens=max_tokens,
     )
     # 挂上 usage 记录回调（不依赖 langchain 的回调传播，节点内裸调用也能计数）
     return llm.with_config({"callbacks": [_UsageRecorder()]})

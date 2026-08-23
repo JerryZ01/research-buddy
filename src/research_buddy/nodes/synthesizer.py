@@ -10,7 +10,7 @@ import logging
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import StreamWriter
 
-from research_buddy.config import MAX_IMAGES_IN_ARTICLE, MAX_REFERENCES
+from research_buddy.config import MAX_ARTICLE_TOKENS, MAX_IMAGES_IN_ARTICLE, MAX_REFERENCES
 from research_buddy.state import ResearchState
 from research_buddy.styles import get_style_section
 from research_buddy.tools.images import select_images
@@ -504,7 +504,8 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
     if stop_reason in {"search_budget_exhausted", "no_new_queries", "reflection_budget_exhausted"}:
         formatted_results += f"\n研究因 {stop_reason} 停止。正文不得将有限结论描述为已完全验证。\n"
 
-    llm = create_llm(streaming=True)
+    # 文章正文生成：MAX_ARTICLE_TOKENS 控制最大长度（0 = 不限制）
+    llm = create_llm(streaming=True, max_tokens=MAX_ARTICLE_TOKENS or None)
     prompt_kwargs = {
         "question": question,
         "search_results": formatted_results,
