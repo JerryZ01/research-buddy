@@ -107,44 +107,82 @@ def _is_http_url(url: str) -> bool:
         return False
 
 
-def _download_image(client: httpx.Client, url: str) -> tuple[bytes, str] | None:
-    """下载图片，返回 (原始字节, mime)。失败返回 None。"""
+# 伪装成浏览器请求：很多图床/CDN（i.sstatic.net、ResearchGate 等）会拒绝
+# 非浏览器 UA 或没有 Referer 的下载请求（浏览器能正常加载正是因为它带了
+# 完整的 UA + Referer）。多套 header 策略轮换重试：有些站要求 Referer
+# 同源，有些站反而反感 Referer，最后用最简 UA 兜底。
+_BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+_BROWSER_HEADERS = {
+    "User-Agent": _BROWSER_UA,
+    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
+}
+
+
+def _download_headers(url: str) -> list[dict]:
+    """候选下载 header 策略：带同源 Referer → 不带 Referer → 最简。"""
+    origin = ""
     try:
-        resp = client.get(url, timeout=_DOWNLOAD_TIMEOUT,
-                          follow_redirects=True,
-                          headers={"User-Agent": "research-buddy/0.3"})
-        resp.raise_for_status()
-        content = resp.content
-        if not content:
-            logger.warning("图片下载为空: %s", url[:60])
-            return None
-        if len(content) > MAX_DOWNLOAD_BYTES:
-            logger.warning("图片超过大小上限 %.1fMB，跳过: %s",
-                           MAX_DOWNLOAD_BYTES / 1024 / 1024, url[:60])
-            return None
-        mime = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-        if mime and not mime.startswith("image/"):
-            logger.warning("非图片 content-type（%s），跳过: %s", mime, url[:60])
-            return None
-        if not mime:
-            mime = "image/jpeg"
+        parts = urlsplit(url)
+        origin = f"{parts.scheme}://{parts.netloc}/"
+    except ValueError:
+        pass
+    strategies = [{**_BROWSER_HEADERS, "Referer": origin}] if origin else []
+    strategies.append(_BROWSER_HEADERS)
+    strategies.append({"User-Agent": _BROWSER_UA})
+    return strategies
 
-        # 质量下限：小图/logo 和宽高比极端的横幅放进文章很难看
-        size = _image_size(content)
-        if size:
-            width, height = size
-            if width < MIN_IMAGE_WIDTH or height < MIN_IMAGE_HEIGHT:
-                logger.warning("图片尺寸过小（%dx%d），跳过: %s", width, height, url[:60])
-                return None
-            ratio = width / max(height, 1)
-            if ratio < MIN_ASPECT_RATIO or ratio > MAX_ASPECT_RATIO:
-                logger.warning("图片宽高比极端（%.2f），跳过: %s", ratio, url[:60])
-                return None
 
-        return content, mime
-    except Exception as exc:
-        logger.warning("图片下载失败，跳过: %s (%s)", url[:60], exc)
-        return None
+def _download_image(client: httpx.Client, url: str) -> tuple[bytes, str] | None:
+    """下载图片，返回 (原始字节, mime)。失败返回 None。
+
+    403/瞬时网络错误用多套浏览器风格 header 重试；仍失败则跳过该图。
+    """
+    last_reason = ""
+    for headers in _download_headers(url):
+        try:
+            resp = client.get(url, timeout=_DOWNLOAD_TIMEOUT,
+                              follow_redirects=True, headers=headers)
+            if resp.status_code == 403:
+                last_reason = "HTTP 403（防盗链）"
+                continue  # 换 header 策略再试
+            resp.raise_for_status()
+            content = resp.content
+            if not content:
+                last_reason = "空响应"
+                continue
+            if len(content) > MAX_DOWNLOAD_BYTES:
+                logger.warning("图片超过大小上限 %.1fMB，跳过: %s",
+                               MAX_DOWNLOAD_BYTES / 1024 / 1024, url[:60])
+                return None
+            mime = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+            if mime and not mime.startswith("image/"):
+                logger.warning("非图片 content-type（%s），跳过: %s", mime, url[:60])
+                return None
+            if not mime:
+                mime = "image/jpeg"
+
+            # 质量下限：小图/logo 和宽高比极端的横幅放进文章很难看
+            size = _image_size(content)
+            if size:
+                width, height = size
+                if width < MIN_IMAGE_WIDTH or height < MIN_IMAGE_HEIGHT:
+                    logger.warning("图片尺寸过小（%dx%d），跳过: %s", width, height, url[:60])
+                    return None
+                ratio = width / max(height, 1)
+                if ratio < MIN_ASPECT_RATIO or ratio > MAX_ASPECT_RATIO:
+                    logger.warning("图片宽高比极端（%.2f），跳过: %s", ratio, url[:60])
+                    return None
+
+            return content, mime
+        except Exception as exc:
+            last_reason = str(exc)[:120]
+            # 403/SSL 瞬时错误等：换 header 策略再试
+            continue
+
+    logger.warning("图片下载失败，跳过: %s (%s)", url[:60], last_reason)
+    return None
 
 
 def _vision_select(question: str, images: list[tuple[dict, bytes, str]],

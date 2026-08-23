@@ -12,13 +12,17 @@ _FAKE_IMG = b"\xff\xd8\xff\xe0fake-jpeg-bytes"
 
 class _FakeResp:
     def __init__(self, content: bytes | None = None, headers: dict | None = None,
-                 json_body: dict | None = None):
+                 json_body: dict | None = None, status_code: int = 200):
         self.content = content or b""
         self.headers = headers or {}
         self._json_body = json_body
+        self.status_code = status_code
 
     def raise_for_status(self):
-        return None
+        if self.status_code >= 400:
+            raise images_module.httpx.HTTPStatusError(
+                f"{self.status_code} error", request=None, response=self,
+            )
 
     def json(self):
         return self._json_body or {}
@@ -299,3 +303,29 @@ def test_global_image_cap_limits_total(monkeypatch):
     assert calls["n"] == 5                      # 5 个子问题各一次视觉调用
     assert len(picked) == images_module.MAX_TOTAL_IMAGES  # 15 选 → 截断到 12
     assert images_module.MAX_TOTAL_IMAGES >= 8  # 供图池要足够文章模型配图
+
+
+def test_download_retries_on_403(monkeypatch):
+    """403 防盗链后用下一套 header 策略重试，成功则返回图片。"""
+
+    class _Flaky403Client:
+        def __init__(self):
+            self.calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url, **_kw):
+            self.calls += 1
+            if self.calls == 1:
+                return _FakeResp(status_code=403, content=b"", headers={})
+            return _FakeResp(content=_png_bytes(800, 500),
+                             headers={"content-type": "image/png"})
+
+    client = _Flaky403Client()
+    result = images_module._download_image(client, "https://img.example/a.png")
+    assert result is not None
+    assert client.calls == 2  # 第一次 403 → 换 header 重试成功
