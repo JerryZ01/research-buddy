@@ -326,7 +326,8 @@ CORE_REFS_PROMPT = """你是学术文献专家。以下是研究问题及检索�
 
 
 def curate_core_references(question: str, source_table: list[dict],
-                           max_refs: int | None = None) -> list[dict]:
+                           max_refs: int | None = None,
+                           config: RunnableConfig | None = None) -> list[dict]:
     """从全部来源中筛选核心参考文献子集。
 
     LLM 选择（一次性非流式调用）；失败时降级取来源列表前 max_refs 个
@@ -353,7 +354,7 @@ def curate_core_references(question: str, source_table: list[dict],
             source_list=source_list,
             max_count=max_refs,
         )
-        response = llm.invoke(prompt)
+        response = llm.invoke(prompt, config=config)
         parsed = parse_llm_json(response.content)
         indexes_raw = parsed.get("indexes", []) if isinstance(parsed, dict) else []
         picked: list[dict] = []
@@ -432,7 +433,8 @@ def _colon_heading_ratio(headings: list[dict]) -> tuple[float, int]:
     return colon / len(headings), colon
 
 
-def _normalize_headings(question: str, report: str) -> str:
+def _normalize_headings(question: str, report: str,
+                          config: RunnableConfig | None = None) -> str:
     """若冒号式标题过多，用一次小 LLM 调用重写标题（代码级保底）。
 
     在 synthesizer 出稿前执行，不依赖反思循环是否拦截；
@@ -449,7 +451,7 @@ def _normalize_headings(question: str, report: str) -> str:
             question=question,
             headings="\n".join(f"- {h['text']}" for h in headings),
         )
-        response = llm.invoke(prompt)
+        response = llm.invoke(prompt, config=config)
         parsed = parse_llm_json(response.content)
         titles = parsed.get("titles", []) if isinstance(parsed, dict) else []
         if not isinstance(titles, list) or len(titles) != len(headings):
@@ -638,7 +640,7 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
 
     # 流式输出正文
     full_report = ""
-    for chunk in llm.stream(prompt):
+    for chunk in llm.stream(prompt, config=config):
         content = chunk.content
         if content:
             print(content, end="", flush=True)
@@ -649,7 +651,7 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
 
     # 标题去模板化（代码级保底）：模型即使反复写「名词：副题」式冒号标题，
     # 这里也直接重写标题让风格多样——不依赖反思循环是否拦住。
-    full_report = _normalize_headings(question, full_report)
+    full_report = _normalize_headings(question, full_report, config=config)
 
     # 文末核心参考文献：LLM 从全部来源中筛选子集，代码重新编号生成。
     # 跨轮次复用：来源集（URL 签名）未变时直接复用上一轮的筛选结果，
@@ -660,7 +662,7 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
     if state.get("core_refs_signature") == source_signature and state.get("core_refs"):
         core_refs = state["core_refs"]
     else:
-        core_refs = curate_core_references(question, source_table)
+        core_refs = curate_core_references(question, source_table, config=config)
     references = render_references(core_refs)
     if references:
         full_report += references

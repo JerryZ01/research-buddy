@@ -2,6 +2,8 @@
 
 import logging
 
+from langchain_core.runnables import RunnableConfig
+
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.tracking.diff import DiffAnalyzer
 from research_buddy.state import ResearchState
@@ -10,7 +12,7 @@ from research_buddy.utils import SIGNIFICANCE_EMOJI, summarize_changes
 logger = logging.getLogger(__name__)
 
 
-def diff_analyzer(state: ResearchState) -> dict:
+def diff_analyzer(state: ResearchState, config: RunnableConfig | None = None) -> dict:
     """变化分析节点：对比新旧报告，识别语义变化
 
     工作流程：
@@ -49,7 +51,7 @@ def diff_analyzer(state: ResearchState) -> dict:
     topic_name = topic.get("name", "") if topic else ""
 
     analyzer = DiffAnalyzer()
-    result = analyzer.analyze(old_report, new_report, context=topic_name)
+    result = analyzer.analyze(old_report, new_report, context=topic_name, config=config)
 
     changes = result.get("changes", [])
     similarity = result.get("similarity", 1.0)

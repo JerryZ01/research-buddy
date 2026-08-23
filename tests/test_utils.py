@@ -92,3 +92,23 @@ def test_track_run_tokens_accumulates_and_resets():
 
     # 上下文退出后计数器复位（contextvar reset）
     assert get_current_token_usage() == {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+
+def test_llm_propagates_config_callbacks():
+    """create_llm 的调用必须传播 config 里的 callbacks（Langfuse 依赖此机制）。"""
+    from research_buddy.utils import create_llm
+    from langchain_core.callbacks import BaseCallbackHandler
+
+    events = []
+
+    class _Recorder(BaseCallbackHandler):
+        def on_llm_start(self, *args, **kwargs):
+            events.append("start")
+
+    llm = create_llm()
+    try:
+        # 网络会失败，但 on_llm_start 在发起请求前就会触发
+        llm.invoke("hi", config={"callbacks": [_Recorder()]})
+    except Exception:
+        pass
+    assert events == ["start"], "config callbacks 必须传播到 LLM 调用（否则 Langfuse 收不到 Generation）"

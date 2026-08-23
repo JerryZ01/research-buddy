@@ -2,6 +2,8 @@
 
 import logging
 
+from langchain_core.runnables import RunnableConfig
+
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.state import ResearchState
 from research_buddy.utils import get_current_token_usage, parse_llm_json, create_llm, normalize_url, get_prompt_from_langfuse
@@ -21,7 +23,7 @@ KEY_FACTS_PROMPT = """从以下研究报告中提取 5-8 个最关键的事实�
 ```"""
 
 
-def knowledge_store(state: ResearchState) -> dict:
+def knowledge_store(state: ResearchState, config: RunnableConfig | None = None) -> dict:
     """知识存储节点：将研究报告保存到知识库
 
     保存内容：
@@ -40,7 +42,7 @@ def knowledge_store(state: ResearchState) -> dict:
     store = get_knowledge_store()
 
     # 提取关键事实（从 state 中取）
-    key_facts = _extract_key_facts(state)
+    key_facts = _extract_key_facts(state, config=config)
 
     # 获取来源信息
     sources = _extract_sources(state)
@@ -84,7 +86,8 @@ def knowledge_store(state: ResearchState) -> dict:
     }
 
 
-def _extract_key_facts(state: ResearchState) -> list[str]:
+def _extract_key_facts(state: ResearchState,
+                        config: RunnableConfig | None = None) -> list[str]:
     """从研究状态中提取关键事实
 
     优先级：
@@ -108,7 +111,7 @@ def _extract_key_facts(state: ResearchState) -> list[str]:
                 report=report[:3000],
             )
 
-            response = llm.invoke(prompt)
+            response = llm.invoke(prompt, config=config)
             facts = parse_llm_json(response.content)
             if isinstance(facts, list) and facts:
                 return [str(f) for f in facts[:8]]

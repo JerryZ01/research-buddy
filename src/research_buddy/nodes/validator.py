@@ -2,6 +2,8 @@
 
 import json
 import logging
+
+from langchain_core.runnables import RunnableConfig
 from urllib.parse import urlsplit
 
 from research_buddy.config import (
@@ -73,7 +75,8 @@ def _fallback_query(original_query: str, round_num: int, reason: str,
     return f"{original_query} {suffix}".strip()
 
 
-def _llm_assess(question: str, evidence_payload: list[dict]) -> dict[str, dict] | None:
+def _llm_assess(question: str, evidence_payload: list[dict],
+                     config: RunnableConfig | None = None) -> dict[str, dict] | None:
     """批量语义评估。
 
     返回 None 表示评估器整体不可用（没配 key、请求失败、输出完全无法使用），
@@ -90,7 +93,7 @@ def _llm_assess(question: str, evidence_payload: list[dict]) -> dict[str, dict] 
             question=question,
             evidence_payload=json.dumps(evidence_payload, ensure_ascii=False),
         )
-        response = create_llm().invoke(prompt)
+        response = create_llm().invoke(prompt, config=config)
         parsed = parse_llm_json(response.content)
         if not isinstance(parsed, list):
             raise ValueError("evidence evaluator must return a list")
@@ -122,7 +125,7 @@ def _llm_assess(question: str, evidence_payload: list[dict]) -> dict[str, dict] 
         return None
 
 
-def validator(state: ResearchState) -> dict:
+def validator(state: ResearchState, config: RunnableConfig | None = None) -> dict:
     """评估每个研究分支的证据覆盖，并生成可追溯的补充搜索任务。"""
     sub_questions = state.get("sub_questions", [])
     search_results = state.get("search_results", [])
@@ -215,7 +218,7 @@ def validator(state: ResearchState) -> dict:
             ],
         })
 
-    semantic = _llm_assess(state.get("question", ""), evidence_payload)
+    semantic = _llm_assess(state.get("question", ""), evidence_payload, config=config)
     assessment_available = semantic is not None
     if not assessment_available and evidence_payload:
         logger.warning("语义证据评估不可用，本轮只用确定性下限判断，报告需披露该降级")

@@ -50,7 +50,7 @@ class _InvokeLLM:
     def __init__(self, content: str):
         self.content = content
 
-    def invoke(self, _prompt):
+    def invoke(self, _prompt, **_kwargs):
         return _Response(self.content)
 
 
@@ -60,7 +60,7 @@ class _Chunk:
 
 
 class _StreamLLM:
-    def stream(self, _prompt):
+    def stream(self, _prompt, **_kwargs):
         for piece in _REPORT_PIECES:
             yield _Chunk(piece)
 
@@ -86,7 +86,7 @@ def offline_graph(monkeypatch):
     monkeypatch.setattr(synthesizer_module, "create_llm", lambda **_: _StreamLLM())
     monkeypatch.setattr(reflector_module, "create_llm",
                         lambda **_: _InvokeLLM(json.dumps(_EVALUATION)))
-    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_: None)
+    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(searcher_module, "search", _fake_search)
 
 

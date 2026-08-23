@@ -31,7 +31,7 @@ def _state(results: list[dict]) -> dict:
 
 def test_two_independent_sources_are_sufficient(monkeypatch):
     """_llm_assess 返回 None = 语义评估不可用，只按确定性下限判断。"""
-    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_: None)
+    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_args, **_kwargs: None)
     result = validator_fn(_state([_result("sq_01", "a.example", "one"), _result("sq_01", "b.example", "two")]))
     assert result["validation_gaps"] == []
     assert result["research_complete"] is True
@@ -43,7 +43,7 @@ def test_two_independent_sources_are_sufficient(monkeypatch):
 
 def test_branch_skipped_by_evaluator_is_not_sufficient(monkeypatch):
     """评估器答了别的分支却跳过本分支 → fail-closed，不能当作充足。"""
-    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_: {
+    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_args, **_kwargs: {
         "sq_99": {
             "status": "sufficient", "coverage": 0.95,
             "missing_evidence": [], "contradictions": [], "next_queries": [],
@@ -58,7 +58,7 @@ def test_branch_skipped_by_evaluator_is_not_sufficient(monkeypatch):
 
 def test_missing_relevance_scores_do_not_inflate_coverage(monkeypatch):
     """所有结果都没有 score 时，相关度是未知而非 0.7，不能白送覆盖度。"""
-    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_: None)
+    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_args, **_kwargs: None)
     scored = [_result("sq_01", "a.example", "one"), _result("sq_01", "b.example", "two")]
     unscored = [{**r, "score": 0.0} for r in scored]
     with_scores = validator_fn(_state(scored))["evidence_assessments"][0]["coverage"]
@@ -72,7 +72,7 @@ def test_missing_relevance_scores_do_not_inflate_coverage(monkeypatch):
 
 def test_partial_coverage_without_scores_stays_insufficient(monkeypatch):
     """单一来源 + 无相关度分数：旧实现靠 0.7 默认值凑分，现在必须判不足。"""
-    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_: None)
+    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_args, **_kwargs: None)
     single = [{**_result("sq_01", "a.example", "one"), "score": 0.0}]
     result = validator_fn(_state(single))
     assert result["evidence_assessments"][0]["coverage"] == 0.4
@@ -80,14 +80,14 @@ def test_partial_coverage_without_scores_stays_insufficient(monkeypatch):
 
 
 def test_insufficient_evidence_keeps_original_sub_question_id(monkeypatch):
-    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_: None)
+    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_args, **_kwargs: None)
     result = validator_fn(_state([_result("sq_01", "a.example", "one")]))
     assert result["validation_gaps"][0]["sub_question_id"] == "sq_01"
     assert result["research_complete"] is False
 
 
 def test_semantic_contradiction_forces_more_search(monkeypatch):
-    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_: {
+    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_args, **_kwargs: {
         "sq_01": {
             "status": "sufficient",
             "coverage": 0.9,
@@ -102,7 +102,7 @@ def test_semantic_contradiction_forces_more_search(monkeypatch):
 
 
 def test_budget_exhaustion_is_explicit(monkeypatch):
-    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_: None)
+    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_args, **_kwargs: None)
     state = _state([])
     state["search_round"] = validator_module.MAX_SEARCH_ROUNDS
     result = validator_fn(state)

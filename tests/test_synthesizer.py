@@ -33,7 +33,7 @@ class _FakeLLM:
     def __init__(self, pieces=None):
         self.pieces = pieces if pieces is not None else _PIECES
 
-    def stream(self, _prompt):
+    def stream(self, _prompt, **_kwargs):
         for piece in self.pieces:
             yield _Chunk(piece)
 
@@ -234,7 +234,7 @@ def test_curate_core_references_picks_indexes_in_order(monkeypatch):
         content = '{"indexes": [3, 1, 9, 1]}'  # 9 越界、1 重复 → 丢弃
 
     monkeypatch.setattr(synthesizer_module, "create_llm",
-                        lambda **_: type("_LLM", (), {"invoke": lambda self, _p: _Resp()})())
+                        lambda **_: type("_LLM", (), {"invoke": lambda self, _p, **_k: _Resp()})())
     monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
                         lambda *_a, **_k: "prompt")
 
@@ -452,7 +452,7 @@ def test_normalize_headings_rewrites_via_llm(monkeypatch):
         content = resp
 
     monkeypatch.setattr(synthesizer_module, "create_llm",
-                        lambda **_: type("_LLM", (), {"invoke": lambda self, p: _Resp()})())
+                        lambda **_: type("_LLM", (), {"invoke": lambda self, p, **_k: _Resp()})())
     monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
                         lambda *a, **k: "prompt")
     out = synthesizer_module._normalize_headings("问题", report)
@@ -480,7 +480,7 @@ def test_normalize_headings_fallback_on_invalid_llm_output(monkeypatch):
         content = '{"titles": ["只有一个"]}'  # 数量不匹配
 
     monkeypatch.setattr(synthesizer_module, "create_llm",
-                        lambda **_: type("_LLM", (), {"invoke": lambda self, p: _BadResp()})())
+                        lambda **_: type("_LLM", (), {"invoke": lambda self, p, **_k: _BadResp()})())
     monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
                         lambda *a, **k: "prompt")
     assert synthesizer_module._normalize_headings("问题", report) == report

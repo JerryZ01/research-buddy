@@ -23,7 +23,7 @@ class _LLM:
     def __init__(self, content: str):
         self.content = content
 
-    def invoke(self, _prompt):
+    def invoke(self, _prompt, **_kwargs):
         return _Response(self.content)
 
 

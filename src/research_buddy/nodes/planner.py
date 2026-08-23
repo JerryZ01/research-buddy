@@ -3,6 +3,8 @@
 import json
 import logging
 
+from langchain_core.runnables import RunnableConfig
+
 from research_buddy.config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL
 from research_buddy.state import ResearchState
 from research_buddy.utils import parse_llm_json, create_llm, get_prompt_from_langfuse
@@ -69,7 +71,7 @@ INCREMENTAL_PLANNER_PROMPT = """你是一个研究规划专家。现在需要基
 ```"""
 
 
-def planner(state: ResearchState) -> dict:
+def planner(state: ResearchState, config: RunnableConfig | None = None) -> dict:
     """规划节点：拆解研究问题为子问题
 
     支持两种模式：
@@ -100,7 +102,8 @@ def planner(state: ResearchState) -> dict:
     logger.info("正在规划子问题（%s模式）...", mode)
 
     llm = create_llm()
-    response = llm.invoke(prompt)
+    # 传 config：让 graph 级 callbacks（含 Langfuse CallbackHandler）传播到本次调用
+    response = llm.invoke(prompt, config=config)
 
     # 解析 LLM 返回的 JSON（统一用 parse_llm_json，含 try/except）
     try:

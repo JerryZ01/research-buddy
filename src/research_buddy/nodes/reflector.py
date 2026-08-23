@@ -3,6 +3,8 @@
 import logging
 import re
 
+from langchain_core.runnables import RunnableConfig
+
 from research_buddy.config import MAX_REFLECTION_ROUNDS
 from research_buddy.state import ResearchState
 from research_buddy.utils import parse_llm_json, create_llm, get_prompt_from_langfuse, normalize_url
@@ -210,7 +212,7 @@ def _ai_flavor_issues(report: str) -> list[str]:
     return issues
 
 
-def reflector(state: ResearchState) -> dict:
+def reflector(state: ResearchState, config: RunnableConfig | None = None) -> dict:
     """反思节点：LLM 评估报告质量
 
     返回：
@@ -273,7 +275,7 @@ def reflector(state: ResearchState) -> dict:
         user_feedback_section=user_feedback_section,
     )
 
-    response = llm.invoke(prompt)
+    response = llm.invoke(prompt, config=config)
 
     # 解析 LLM 返回的 JSON
     try:
