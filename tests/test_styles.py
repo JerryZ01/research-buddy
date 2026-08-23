@@ -29,3 +29,14 @@ def test_all_styles_have_label_and_prompt():
         assert meta["label"]
         assert meta["prompt"]
         assert sid in {"tech-blog", "report", "essay", "popular"}
+
+
+def test_colloquialism_level_differs_by_style():
+    """口语化按风格分级：研报极低、锐评/科普高，且都带「不硬凑」原则。"""
+    assert "口语化：极低" in get_style_section("report")
+    assert "口语化：轻度" in get_style_section("tech-blog")
+    assert "口语化：高" in get_style_section("essay")
+    assert "口语化：高" in get_style_section("popular")
+    for sid in STYLES:
+        assert "口语化要自然" in get_style_section(sid)
+        assert "不要每段硬塞" in get_style_section(sid)
