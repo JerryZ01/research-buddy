@@ -484,3 +484,13 @@ def test_normalize_headings_fallback_on_invalid_llm_output(monkeypatch):
     monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
                         lambda *a, **k: "prompt")
     assert synthesizer_module._normalize_headings("问题", report) == report
+
+
+def test_prompts_scope_to_question_intent():
+    """prompt 必须要求先理解问题意图，只覆盖问题问到的范围（防擅自展开）。"""
+    for prompt in (synthesizer_module.SYNTHESIZER_PROMPT,
+                   synthesizer_module.SYNTHESIZER_INCREMENTAL_PROMPT,
+                   synthesizer_module.SYNTHESIZER_REFINE_PROMPT):
+        assert "先理解问题的意图与范围再动笔" in prompt
+        assert "只覆盖问题明确问到的范围" in prompt
+        assert "先理解问题意图再决定写什么" in prompt
