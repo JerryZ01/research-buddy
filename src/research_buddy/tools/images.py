@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 # 候选与选中上限（与 searcher 聚合共用语义）
 MAX_CANDIDATES_PER_SUB_QUESTION = 6   # 每个子问题最多提交给视觉模型的候选数
 MAX_IMAGES_PER_SUB_QUESTION = 3       # 每个子问题最多选中的插图数
+MAX_TOTAL_IMAGES = 6                  # 整篇文章最多选中的插图总数（宁缺毋滥）
 MAX_DOWNLOAD_BYTES = 3 * 1024 * 1024  # 单张图片下载大小上限（3MB）
 MAX_PAYLOAD_BYTES = 4 * 1024 * 1024   # 单次视觉调用累计原始字节上限（4MB）
 # 插图质量下限：过小的图（logo/图标）和宽高比极端的图（横幅）放进文章很难看
@@ -77,13 +78,16 @@ SELECT_IMAGES_PROMPT = """你是图片选图专家。下面是一个研究子问
 {candidate_list}
 
 ## 任务
-选出与子问题内容最相关、最适合插入文章的图片（最多 {max_count} 张），
-并为每张选中的图片写一个简短、描述性的 alt 文本（中文，15 字以内，说明画面内容）。
+从候选图中选出**内容与子问题高度相关、且图中信息能支撑/补充正文论述**的图片
+（最多 {max_count} 张）。选图标准：
+- **相关性**：图中内容必须与子问题讨论的具体事物直接相关；只是泛指的照片、
+  与主题无关的配图一律不选
+- **信息量**：优先图表、架构图、流程图、截图等有实质内容的图；纯装饰图不选
+- **宁缺毋滥**：没有高度相关的图就少选或不选，不要为了配图而配图
 
-## 选择偏好
-- 技术/架构/原理类话题：**优先选择能说明结构、原理、流程的图解**
-  （架构图、流程图、示意图、时序图、数据可视化），其次才是配图/照片
-- 避免：logo、图标、头像、横幅广告、模糊或低清晰度图片、与内容无关的装饰图
+为每张选中的图写 alt：**描述图中实际内容**（如「柱状图：2023-2025 年营收对比」、
+「架构图：控制面与数据面分离」），中文 15 字以内——它既是插图题注，
+也是文章模型判断图文是否匹配的依据。
 
 ## 输出格式
 只返回 JSON（不要包含其他内容）：
@@ -370,6 +374,11 @@ def select_images(sub_questions: list[dict],
                     logger.info("子问题 %s 选中 %d 张插图", sq_id, len(picked))
             except Exception as exc:
                 logger.warning("视觉选图失败（子问题 %s），该子问题无插图: %s", sq_id, exc)
+
+    # 全局上限：宁可少图也不要塞一堆不相关的
+    if len(selected) > MAX_TOTAL_IMAGES:
+        logger.info("选中插图超过 %d 张，截断到上限", MAX_TOTAL_IMAGES)
+        selected = selected[:MAX_TOTAL_IMAGES]
 
     return selected
 

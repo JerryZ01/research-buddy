@@ -277,3 +277,24 @@ def test_ok_size_image_passes():
     result = images_module._download_image(client, "https://img.example/ok.png")
     assert result is not None
     assert result[1] == "image/png"
+
+
+def test_global_image_cap_limits_total(monkeypatch):
+    """选中插图总数不得超过 MAX_TOTAL_IMAGES（宁可少图不要不相关）。"""
+    _enable_vision(monkeypatch)
+    monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
+    calls = {"n": 0}
+
+    def fake_post(url, json=None, **kw):
+        calls["n"] += 1
+        return _FakeResp(json_body=_vision_reply([(1, "图1"), (2, "图2"), (3, "图3")]))
+
+    monkeypatch.setattr(images_module.httpx, "post", fake_post)
+    sub_questions = [{"id": f"sq_0{i}", "question": f"问题{i}"} for i in range(1, 4)]
+    candidates = [
+        _candidate(f"https://img.example/s{i}/a{j}.jpg", f"sq_0{i}")
+        for i in range(1, 4) for j in range(1, 4)
+    ]
+    picked = images_module.select_images(sub_questions, candidates)
+    assert calls["n"] == 3           # 3 个子问题各一次视觉调用
+    assert len(picked) == images_module.MAX_TOTAL_IMAGES  # 9 选 → 截断到 6
