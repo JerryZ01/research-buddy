@@ -163,11 +163,12 @@ def _download_image(client: httpx.Client, url: str) -> tuple[bytes, str] | None:
             if not mime:
                 mime = "image/jpeg"
 
-            # 质量下限：小图/logo 和宽高比极端的横幅放进文章很难看
+            # 质量下限：拒绝小方块图（logo/缩略图，宽高都小）和宽高比极端的横幅。
+            # 宽型图表（如 576x152 的折线图）宽度达标就放行——技术文章很需要这类图。
             size = _image_size(content)
             if size:
                 width, height = size
-                if width < MIN_IMAGE_WIDTH or height < MIN_IMAGE_HEIGHT:
+                if width < MIN_IMAGE_WIDTH and height < MIN_IMAGE_HEIGHT:
                     logger.warning("图片尺寸过小（%dx%d），跳过: %s", width, height, url[:60])
                     return None
                 ratio = width / max(height, 1)

@@ -329,3 +329,10 @@ def test_download_retries_on_403(monkeypatch):
     result = images_module._download_image(client, "https://img.example/a.png")
     assert result is not None
     assert client.calls == 2  # 第一次 403 → 换 header 重试成功
+
+
+def test_wide_chart_image_passes_size_filter():
+    """宽型图表（576x152）宽度达标即放行，不被高度阈值误杀。"""
+    client = _SizeClient(lambda url: (576, 152))
+    result = images_module._download_image(client, "https://img.example/chart.png")
+    assert result is not None
