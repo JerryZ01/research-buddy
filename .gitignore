@@ -27,3 +27,6 @@ chroma_data/
 .DS_Store
 Thumbs.db
 data/
+
+# 本地检测报告等二进制资料
+*.pdf
