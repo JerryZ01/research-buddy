@@ -138,6 +138,15 @@ _PARALLEL_PATTERNS = [
 ]
 _PARALLEL_DENSITY_LIMIT = 4.0  # 每千字
 
+# 「不是…而是…」单独计数（检测器最敏感的句式之一，整篇 ≥3 处即模板腔）
+_NOT_BUT_RE = re.compile(r"不是[^，。；\n]{1,32}而是")
+_NOT_BUT_LIMIT = 2
+
+# 「从 X 到 Y，从 A 到 B，从 C 到 D」式三连排比（AI 招牌句式，出现即重写）
+_TRIPLE_PARALLEL_PATTERNS = [
+    r"(?:从[^，。；\n]{1,24}到[^，。；\n]{1,24}，){2,}(?:从[^，。；\n]{1,24}到[^，。；\n]{1,24})",
+]
+
 # 公式化结尾：「…结论」标题 + 数字列表出现在文末 600 字内
 _FORMULA_TAIL_HEADING = re.compile(r"#{1,3}\s*[^#\n]{0,18}(?:总结|结论)")
 _FORMULA_TAIL_LIST = re.compile(r"(?:^|\n)\s*(?:1[.、．]|①)")
@@ -197,6 +206,22 @@ def _ai_flavor_issues(report: str) -> list[str]:
         issues.append(
             f"排比对仗句式过密（约 {density:.1f} 处/千字，如「不是…而是…」「既…又…」），"
             "请重写时让句子长短自然交错"
+        )
+
+    # 「不是…而是…」单独计数（检测器最敏感，≥3 处即模板腔）
+    not_but_count = len(_NOT_BUT_RE.findall(report))
+    if not_but_count > _NOT_BUT_LIMIT:
+        issues.append(
+            f"「不是…而是…」句式出现 {not_but_count} 处（整篇应 ≤2 处），"
+            "请重写时改用其他表达方式，如直接陈述或让步句式"
+        )
+
+    # 「从 X 到 Y，从 A 到 B，从 C 到 D」三连排比
+    triple_count = sum(len(re.findall(p, report)) for p in _TRIPLE_PARALLEL_PATTERNS)
+    if triple_count:
+        issues.append(
+            f"存在 {triple_count} 处「从 X 到 Y，从 A 到 B，从 C 到 D」式三连排比，"
+            "请重写时打破这种整齐的递进结构"
         )
 
     tail = report[-600:]

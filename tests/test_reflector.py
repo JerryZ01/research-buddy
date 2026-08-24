@@ -403,3 +403,21 @@ def test_ai_flavor_single_retrieval_meta_comment_triggers():
     report = "正常正文。\n从检索到的资料看，这一点值得注意。\n"
     issues = _ai_issues(report)
     assert any("研究过程元评论" in i for i in issues)
+
+
+def test_ai_flavor_not_but_overuse_detected():
+    """「不是…而是…」≥3 处触发；2 处不误伤。"""
+    report = ("不是 A 而是 B。\n不是 C 而是 D。\n不是 E 而是 F。\n不是 G 而是 H。\n")
+    issues = _ai_issues(report)
+    assert any("不是…而是…" in i for i in issues)
+    # 2 处不触发计数检查；用长正文隔离密度检查（避免短文误伤）
+    long_report = "正常论述的正文。" * 200 + "不是 A 而是 B。\n不是 C 而是 D。\n"
+    assert _ai_issues(long_report) == []
+
+
+def test_ai_flavor_triple_parallel_detected():
+    """「从 X 到 Y，从 A 到 B，从 C 到 D」三连排比触发。"""
+    report = ("这种转变体现在：从顺序执行到有向图执行，从无状态到有状态，"
+              "从跑完就结束到随时暂停恢复。\n")
+    issues = _ai_issues(report)
+    assert any("三连排比" in i for i in issues)
