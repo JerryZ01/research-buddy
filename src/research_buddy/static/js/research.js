@@ -699,8 +699,8 @@ function buildReportScorecard(data) {
   const warnings = [];
   if (data.search_unavailable) warnings.push('搜索层不可用，本次未获得新证据');
   if (data.evidence_assessment_degraded) warnings.push('语义证据评估不可用，仅做了机械校验');
-  if (data.stop_reason === 'search_budget_exhausted') warnings.push('搜索预算耗尽，仍有未解决缺口');
-  if (data.stop_reason === 'reflection_budget_exhausted') warnings.push('反思轮次用尽，结论未通过质量门槛');
+  if (data.stop_reason === 'search_budget_exhausted') warnings.push('已用尽搜索预算，部分内容证据有限');
+  if (data.stop_reason === 'reflection_budget_exhausted') warnings.push('已用尽反思轮次，部分章节可能还有完善空间');
   if (data.stop_reason === 'no_new_queries') warnings.push('已无新的补充查询可执行');
 
   host.replaceChildren();

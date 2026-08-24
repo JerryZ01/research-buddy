@@ -404,20 +404,33 @@ def compute_confidence(state: ResearchState) -> str:
 
 
 def _build_research_notes(state: ResearchState) -> list[str]:
-    """收集不进正文的研究说明（局限/降级/未解决缺口）。"""
+    """收集不进正文的研究说明（局限/降级/未解决缺口）。
+
+    面向读者而非开发者：不出现内部字段名（如 search_budget_exhausted），
+    措辞温和、不惊悚；缺口只列高优先级的最多 3 条，避免整屏刷清单。
+    """
     unresolved_gaps = state.get("validation_gaps", [])
     stop_reason = state.get("stop_reason", "")
+
+    # 预算/轮次停止的读者友好措辞（key 顺序即匹配顺序）
+    _BUDGET_NOTES = {
+        "search_budget_exhausted": "本次研究已用尽搜索预算，部分内容证据有限，结论仅供参考。",
+        "no_new_queries": "本次研究未能产生新的搜索方向，部分内容证据有限。",
+        "reflection_budget_exhausted": "本次研究已用尽优化轮次，部分章节可能还有完善空间。",
+    }
 
     notes: list[str] = []
     if state.get("search_unavailable"):
         notes.append("本次检索未获得任何新证据（搜索层不可用），结论缺少来源支撑。")
     if state.get("evidence_assessment_degraded"):
         notes.append("语义证据评估不可用，仅做了来源数/域名/覆盖度的机械校验，未做语义充分性判断。")
-    if stop_reason in {"search_budget_exhausted", "no_new_queries", "reflection_budget_exhausted"}:
-        notes.append(f"本次研究因 `{stop_reason}` 停止，以下内容仍需进一步验证。")
+    if stop_reason in _BUDGET_NOTES:
+        notes.append(_BUDGET_NOTES[stop_reason])
+        high_priority = [gap for gap in unresolved_gaps if gap.get("priority") == "high"]
+        shown_gaps = high_priority[:3] or unresolved_gaps[:3]
         notes.extend(
             f"- {gap.get('question', '未解决问题')}：{gap.get('reason', '证据不足')}"
-            for gap in unresolved_gaps
+            for gap in shown_gaps
         )
     return notes
 

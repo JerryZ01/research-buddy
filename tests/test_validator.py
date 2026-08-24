@@ -53,6 +53,38 @@ def test_branch_skipped_by_evaluator_is_not_sufficient(monkeypatch):
     assert result["research_complete"] is False
     assert result["validation_gaps"][0]["sub_question_id"] == "sq_01"
     assert result["validation_gaps"][0]["reason"] == "semantic_assessment_missing"
+
+
+def test_semantic_gate_uses_soft_threshold(monkeypatch):
+    """语义闸用 MIN_SEMANTIC_COVERAGE(0.6) 而非确定性硬闸 0.75：
+    复杂话题核心结论可信度 0.6 + sufficient 即通过，不再无限补搜耗尽预算。"""
+    assert validator_module.MIN_SEMANTIC_COVERAGE < validator_module.MIN_EVIDENCE_COVERAGE
+    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_args, **_kwargs: {
+        "sq_01": {
+            "status": "sufficient",
+            "coverage": validator_module.MIN_SEMANTIC_COVERAGE,
+            "missing_evidence": [], "contradictions": [], "next_queries": [],
+        }
+    })
+    result = validator_fn(_state([_result("sq_01", "a.example", "one"), _result("sq_01", "b.example", "two")]))
+    assert result["validation_gaps"] == []
+    assert result["research_complete"] is True
+    assert result["stop_reason"] == "evidence_sufficient"
+
+
+def test_semantic_gate_below_soft_threshold_still_insufficient(monkeypatch):
+    """评估器给 partial / coverage 低于软阈值 → 仍判不足并补搜（fail-closed）。"""
+    monkeypatch.setattr(validator_module, "_llm_assess", lambda *_args, **_kwargs: {
+        "sq_01": {
+            "status": "partial", "coverage": 0.5,
+            "missing_evidence": ["缺少官方统计"],
+            "contradictions": [], "next_queries": ["official statistics topic year"],
+        }
+    })
+    result = validator_fn(_state([_result("sq_01", "a.example", "one"), _result("sq_01", "b.example", "two")]))
+    assert result["research_complete"] is False
+    # reason 是人类可读的缺失证据文本，缺口驱动补搜
+    assert result["validation_gaps"][0]["reason"] == "缺少官方统计"
     assert result["evidence_assessment_degraded"] is False
 
 

@@ -62,6 +62,10 @@ MAX_IMAGES_IN_ARTICLE = int(os.getenv("MAX_IMAGES_IN_ARTICLE", "8"))
 # 由代码追加不受影响。注意别设太小导致文章被截断。
 MAX_ARTICLE_TOKENS = int(os.getenv("MAX_ARTICLE_TOKENS", "0"))
 MIN_EVIDENCE_COVERAGE = float(os.getenv("MIN_EVIDENCE_COVERAGE", "0.75"))
+# LLM 语义评估的覆盖度门槛（软闸）。评估器把 coverage 理解为「核心结论可信度」
+# 而非「所有细节完备度」，复杂话题给 0.6 以上即可视为语义充足，避免永远补搜
+# 耗尽预算。确定性硬闸（MIN_EVIDENCE_COVERAGE）不受影响，仍要求数量/域名/覆盖度达标。
+MIN_SEMANTIC_COVERAGE = float(os.getenv("MIN_SEMANTIC_COVERAGE", "0.6"))
 MIN_DISTINCT_DOMAINS = int(os.getenv("MIN_DISTINCT_DOMAINS", "2"))
 MIN_RESULTS_PER_SUB_QUESTION = int(os.getenv("MIN_RESULTS_PER_SUB_QUESTION", "2"))
 MIN_SEARCH_CONTENT_LENGTH = int(os.getenv("MIN_SEARCH_CONTENT_LENGTH", "80"))

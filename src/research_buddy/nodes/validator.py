@@ -13,6 +13,7 @@ from research_buddy.config import (
     MIN_EVIDENCE_COVERAGE,
     MIN_RESULTS_PER_SUB_QUESTION,
     MIN_SEARCH_CONTENT_LENGTH,
+    MIN_SEMANTIC_COVERAGE,
     OPENAI_API_KEY,
 )
 from research_buddy.state import ResearchState, ValidationGap
@@ -21,16 +22,20 @@ from research_buddy.utils import create_llm, get_prompt_from_langfuse, normalize
 logger = logging.getLogger(__name__)
 
 
-EVIDENCE_EVALUATOR_PROMPT = """你是研究证据评估器。根据每个子问题的搜索证据，判断是否真正回答了问题。
+EVIDENCE_EVALUATOR_PROMPT = """你是研究证据评估器。根据每个子问题的搜索证据，判断核心问题是否已被现有证据回答。
 
 研究问题：{question}
 
 证据包：
 {evidence_payload}
 
-要求：
-- 评估语义覆盖，而不是只看结果数量
-- 标记缺失事实、来源矛盾和需要补充的证据类型
+判断标准：
+- coverage 表示「核心结论的可信度」，不是「所有细节的完备度」。
+  只要现有证据足以支撑一个可信的核心结论（通常 0.6 以上），就应给 sufficient。
+  研究预算有限，为追求细节完备而反复要求补搜会耗尽预算、让整篇报告无法出稿。
+- 只有在核心结论确实缺乏支撑时才标 partial / insufficient，并说明缺什么。
+- missing_evidence 只列会影响结论的关键缺失（最多 3 条），无关紧要的细节不要写。
+- 标记来源矛盾（contradictions）：确实存在矛盾才写，不要为了凑数。
 - next_queries 必须简洁、具体、与历史查询不同，并匹配目标信息源的语言和地区
 - 中国本地证据优先中文查询，全球/学术证据可使用英文；不要生成中英混杂的机械后缀
 - status 只能是 sufficient、partial、insufficient
@@ -41,8 +46,8 @@ EVIDENCE_EVALUATOR_PROMPT = """你是研究证据评估器。根据每个子问�
 [
   {{
     "sub_question_id": "sq_01",
-    "status": "partial",
-    "coverage": 0.65,
+    "status": "sufficient",
+    "coverage": 0.7,
     "missing_evidence": ["缺少官方统计"],
     "contradictions": [],
     "next_queries": ["official statistics topic year"]
@@ -236,7 +241,9 @@ def validator(state: ResearchState, config: RunnableConfig | None = None) -> dic
         else:
             semantic_sufficient = (
                 llm_item.get("status") == "sufficient"
-                and llm_item.get("coverage", 0) >= MIN_EVIDENCE_COVERAGE
+                # 语义闸用独立软阈值：LLM 的 coverage 是核心结论可信度，
+                # 与确定性覆盖度（MIN_EVIDENCE_COVERAGE）是两回事，不能用同一个硬标准。
+                and llm_item.get("coverage", 0) >= MIN_SEMANTIC_COVERAGE
             )
         contradictions = llm_item.get("contradictions", [])
         sufficient = item["hard_floor"] and semantic_sufficient and not contradictions

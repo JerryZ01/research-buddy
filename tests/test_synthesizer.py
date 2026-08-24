@@ -98,18 +98,25 @@ def test_search_unavailable_moves_to_research_notes(monkeypatch):
 
 
 def test_budget_exhaustion_lists_gaps_in_notes(monkeypatch):
+    gaps = [{
+        "sub_question_id": f"sq_{i:02d}", "question": f"缺口问题{i}",
+        "search_query": f"q{i}", "reason": "证据不足",
+        "priority": "high", "language": "zh", "region": "CN",
+    } for i in range(4)]
     result = _run(monkeypatch, {
         "question": "测试问题",
         "search_results": [],
         "stop_reason": "search_budget_exhausted",
-        "validation_gaps": [{
-            "sub_question_id": "sq_01", "question": "缺口问题",
-            "search_query": "q", "reason": "证据不足",
-            "priority": "high", "language": "zh", "region": "CN",
-        }],
+        "validation_gaps": gaps,
     })
-    assert "search_budget_exhausted" in result["research_notes"][0]
-    assert any("缺口问题" in n for n in result["research_notes"])
+    # 读者友好措辞：不出现内部字段名/反引号，不惊悚
+    assert result["research_notes"][0].startswith("本次研究已用尽搜索预算")
+    assert all("`" not in n and "search_budget_exhausted" not in n
+               for n in result["research_notes"])
+    # 缺口最多列 3 条（4 个缺口只展示前 3），且不进正文
+    gap_lines = [n for n in result["research_notes"] if n.startswith("- ")]
+    assert len(gap_lines) == 3
+    assert "缺口问题0" in gap_lines[0]
     assert "缺口问题" not in result["report"]
 
 
