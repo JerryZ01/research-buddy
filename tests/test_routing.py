@@ -65,3 +65,27 @@ class TestRouteAfterValidation:
     def test_budget_exhaustion_synthesizes_limited_report(self):
         state = {"validation_gaps": [{"search_query": "q"}], "stop_reason": "search_budget_exhausted"}
         assert route_after_validation(state) == "synthesize"
+
+
+class TestBudgetExhaustedRevise:
+    """预算耗尽后仍有免费重写机会（不耗搜索预算），反思轮次才是最终闸。"""
+
+    def test_budget_exhausted_with_gaps_returns_revise(self):
+        state = {"reflection_pass": False, "reflection_round": 0,
+                 "validation_gaps": [{"search_query": "q"}],
+                 "search_round": 99, "total_queries": 99}
+        assert should_continue(state) == "revise_report"
+        assert should_continue_to_store(state) == "revise_report"
+
+    def test_budget_exhausted_no_gaps_returns_revise(self):
+        state = {"reflection_pass": False, "reflection_round": 0,
+                 "validation_gaps": [], "search_round": 99, "total_queries": 99}
+        assert should_continue(state) == "revise_report"
+
+    def test_budget_exhausted_reflection_cap_returns_end(self):
+        """反思轮次到顶才是最终闸——防止无限重写。"""
+        state = {"reflection_pass": False, "reflection_round": 99,
+                 "validation_gaps": [{"search_query": "q"}],
+                 "search_round": 99, "total_queries": 99}
+        assert should_continue(state) == "end"
+        assert should_continue_to_store(state) == "knowledge_store"

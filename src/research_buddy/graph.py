@@ -73,10 +73,8 @@ def should_continue(state: ResearchState) -> str:
     if state.get("reflection_pass", False):
         return "end"
 
-    if (state.get("search_round", 0) >= MAX_SEARCH_ROUNDS
-            or state.get("total_queries", 0) >= MAX_TOTAL_QUERIES):
-        return "end"
-
+    # 反思轮次是最终闸：重写轮不消耗搜索预算，预算耗尽后仍应允许
+    # 用现有证据免费重写一轮，而不是直接结束（否则 9/15 的报告白白交付）
     if state.get("reflection_round", 0) >= MAX_REFLECTION_ROUNDS:
         return "end"
 
@@ -87,16 +85,17 @@ def should_continue(state: ResearchState) -> str:
     if not state.get("validation_gaps", []):
         return "revise_report"
 
+    # 需要补搜但搜索预算耗尽 → 不结束，用现有证据重写（不耗搜索预算）
+    if (state.get("search_round", 0) >= MAX_SEARCH_ROUNDS
+            or state.get("total_queries", 0) >= MAX_TOTAL_QUERIES):
+        return "revise_report"
+
     return "search_again"
 
 
 def should_continue_to_store(state: ResearchState) -> str:
     """路由函数：反思后决定继续搜索还是存入知识库（知识/追踪图用）"""
     if state.get("reflection_pass", False):
-        return "knowledge_store"
-
-    if (state.get("search_round", 0) >= MAX_SEARCH_ROUNDS
-            or state.get("total_queries", 0) >= MAX_TOTAL_QUERIES):
         return "knowledge_store"
 
     if state.get("reflection_round", 0) >= MAX_REFLECTION_ROUNDS:
@@ -106,6 +105,11 @@ def should_continue_to_store(state: ResearchState) -> str:
         return "revise_report"
 
     if not state.get("validation_gaps", []):
+        return "revise_report"
+
+    # 预算耗尽 → 免费重写一轮而非直接入库
+    if (state.get("search_round", 0) >= MAX_SEARCH_ROUNDS
+            or state.get("total_queries", 0) >= MAX_TOTAL_QUERIES):
         return "revise_report"
 
     return "search_again"
