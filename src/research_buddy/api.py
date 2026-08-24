@@ -217,6 +217,7 @@ async def health():
 REFINE_QUESTION_PROMPT = """你是研究问题润色助手。用户想用 AI 做一次深度研究，原始问题可能口语化、模糊、边界不清。请把它改写成「精确、意图明确、可直接驱动研究」的问题表述。
 
 改写原则（严格保持原意，禁止跑偏）：
+0. **主体必须逐字保留**：改写结果必须围绕输入问题中的主体对象展开，主体名词短语原样出现在改写结果里，一个词都不能换成别的主题；只允许补充时间/地域/维度等边界限定，禁止替换、偷换或联想成其他主体。
 1. 补全边界：如果原文隐含了时间范围、地域、对象范围（如「国内」「今年」「主流」「开源」），用括号或限定词补全；原文没提到的不要凭空编造。
 2. 明确研究意图：让问题自然透出是「解释原理」「对比选型」「评估影响」「操作教程」还是「趋势分析」——不改变问题实质，只让它更清晰。
 3. 去除口语冗余与歧义：保留所有关键限定词，删掉「我想了解」「帮我看看」「请问」这类壳子话。
@@ -1168,3 +1169,16 @@ def _summarize_update(node_name: str, state_update: dict) -> str:
 # 挂载静态文件（Web UI）— 必须放在路由之后
 _static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")
+
+
+# 静态资源禁用强缓存：dev 迭代频繁，JS/HTML/CSS 改完必须让浏览器重新验证
+# （no-cache = 每次使用前重新验证，配合 ETag/Last-Modified 没变仍走 304，开销极小）。
+# 否则浏览器会缓存旧 JS，出现「功能已上线但页面点了没反应」这类问题。
+@app.middleware("http")
+async def no_cache_web_assets(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if (path.startswith("/js/") or path.startswith("/css/")
+            or path in {"/", "/index.html"}):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
