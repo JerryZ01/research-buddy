@@ -20,6 +20,7 @@ from research_buddy.graph import (
     create_knowledge_research_graph,
     create_tracking_graph,
     create_research_graph_with_hitl,
+    get_hitl_checkpointer,
     get_langfuse_handler,
     run_tracking,
 )
@@ -77,7 +78,37 @@ app = FastAPI(
 
 # ── HITL 会话管理 ───────────────────────────────────────
 
-_hitl_sessions: dict[str, dict] = {}  # thread_id → {graph, config, memory}
+_hitl_sessions: dict[str, dict] = {}  # thread_id → {graph, config, memory}（内存缓存，重启后可重建）
+
+# HITL 会话的 checkpointer 持久化到 SQLite（get_hitl_checkpointer），
+# 因此 _hitl_sessions 内存字典缺失（服务重启）时，可凭 thread_id 从
+# 持久化 checkpoint 重建 graph/config 继续恢复，而不是返回 404。
+
+
+def _get_hitl_session(thread_id: str) -> dict | None:
+    """按 thread_id 取 HITL 会话；内存缓存缺失时从持久化 checkpointer 重建。
+
+    服务重启后 _hitl_sessions 是空的，但 checkpoint 落在 SQLite（get_hitl_checkpointer），
+    用同一 thread_id 重新编译图 + 指向持久化 checkpointer，就能读到中断前的状态继续恢复。
+    """
+    session = _hitl_sessions.get(thread_id)
+    if session is not None:
+        return session
+    # 重启恢复：重建 graph + config（checkpoint 状态由持久化 checkpointer 按 thread_id 找回）
+    try:
+        graph = create_research_graph_with_hitl(checkpointer=get_hitl_checkpointer())
+        config = {"configurable": {"thread_id": thread_id}}
+        langfuse_handler = get_langfuse_handler()
+        if langfuse_handler:
+            config["callbacks"] = [langfuse_handler]
+        snapshot = graph.get_state(config)
+        if snapshot.values:
+            session = {"graph": graph, "config": config}
+            _hitl_sessions[thread_id] = session
+            return session
+    except Exception as exc:
+        logger.debug("从持久化 checkpoint 重建 HITL 会话失败: %s", exc)
+    return None
 
 # 研究运行记录（断线恢复）：run_id → {status, question, style, result, error, created_at}
 # 客户端断开后后台线程继续跑完并写结果，前端可轮询 /research/run/{run_id} 取回。
@@ -385,7 +416,7 @@ async def hitl_research_stream(req: HITLResearchRequest):
 @app.post("/research/hitl/resume/stream")
 async def hitl_resume_stream(req: HITLResumeRequest):
     """恢复中断的 HITL 研究"""
-    session = _hitl_sessions.get(req.thread_id)
+    session = _get_hitl_session(req.thread_id)
     if not session:
         return JSONResponse(status_code=404, content={"error": "会话不存在或已过期"})
     return EventSourceResponse(
@@ -396,7 +427,7 @@ async def hitl_resume_stream(req: HITLResumeRequest):
 @app.get("/research/hitl/state", response_model=HITLStateResponse)
 async def hitl_state(thread_id: str = Query(..., description="会话 thread_id")):
     """查询 HITL 研究中断状态"""
-    session = _hitl_sessions.get(thread_id)
+    session = _get_hitl_session(thread_id)
     if not session:
         return JSONResponse(status_code=404, content={"error": "会话不存在或已过期"})
 
@@ -861,22 +892,20 @@ def _hitl_event_generator(question: str, style: str = "tech-blog"):
     async def inner():
         import asyncio
         import uuid
-        from langgraph.checkpoint.memory import MemorySaver
 
         thread_id = str(uuid.uuid4())
-        memory = MemorySaver()
-        graph = create_research_graph_with_hitl()
+        graph = create_research_graph_with_hitl(checkpointer=get_hitl_checkpointer())
         langfuse_handler = get_langfuse_handler()
 
         config = {"configurable": {"thread_id": thread_id}}
         if langfuse_handler:
             config["callbacks"] = [langfuse_handler]
 
-        # 存储会话
+        # 存储会话（graph/config 可凭 thread_id 从持久化 checkpoint 重建，
+        # 这里只是内存快路径缓存，避免每次 resume 都重新编译图）
         _hitl_sessions[thread_id] = {
             "graph": graph,
             "config": config,
-            "memory": memory,
         }
 
         queue: asyncio.Queue = asyncio.Queue()
@@ -977,7 +1006,7 @@ def _hitl_resume_event_generator(thread_id: str, resume_data: dict):
         import asyncio
         from langgraph.types import Command
 
-        session = _hitl_sessions.get(thread_id)
+        session = _get_hitl_session(thread_id)
         if not session:
             yield {"event": "error", "data": json.dumps({"message": "会话不存在或已过期"})}
             return

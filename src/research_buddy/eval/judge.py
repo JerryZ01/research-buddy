@@ -3,8 +3,9 @@
 import logging
 
 from langfuse import Langfuse
+from langchain_core.runnables import RunnableConfig
 
-from research_buddy.utils import create_llm, parse_llm_json, get_prompt_from_langfuse
+from research_buddy.utils import create_llm, parse_llm_json, get_prompt_from_langfuse, invoke_llm
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +67,15 @@ def _default_scores(reason: str) -> dict:
     }
 
 
-def judge_report(question: str, expected_points: list[str], report: str) -> dict:
+def judge_report(question: str, expected_points: list[str], report: str,
+                 config: RunnableConfig | None = None) -> dict:
     """LLM-as-Judge 评估报告质量
 
     Args:
         question: 研究问题
         expected_points: 预期要点列表
         report: 实际生成的研究报告
+        config: LangGraph RunnableConfig，透传给 LLM 调用（Langfuse 观测）
 
     Returns:
         评分字典 {"relevance": int, "completeness": int, "accuracy": int, "reasoning": str, "parse_failed": bool}
@@ -88,7 +91,8 @@ def judge_report(question: str, expected_points: list[str], report: str) -> dict
         expected_points=points_text,
         report=report,
     )
-    response = llm.invoke(prompt)
+    # 与其他节点一致：走 invoke_llm 的瞬时错误（429/5xx）自动重试，而不是一次 503 就挂掉
+    response = invoke_llm(llm, prompt, config=config)
 
     # 使用统一的 parse_llm_json
     try:

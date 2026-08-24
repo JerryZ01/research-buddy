@@ -60,13 +60,14 @@ class DiffAnalyzer:
         self.similarity_threshold = similarity_threshold
 
     def analyze(self, old_report: str, new_report: str,
-                context: str = "") -> dict:
+                context: str = "", config: RunnableConfig | None = None) -> dict:
         """分析两份报告之间的变化
 
         Args:
             old_report: 旧报告
             new_report: 新报告
             context: 上下文（主题名称等）
+            config: LangGraph RunnableConfig，透传给 LLM 调用（Langfuse 观测 + 重试）
 
         Returns: {
             "has_changes": bool,
@@ -85,7 +86,7 @@ class DiffAnalyzer:
             }
 
         # 第二层：LLM 语义分析
-        changes = self._llm_analyze(old_report, new_report, context)
+        changes = self._llm_analyze(old_report, new_report, context, config=config)
 
         return {
             "has_changes": len(changes) > 0,
@@ -106,7 +107,7 @@ class DiffAnalyzer:
         return matcher.ratio()
 
     def _llm_analyze(self, old_report: str, new_report: str,
-                     context: str) -> list[dict]:
+                     context: str, config: RunnableConfig | None = None) -> list[dict]:
         """使用 LLM 做语义变化分析"""
         # 截断过长的报告（避免超出 token 限制）
         max_chars = 3000

@@ -23,6 +23,7 @@ dependencies = [
     "chromadb>=1.5.9",
     "onnxruntime>=1.18.0",
     "apscheduler>=3.11.3",
+    "langgraph-checkpoint-sqlite",
 ]
 
 [project.optional-dependencies]

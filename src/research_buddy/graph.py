@@ -3,6 +3,8 @@
 import logging
 from contextlib import contextmanager
 
+from pathlib import Path
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langfuse import Langfuse, get_client
@@ -26,6 +28,7 @@ from research_buddy.config import (
     MAX_REFLECTION_ROUNDS,
     MAX_SEARCH_ROUNDS,
     MAX_TOTAL_QUERIES,
+    DATA_DIR,
 )
 from research_buddy.utils import stream_and_accumulate, track_run_tokens
 
@@ -209,17 +212,48 @@ def create_knowledge_research_graph() -> StateGraph:
     return graph.compile()
 
 
-def create_research_graph_with_hitl() -> StateGraph:
-    """创建研究工作流（带 HITL，无知识层，向后兼容）"""
+def create_research_graph_with_hitl(checkpointer=None) -> StateGraph:
+    """创建研究工作流（带 HITL，无知识层，向后兼容）
+
+    Args:
+        checkpointer: LangGraph checkpointer。默认用内存 MemorySaver；
+            需要跨重启/多进程持久化时传 get_hitl_checkpointer()（SqliteSaver）。
+    """
     graph = StateGraph(ResearchState)
     _add_core_nodes_and_edges(graph)
 
-    memory = MemorySaver()
+    memory = checkpointer or MemorySaver()
 
     return graph.compile(
         checkpointer=memory,
         interrupt_before=["searcher", "reflector"],
     )
+
+
+# ── HITL checkpointer（跨重启持久化） ─────────────────────
+
+_hitl_checkpointer = None
+
+
+def get_hitl_checkpointer():
+    """获取共享的 SQLite checkpointer（HITL 会话跨重启持久化）。
+
+    与 MemorySaver 不同，SqliteSaver 把 checkpoint 落到 {DATA_DIR}/hitl_checkpoints.db，
+    服务重启后同一 thread_id 的中断状态仍可恢复。checkpoint 数据以 thread_id 为键，
+    天然支持多进程/多 worker 共享同一份状态（SQLite WAL）。
+
+    连接按进程生命周期持有（check_same_thread=False，与 knowledge/db.py 一致），
+    由 SqliteSaver 内部按需 setup 建表。
+    """
+    global _hitl_checkpointer
+    if _hitl_checkpointer is None:
+        import sqlite3
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        db_path = Path(DATA_DIR) / "hitl_checkpoints.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        _hitl_checkpointer = SqliteSaver(conn)
+    return _hitl_checkpointer
 
 
 # ── 便捷运行函数 ────────────────────────────────────────
