@@ -11,7 +11,12 @@ import time
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import StreamWriter
 
-from research_buddy.config import MAX_ARTICLE_TOKENS, MAX_IMAGES_IN_ARTICLE, MAX_REFERENCES
+from research_buddy.config import (
+    MAX_ARTICLE_TOKENS,
+    MAX_IMAGES_IN_ARTICLE,
+    MAX_REFERENCES,
+    WRITER_TEMPERATURE,
+)
 from research_buddy.state import ResearchState
 from research_buddy.styles import get_style_section
 from research_buddy.tools.images import select_images
@@ -78,19 +83,18 @@ graph TD
 20. 图解服务于理解：节点用简短名词、边用动词说明关系；不要画与正文无关的装饰图。
 涉及数学公式/复杂度/推导时用 LaTeX 书写：行内公式 $...$（如 $O(n \log n)$），独立公式用 $$...$$ 独占一行。
 
-### 文章结构（因题而异，不要套模板）
-结构必须为**这个具体问题**定制：先想清楚这个问题最自然的展开方式，
-再定章节与标题，不要每次都复用同一套格式。常见问题的自然结构（仅参考）：
-- 对比/选型类：先定对比维度，再逐维度分析，结尾给适用场景与选择建议
-  （标题可以是「如何选择」「适合什么场景」，而不是千篇一律的「结论」）
-- 原理/机制类：从外层现象切入，逐层拆解机制（组件职责、数据流、关键权衡），
-  配图解；结尾可以是「这套机制给我们的启示」
-- 决策/评估类：先摆问题与约束，再给评估框架，逐项分析，结尾给可执行的
-  决策清单或建议
-- 教程/实践类：按「为什么 → 怎么做 → 会踩什么坑 → 怎么验证」组织
-结尾避免固定格式：可以是一段有力的收束 + 少量要点，也可以直接给行动建议；
-结尾标题按问题的具体语义起（如「如何落地」「下一步建议」「关键取舍」），
-不要每次都写「结论：1. 2. 3.」式的公式化结尾。"""
+### 文章结构（开放，因题而异，不要套模板）
+结构没有标准模板：先想清楚**这个问题最自然的展开方式**（从现象切入？从冲突
+切入？从定义切入？从反常识判断切入？），再定章节与标题，不要机械套用常见骨架。
+以下维度按本题自由组合，怎么贴题怎么来：
+- 开头方式：具体场景 / 反常识判断 / 直击问题 / 历史脉络 / 定义与边界，选最有力的
+- 组织逻辑：按时间线、按层次递进、按对比维度、按问题→机制→影响、按操作步骤……
+  选贴合本题的，不要每次都用同一种
+- 章节骨架：不要每节都是「定义→展开→小结」同一骨架——有的节以具体例子开头、
+  有的以问题开头、有的直接下判断；重点章节写透，次要章节可以一笔带过
+- 结尾方式：有力收束 / 行动建议 / 点出未解问题 / 回到开头的场景，按题选择；
+  结尾标题按问题的具体语义起（如「如何落地」「下一步建议」「关键取舍」），
+  不要每次都写「结论：1. 2. 3.」式的公式化结尾"""
 
 SYNTHESIZER_PROMPT = """你是一位资深技术作者，作品常见于顶级技术媒体与行业研究机构，以专业、深入、可信著称。请基于研究问题和检索证据，撰写一篇读者读完会觉得有收获的深度技术文章。
 
@@ -530,8 +534,11 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
     if stop_reason in {"search_budget_exhausted", "no_new_queries", "reflection_budget_exhausted"}:
         formatted_results += f"\n研究因 {stop_reason} 停止。正文不得将有限结论描述为已完全验证。\n"
 
-    # 文章正文生成：MAX_ARTICLE_TOKENS 控制最大长度（0 = 不限制）
-    llm = create_llm(streaming=True, max_tokens=MAX_ARTICLE_TOKENS or None)
+    # 文章正文生成：MAX_ARTICLE_TOKENS 控制最大长度（0 = 不限制）。
+    # WRITER_TEMPERATURE（默认 0.9）：写作调用放开采样温度，让多次生成在
+    # 结构/措辞上自然有差异；评估类节点（planner/validator/reflector）仍用温度 0。
+    llm = create_llm(streaming=True, max_tokens=MAX_ARTICLE_TOKENS or None,
+                     temperature=WRITER_TEMPERATURE)
     prompt_kwargs = {
         "question": question,
         "search_results": formatted_results,

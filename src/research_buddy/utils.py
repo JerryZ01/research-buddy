@@ -158,12 +158,16 @@ def invoke_llm(llm, prompt: str, config: dict | None = None,
     raise last_error
 
 
-def create_llm(streaming: bool = False, max_tokens: int | None = None) -> ChatOpenAI:
+def create_llm(streaming: bool = False, max_tokens: int | None = None,
+               temperature: float = 0) -> ChatOpenAI:
     """创建 ChatOpenAI 实例（统一配置，每次调用自动累计 token 用量）
 
     Args:
         streaming: 是否启用流式输出（流式时请求 usage 字段，token 统计才完整）
         max_tokens: 单次生成最大 token 数；None 不限制（由提供商默认决定）
+        temperature: 采样温度。默认 0（确定性）用于规划/评估/反思等需要稳定的
+            调用；写作类调用（synthesizer 出稿）传 WRITER_TEMPERATURE 放开
+            随机性，避免多次生成结构雷同。
 
     Returns:
         配置好的 ChatOpenAI 实例
@@ -172,7 +176,7 @@ def create_llm(streaming: bool = False, max_tokens: int | None = None) -> ChatOp
         model=OPENAI_MODEL,
         api_key=OPENAI_API_KEY,
         base_url=OPENAI_API_BASE,
-        temperature=0,
+        temperature=temperature,
         streaming=streaming,
         stream_usage=streaming,
         max_tokens=max_tokens,

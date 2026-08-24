@@ -61,6 +61,11 @@ MAX_IMAGES_IN_ARTICLE = int(os.getenv("MAX_IMAGES_IN_ARTICLE", "8"))
 # 设具体值（如 4000）会限制 synthesizer 流式生成的长度，参考文献/图解
 # 由代码追加不受影响。注意别设太小导致文章被截断。
 MAX_ARTICLE_TOKENS = int(os.getenv("MAX_ARTICLE_TOKENS", "0"))
+# 文章正文生成长度/温度。MAX_ARTICLE_TOKENS 见上文；WRITER_TEMPERATURE 只影响
+# synthesizer 出稿（写作调用），planner/validator/reflector 等评估类调用仍保持
+# 温度 0 以保证判断稳定。默认 0.9：写作任务常见的采样温度，让多次生成在结构、
+# 措辞上自然有差异，而不是每次都收敛到同一篇"标准文"。
+WRITER_TEMPERATURE = float(os.getenv("WRITER_TEMPERATURE", "0.9"))
 MIN_EVIDENCE_COVERAGE = float(os.getenv("MIN_EVIDENCE_COVERAGE", "0.75"))
 # LLM 语义评估的覆盖度门槛（软闸）。评估器把 coverage 理解为「核心结论可信度」
 # 而非「所有细节完备度」，复杂话题给 0.6 以上即可视为语义充足，避免永远补搜
