@@ -515,3 +515,39 @@ def test_prompts_scope_to_question_intent():
     assert "只覆盖问题明确问到的范围" in synthesizer_module.WRITING_RULES
     # 增量 prompt 保留自己的增量语义行
     assert "增量补充" in synthesizer_module.SYNTHESIZER_INCREMENTAL_PROMPT
+
+
+def test_refine_mode_emits_report_reset_before_chunks(monkeypatch):
+    """改进模式（重写旧稿）必须先发 report_reset 清空前端，再流式输出新稿，
+    否则新稿会 append 在旧稿后面，最终拼接出两份文章。"""
+    _patch_llm(monkeypatch)
+    events = []
+    for mode, payload in _graph().stream(
+        {
+            "question": "测试问题",
+            "search_results": [],
+            "report": "# 旧文章\n旧内容\n",
+            "reflection_feedback": "结构不够清晰，请重写",
+        },
+        stream_mode=["updates", "custom"],
+    ):
+        if mode == "custom" and isinstance(payload, dict) and payload.get("type"):
+            events.append(payload["type"])
+    assert events, "writer 未被注入"
+    assert events[0] == "report_reset", f"改进模式应先发 report_reset，实际: {events[:3]}"
+    assert "report_chunk" in events
+    assert events.index("report_reset") < events.index("report_chunk")
+
+
+def test_fresh_mode_does_not_emit_report_reset(monkeypatch):
+    """全新模式（首次出稿）不应发 reset，只有重写旧稿时才需要清空。"""
+    _patch_llm(monkeypatch)
+    events = []
+    for mode, payload in _graph().stream(
+        {"question": "测试问题", "search_results": []},
+        stream_mode=["updates", "custom"],
+    ):
+        if mode == "custom" and isinstance(payload, dict) and payload.get("type"):
+            events.append(payload["type"])
+    assert "report_reset" not in events
+    assert "report_chunk" in events

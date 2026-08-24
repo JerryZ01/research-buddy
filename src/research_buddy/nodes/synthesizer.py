@@ -577,6 +577,12 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
 
     logger.info("正在生成研究文章（%s模式）...", mode)
 
+    # 改进模式（重写旧稿）时，先通知前端清空已显示的文章再流式输出，
+    # 否则新稿的 chunk 会 append 在旧稿后面，最终拼接出两份文章。
+    # 前端收到 report_reset 事件后重置文章显示区。
+    if writer and mode == "改进":
+        writer({"type": "report_reset"})
+
     # 流式输出正文。流式中途失败无法干净重试（已推送的 chunk 会重复），
     # 但首个 chunk 前的瞬时错误（503/429 等）可以整段重试——否则一次
     # 上游抖动就让整个研究失败。

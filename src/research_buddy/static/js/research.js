@@ -293,6 +293,7 @@ function setupSSEHandlers(es) {
   es.addEventListener('progress', e => handleSSEEvent('progress', e.data));
   es.addEventListener('message', e => handleSSEEvent('message', e.data));
   es.addEventListener('report_chunk', e => handleSSEEvent('report_chunk', e.data));
+  es.addEventListener('report_reset', e => handleSSEEvent('report_reset', e.data));
   es.addEventListener('report', e => handleSSEEvent('report', e.data));
   es.addEventListener('done', () => {
     es.close();
@@ -418,6 +419,9 @@ function handleSSEEvent(type, raw) {
       addLog('<span class="text-green">研究报告生成完成</span>');
     } else if (type === 'report_chunk') {
       handleReportChunk(d);
+    } else if (type === 'report_reset') {
+      // 改进模式重写：清空已显示的文章，重新流式输出，避免新旧稿拼接
+      resetReportStreaming();
     } else if (type === 'interrupt') {
       handleInterrupt(d);
     } else if (type === 'error') {
@@ -908,6 +912,21 @@ function buildReportToc() {
   heads.forEach(h => appState.tocObserver.observe(h));
 }
 
+function resetReportStreaming() {
+  const v = $('reportView');
+  const body = $('reportBody');
+  appState.streamingReportText = '';
+  body.replaceChildren();
+  body.classList.add('streaming-mode', 'is-streaming', 'typing');
+  body.classList.remove('is-settled');
+  // 生成中先隐藏定稿后才有意义的模块
+  ['reportScorecard', 'reportToc'].forEach(id => {
+    const el = $(id);
+    if (el) el.hidden = true;
+  });
+  return { v, body };
+}
+
 function handleReportChunk(d) {
   const chunk = d.chunk || '';
   if (!chunk) return;
@@ -918,15 +937,7 @@ function handleReportChunk(d) {
   // 第一次收到 chunk 时初始化
   if (!v.classList.contains('visible')) {
     v.classList.add('visible');
-    appState.streamingReportText = '';
-    body.replaceChildren();
-    body.classList.add('streaming-mode', 'is-streaming', 'typing');
-    body.classList.remove('is-settled');
-    // 生成中先隐藏定稿后才有意义的模块
-    ['reportScorecard', 'reportToc'].forEach(id => {
-      const el = $(id);
-      if (el) el.hidden = true;
-    });
+    resetReportStreaming();
   }
 
   // 累积原始 Markdown 文本

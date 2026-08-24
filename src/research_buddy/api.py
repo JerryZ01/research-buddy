@@ -694,6 +694,9 @@ def _emit_stream_event(queue, mode: str, payload, result: dict) -> None:
                 "event": "report_chunk",
                 "data": json.dumps({"chunk": payload.get("content", "")}),
             })
+        elif isinstance(payload, dict) and payload.get("type") == "report_reset":
+            # 改进模式重写：前端应清空已显示的文章再重新流式输出
+            queue.put_nowait({"event": "report_reset", "data": "{}"})
         return
 
     if mode != "updates" or not isinstance(payload, dict):
