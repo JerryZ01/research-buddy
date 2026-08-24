@@ -59,6 +59,59 @@ function setAllDone() {
   renderPipelineStrip(flow, flow[flow.length - 1]);
 }
 
+/* ── AI 问题润色（输入框辅助） ─────────────────────── */
+let _lastOriginalQuestion = '';
+
+async function refineQuestion() {
+  const q = $('question').value.trim();
+  if (!q) {
+    toast('先输入研究问题再润色', 'warning');
+    $('question').focus();
+    return;
+  }
+  const btn = $('refineBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '润色中…';
+  try {
+    const res = await fetch('/research/refine-question', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: q }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || '润色失败');
+    const refined = (data.refined_question || '').trim();
+    if (!refined) throw new Error('返回内容为空');
+    _lastOriginalQuestion = q;
+    $('question').value = refined;
+    showRefineBar(data);
+  } catch (e) {
+    toast('润色失败：' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+function showRefineBar(data) {
+  const bar = $('refineBar');
+  const info = $('refineInfo');
+  const parts = [];
+  if (data.intent) parts.push('意图：' + data.intent);
+  if (Array.isArray(data.tips) && data.tips.length) parts.push(data.tips.join('；'));
+  info.textContent = parts.length ? '已润色 · ' + parts.join(' · ') : '已润色';
+  bar.style.display = 'flex';
+}
+
+function undoRefine() {
+  if (!_lastOriginalQuestion) return;
+  $('question').value = _lastOriginalQuestion;
+  $('refineBar').style.display = 'none';
+  _lastOriginalQuestion = '';
+  toast('已还原原问题', 'info');
+}
+
 function startResearch(topicId, isIncremental) {
   const question = $('question').value.trim();
   if (!question) {

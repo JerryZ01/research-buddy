@@ -6,7 +6,7 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -26,7 +26,15 @@ from research_buddy.state import ResearchState
 from research_buddy.knowledge.db import get_db
 from research_buddy.knowledge.store import get_knowledge_store
 from research_buddy.tracking.scheduler import get_scheduler
-from research_buddy.utils import stream_and_accumulate, merge_state_update, track_run_tokens
+from research_buddy.utils import (
+    create_llm,
+    get_prompt_from_langfuse,
+    invoke_llm,
+    merge_state_update,
+    parse_llm_json,
+    stream_and_accumulate,
+    track_run_tokens,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +115,18 @@ class ResearchRequest(BaseModel):
     """研究请求"""
     question: str
     style: str = "tech-blog"
+
+
+class RefineQuestionRequest(BaseModel):
+    """AI 润色问题请求"""
+    question: str
+
+
+class RefineQuestionResponse(BaseModel):
+    """AI 润色问题响应"""
+    refined_question: str
+    intent: str = ""
+    tips: list[str] = []
 
 
 class KnowledgeResearchRequest(BaseModel):
@@ -190,6 +210,57 @@ class KnowledgeResearchResponse(BaseModel):
 async def health():
     """健康检查"""
     return {"status": "ok", "service": "research-buddy", "version": "0.3.0"}
+
+
+# ── AI 问题润色（输入框辅助） ────────────────────────────
+
+REFINE_QUESTION_PROMPT = """你是研究问题润色助手。用户想用 AI 做一次深度研究，原始问题可能口语化、模糊、边界不清。请把它改写成「精确、意图明确、可直接驱动研究」的问题表述。
+
+改写原则（严格保持原意，禁止跑偏）：
+1. 补全边界：如果原文隐含了时间范围、地域、对象范围（如「国内」「今年」「主流」「开源」），用括号或限定词补全；原文没提到的不要凭空编造。
+2. 明确研究意图：让问题自然透出是「解释原理」「对比选型」「评估影响」「操作教程」还是「趋势分析」——不改变问题实质，只让它更清晰。
+3. 去除口语冗余与歧义：保留所有关键限定词，删掉「我想了解」「帮我看看」「请问」这类壳子话。
+4. 保持提问形态：仍然是一个（或两个紧密相关的）问题，不要改写成任务清单或论文题目。
+
+输出 JSON（不要包含其他内容）：
+{{
+  "refined_question": "改写后的问题（中文）",
+  "intent": "解释原理|对比选型|评估影响|操作教程|趋势分析",
+  "tips": ["补充了时间范围", "明确了对比对象", "去掉了口语壳子"]
+}}
+"""
+
+
+@app.post("/research/refine-question", response_model=RefineQuestionResponse)
+async def refine_question(req: RefineQuestionRequest):
+    """AI 润色研究问题：补全边界、明确意图、去口语冗余。
+
+    失败时原样返回输入，不影响用户继续研究（辅助功能，不阻塞主流程）。
+    """
+    question = req.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="问题不能为空")
+    try:
+        prompt = get_prompt_from_langfuse(
+            "research-buddy-refine-question", REFINE_QUESTION_PROMPT,
+            question=question,
+        )
+        llm = create_llm(temperature=0.7)
+        response = invoke_llm(llm, prompt)
+        parsed = parse_llm_json(response.content)
+        refined = ""
+        intent = ""
+        tips: list[str] = []
+        if isinstance(parsed, dict):
+            refined = str(parsed.get("refined_question", "") or "").strip()
+            intent = str(parsed.get("intent", "") or "").strip()
+            tips = [str(t) for t in (parsed.get("tips") or []) if str(t).strip()][:5]
+        if not refined:
+            raise ValueError("refined_question 为空")
+        return RefineQuestionResponse(refined_question=refined, intent=intent, tips=tips)
+    except Exception as exc:
+        logger.warning("问题润色失败，原样返回输入: %s", str(exc)[:160])
+        return RefineQuestionResponse(refined_question=question)
 
 
 # ── 原有研究接口（向后兼容） ────────────────────────────

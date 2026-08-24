@@ -2660,11 +2660,16 @@ select.input {
   <div class="research-hero">
     <div class="research-input-wrap">
       <textarea id="question" placeholder="输入研究问题，AI 将自动拆解、搜索、验证、生成结构化报告..." rows="3" aria-label="研究问题"></textarea>
+      <div id="refineBar" class="refine-bar" style="display:none" aria-live="polite">
+        <span id="refineInfo" class="refine-info"></span>
+        <button class="btn btn-ghost btn-sm" id="refineUndo" onclick="undoRefine()">还原原问题</button>
+      </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding:0 2px">
         <span class="text-muted" style="font-size:.72rem">选择主题即启用知识研究（自动查历史+增量搜索+保存报告）</span>
         <span class="text-muted" style="font-size:.72rem"><kbd style="background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:.68rem">Ctrl+Enter</kbd> 开始</span>
       </div>
       <div class="research-actions">
+        <button class="btn btn-ghost" id="refineBtn" onclick="refineQuestion()" title="AI 润色问题：补全边界、明确意图、去口语冗余" aria-label="AI 润色问题">✨ 润色问题</button>
         <select id="researchMode" aria-label="研究模式"><option value="normal">◈ 常规研究</option><option value="hitl">👤 交互研究</option></select>
         <select id="writingStyle" aria-label="写作风格" title="文章写作风格">
           <option value="tech-blog">◇ 专业技术博客</option>

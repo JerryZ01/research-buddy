@@ -381,6 +381,21 @@ kbd { padding: 1px 4px; color: inherit; background: rgba(255,255,255,.06); borde
 .research-input-wrap textarea::placeholder { color: #75817c; }
 .research-input-wrap textarea:focus { border-color: #6f8179; box-shadow: 0 0 0 3px rgba(8,127,121,.16); }
 .research-input-wrap .text-muted { color: #85918c !important; }
+.refine-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 7px 11px;
+  background: rgba(8,127,121,.10);
+  border: 1px solid rgba(8,127,121,.30);
+  border-radius: 6px;
+  font-size: .72rem;
+  color: #9fb4ac;
+  flex-wrap: wrap;
+}
+.refine-bar .refine-info { flex: 1; min-width: 200px; line-height: 1.5; }
+.refine-bar .btn { padding: 2px 10px; font-size: .68rem; }
 .research-actions { margin-top: 16px; display: flex; justify-content: flex-end; align-items: center; gap: 9px; }
 .research-actions select {
   min-width: 178px;
