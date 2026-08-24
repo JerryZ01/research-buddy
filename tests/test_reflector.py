@@ -387,3 +387,19 @@ def test_mixed_heading_styles_pass():
               "## 一个被低估的取舍\n正文。\n"
               "## 这值得在生产环境用吗\n正文。\n")
     assert _ai_issues(report) == []
+
+
+def test_ai_flavor_retrieval_meta_comments_detected():
+    """「从检索到的资料看」「有来源提到」等研究过程元评论零容忍。"""
+    report = ("从检索到的资料看，LangGraph 支持循环。\n"
+              "有来源提到 Checkpointer 的批量写入优化。\n"
+              "从检索到的证据来看，EvalScope 支持自定义数据集。\n")
+    issues = _ai_issues(report)
+    assert any("研究过程元评论" in i for i in issues)
+
+
+def test_ai_flavor_single_retrieval_meta_comment_triggers():
+    """即使只有 1 处「从检索到的资料看」也要重写（零容忍）。"""
+    report = "正常正文。\n从检索到的资料看，这一点值得注意。\n"
+    issues = _ai_issues(report)
+    assert any("研究过程元评论" in i for i in issues)

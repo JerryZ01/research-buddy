@@ -118,6 +118,17 @@ _META_COMMENT_PATTERNS = [
 ]
 _META_COMMENT_LIMIT = 3
 
+# 研究过程元评论（可发布文章绝不该出现）：检索/来源/资料类自指。
+# 与 _META_COMMENT_PATTERNS 分开统计，命中 1 处即重写（这类话零容忍）。
+_RETRIEVAL_META_PATTERNS = [
+    r"从检索到的(?:资料|结果|证据)(?:看|中|里)",
+    r"有(?:来源|资料)(?:提到|指出|显示|称)",
+    r"检索(?:结果|到的|回来的)",
+    r"多个(?:来源|资料)(?:指出|显示|提到|认为)",
+    r"据(?:资料|检索|来源)(?:显示|称|来看)",
+    r"公开(?:资料|信息)(?:称|显示)",
+]
+
 # 排比对仗句式：密度（每千字命中数）≥ _PARALLEL_DENSITY_LIMIT 视为滥用
 _PARALLEL_PATTERNS = [
     r"不是.{0,20}而是",
@@ -170,6 +181,14 @@ def _ai_flavor_issues(report: str) -> list[str]:
         issues.append(
             f"存在 {meta_count} 处元评论/模板句（「本节的关键结论是」「值得注意的是」「综上所述」等），"
             "请重写时删除这些句式，直接用内容说话"
+        )
+
+    # 研究过程元评论：零容忍（出现 1 处即重写）
+    retrieval_meta_count = sum(len(re.findall(p, report)) for p in _RETRIEVAL_META_PATTERNS)
+    if retrieval_meta_count:
+        issues.append(
+            f"存在 {retrieval_meta_count} 处研究过程元评论（「从检索到的资料看」「有来源提到」"
+            "「检索到的证据」等），可发布文章不应出现这类自指检索过程的表述，请全部删除"
         )
 
     parallel_count = sum(len(re.findall(p, report)) for p in _PARALLEL_PATTERNS)
