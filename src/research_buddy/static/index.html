@@ -2660,9 +2660,16 @@ select.input {
   <div class="research-hero">
     <div class="research-input-wrap">
       <textarea id="question" placeholder="输入研究问题，AI 将自动拆解、搜索、验证、生成结构化报告..." rows="3" aria-label="研究问题"></textarea>
-      <div id="refineBar" class="refine-bar" style="display:none" aria-live="polite">
-        <span id="refineInfo" class="refine-info"></span>
-        <button class="btn btn-ghost btn-sm" id="refineUndo" onclick="undoRefine()">还原原问题</button>
+      <div id="refinePanel" class="refine-panel" style="display:none" aria-live="polite">
+        <div class="refine-head">
+          <span class="refine-title">选择一条润色结果</span>
+          <span class="refine-actions">
+            <button class="btn btn-ghost btn-sm" onclick="regenRefine()" title="基于当前输入框内容重新生成候选">↻ 再生成</button>
+            <button class="btn btn-ghost btn-sm" id="refineUndo" onclick="undoRefine()">还原原问题</button>
+            <button class="btn btn-ghost btn-sm" onclick="hideRefinePanel()" aria-label="关闭">✕</button>
+          </span>
+        </div>
+        <div id="refineCandidateList"></div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding:0 2px">
         <span class="text-muted" style="font-size:.72rem">选择主题即启用知识研究（自动查历史+增量搜索+保存报告）</span>

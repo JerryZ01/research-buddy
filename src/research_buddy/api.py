@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -31,7 +32,6 @@ from research_buddy.utils import (
     get_prompt_from_langfuse,
     invoke_llm,
     merge_state_update,
-    parse_llm_json,
     stream_and_accumulate,
     track_run_tokens,
 )
@@ -122,11 +122,17 @@ class RefineQuestionRequest(BaseModel):
     question: str
 
 
-class RefineQuestionResponse(BaseModel):
-    """AI 润色问题响应"""
+class RefineCandidate(BaseModel):
+    """单条润色候选"""
     refined_question: str
     intent: str = ""
     tips: list[str] = []
+    style: str = ""  # 轻度 / 深度
+
+
+class RefineQuestionResponse(BaseModel):
+    """AI 润色问题响应：多条候选，前端供用户选择"""
+    candidates: list[RefineCandidate]
 
 
 class KnowledgeResearchRequest(BaseModel):
@@ -214,29 +220,54 @@ async def health():
 
 # ── AI 问题润色（输入框辅助） ────────────────────────────
 
-REFINE_QUESTION_PROMPT = """你是研究问题润色助手。用户想用 AI 做一次深度研究，原始问题可能口语化、模糊、边界不清。请把它改写成「精确、意图明确、可直接驱动研究」的问题表述。
+REFINE_QUESTION_PROMPT = """你是研究问题润色助手。用户想用 AI 做一次深度研究，原始问题可能口语化、模糊。请把下面的原始问题润色成 3~4 条改写候选，供用户挑选。
 
-改写原则（严格保持原意，禁止跑偏）：
-0. **主体必须逐字保留**：改写结果必须围绕输入问题中的主体对象展开，主体名词短语原样出现在改写结果里，一个词都不能换成别的主题；只允许补充时间/地域/维度等边界限定，禁止替换、偷换或联想成其他主体。
-1. 补全边界：如果原文隐含了时间范围、地域、对象范围（如「国内」「今年」「主流」「开源」），用括号或限定词补全；原文没提到的不要凭空编造。
-2. 明确研究意图：让问题自然透出是「解释原理」「对比选型」「评估影响」「操作教程」还是「趋势分析」——不改变问题实质，只让它更清晰。
-3. 去除口语冗余与歧义：保留所有关键限定词，删掉「我想了解」「帮我看看」「请问」这类壳子话。
-4. 保持提问形态：仍然是一个（或两个紧密相关的）问题，不要改写成任务清单或论文题目。
+原始问题：{question}
 
-输出 JSON（不要包含其他内容）：
-{{
-  "refined_question": "改写后的问题（中文）",
-  "intent": "解释原理|对比选型|评估影响|操作教程|趋势分析",
-  "tips": ["补充了时间范围", "明确了对比对象", "去掉了口语壳子"]
-}}
+每条候选都必须满足：
+1. **主题锁定**：改写结果必须围绕上面的原始问题，原始问题中的核心名词短语必须原样出现在每条候选里，一个字都不能换成别的主题；只允许补充时间/地域/研究维度等边界。
+2. 候选之间要有差异：
+   - [轻度] 至少 1 条：只去口语壳子、补最明显的边界，尽量贴近原问题；
+   - [深度] 至少 1 条：在轻度基础上补全时间/地域/研究维度，让研究意图更明确；
+   - 其余候选取其他角度（不同边界组合或不同侧重点）。
+3. 边界只能来自原文的隐含信息，不能凭空编造。
+4. 每条都是完整的问题（一个或两个紧密相关问题），不要写成任务清单或论文题目。
+
+输出格式（严格遵守）：
+- 每行一条候选，行首用 [轻度] 或 [深度] 标记，后跟一个问题；
+- 不要输出编号、解释或任何其他文字。
 """
+
+
+def _parse_refine_candidates(text: str) -> list[RefineCandidate]:
+    """解析纯文本候选：每行一条，行首 [轻度]/[深度] 标记。"""
+    candidates: list[RefineCandidate] = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        match = re.match(r"^\[(轻度|深度|原样)\]\s*(.+)$", line)
+        if match:
+            style, question = match.group(1), match.group(2).strip()
+        else:
+            # 无标记的行：去掉编号前缀，且必须长得像问题（含问号/疑问词），
+            # 防止「嗯嗯，好的呢」这类废话行被当成候选
+            question = re.sub(r"^\d+[.、．\)]\s*", "", line).strip()
+            if not re.search(r"[？?]|如何|怎样|怎么|什么|是否|啥|咋|吗$", question):
+                continue
+            style = "轻度"
+        if len(question) >= 4:
+            candidates.append(RefineCandidate(refined_question=question, style=style))
+    return candidates
 
 
 @app.post("/research/refine-question", response_model=RefineQuestionResponse)
 async def refine_question(req: RefineQuestionRequest):
-    """AI 润色研究问题：补全边界、明确意图、去口语冗余。
+    """AI 润色研究问题：一次生成多条候选（轻度/深度），前端供用户选择。
 
-    失败时原样返回输入，不影响用户继续研究（辅助功能，不阻塞主流程）。
+    用纯文本行格式而非 JSON——部分模型在「JSON 结构化 + 枚举分类」任务上
+    会把注意力放在格式上导致主题漂移（实测会把新能源车润色成其他主题）。
+    LLM 失败时返回单条原问题候选（辅助功能，不阻塞主流程）。
     """
     question = req.question.strip()
     if not question:
@@ -246,22 +277,19 @@ async def refine_question(req: RefineQuestionRequest):
             "research-buddy-refine-question", REFINE_QUESTION_PROMPT,
             question=question,
         )
-        llm = create_llm(temperature=0.7)
+        # 温度 0.5：改写任务保持稳定；多样性靠「多条候选」本身提供
+        llm = create_llm(temperature=0.5)
         response = invoke_llm(llm, prompt)
-        parsed = parse_llm_json(response.content)
-        refined = ""
-        intent = ""
-        tips: list[str] = []
-        if isinstance(parsed, dict):
-            refined = str(parsed.get("refined_question", "") or "").strip()
-            intent = str(parsed.get("intent", "") or "").strip()
-            tips = [str(t) for t in (parsed.get("tips") or []) if str(t).strip()][:5]
-        if not refined:
-            raise ValueError("refined_question 为空")
-        return RefineQuestionResponse(refined_question=refined, intent=intent, tips=tips)
+        candidates = _parse_refine_candidates(response.content)
+        if not candidates:
+            raise ValueError("没有解析出候选")
+        return RefineQuestionResponse(candidates=candidates)
     except Exception as exc:
-        logger.warning("问题润色失败，原样返回输入: %s", str(exc)[:160])
-        return RefineQuestionResponse(refined_question=question)
+        logger.warning("问题润色失败，返回原问题候选: %s", str(exc)[:160])
+        return RefineQuestionResponse(candidates=[RefineCandidate(
+            refined_question=question, style="原样",
+            tips=["润色服务暂时不可用，已保留原问题"],
+        )])
 
 
 # ── 原有研究接口（向后兼容） ────────────────────────────

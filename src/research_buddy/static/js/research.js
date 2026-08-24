@@ -81,11 +81,10 @@ async function refineQuestion() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || '润色失败');
-    const refined = (data.refined_question || '').trim();
-    if (!refined) throw new Error('返回内容为空');
+    const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+    if (!candidates.length) throw new Error('没有返回候选');
     _lastOriginalQuestion = q;
-    $('question').value = refined;
-    showRefineBar(data);
+    renderRefineCandidates(candidates);
   } catch (e) {
     toast('润色失败：' + e.message, 'error');
   } finally {
@@ -94,20 +93,53 @@ async function refineQuestion() {
   }
 }
 
-function showRefineBar(data) {
-  const bar = $('refineBar');
-  const info = $('refineInfo');
-  const parts = [];
-  if (data.intent) parts.push('意图：' + data.intent);
-  if (Array.isArray(data.tips) && data.tips.length) parts.push(data.tips.join('；'));
-  info.textContent = parts.length ? '已润色 · ' + parts.join(' · ') : '已润色';
-  bar.style.display = 'flex';
+function renderRefineCandidates(candidates) {
+  const list = $('refineCandidateList');
+  list.replaceChildren();
+  candidates.forEach((c, i) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'refine-candidate';
+    card.onclick = () => useRefinedCandidate(i);
+    const qEl = document.createElement('div');
+    qEl.className = 'rc-q';
+    qEl.textContent = c.refined_question;
+    const meta = document.createElement('div');
+    meta.className = 'rc-meta';
+    const tags = [];
+    if (c.style) tags.push(c.style);
+    if (c.intent) tags.push('意图：' + c.intent);
+    if (Array.isArray(c.tips) && c.tips.length) tags.push(c.tips.join('；'));
+    meta.textContent = tags.join(' · ');
+    card.append(qEl, meta);
+    list.appendChild(card);
+  });
+  $('refinePanel').style.display = 'block';
+}
+
+function useRefinedCandidate(index) {
+  const cards = $('refineCandidateList').children;
+  if (!cards[index]) return;
+  const qEl = cards[index].querySelector('.rc-q');
+  if (!qEl || !qEl.textContent) return;
+  $('question').value = qEl.textContent;
+  hideRefinePanel();
+  toast('已采用润色结果', 'success');
+}
+
+function regenRefine() {
+  hideRefinePanel();
+  refineQuestion();
+}
+
+function hideRefinePanel() {
+  $('refinePanel').style.display = 'none';
 }
 
 function undoRefine() {
   if (!_lastOriginalQuestion) return;
   $('question').value = _lastOriginalQuestion;
-  $('refineBar').style.display = 'none';
+  hideRefinePanel();
   _lastOriginalQuestion = '';
   toast('已还原原问题', 'info');
 }
