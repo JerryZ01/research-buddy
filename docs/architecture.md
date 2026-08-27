@@ -776,7 +776,7 @@ Prompt 版本管理：本地 prompt 用 Python `.format()` 语法（`{var}`）�
 
 - `convert_format_to_mustache()`：用 `string.Formatter.parse` 正确区分变量占位符与 `{{ }}` 转义字面花括号，避免破坏 JSON 示例。
 - `get_prompt(name, fallback, **kwargs)`：从 Langfuse 拉取并 `compile`；任何异常退回 `local_fallback.format(**kwargs)`。
-- `register_prompts()`：应用启动时（api.py lifespan 调用）同步 **9 个 prompt** 到 Langfuse：planner、planner-incremental、synthesizer、synthesizer-incremental、synthesizer-refine、reflector、evidence-evaluator、diff-analyzer、judge。
+- `register_prompts()`：显式运行 `python -m research_buddy.eval.prompts` 时同步 Prompt 到 Langfuse；应用启动默认不发布，只有 `LANGFUSE_AUTO_REGISTER_PROMPTS=true` 才在 lifespan 调用。发布标签由 `LANGFUSE_PROMPT_REGISTER_LABEL` 控制，便于先发 `staging`、评测通过后再发 `production`。
 - **版本管理策略**：先取已有版本，内容相同跳过；变化则创建新版本（`production` 标签）；不存在则新建。
 
 ---
@@ -810,7 +810,7 @@ Prompt 版本管理：本地 prompt 用 Python `.format()` 语法（`{var}`）�
 ### 7.1 FastAPI 应用
 
 ```
- 应用启动 ─────► register_prompts() ─► TrackingScheduler.start() ─► FastAPI 运行
+ 应用启动 ─────► [按配置同步 Prompt] ─► TrackingScheduler.start() ─► FastAPI 运行
  (lifespan)    同步 9 个 prompt 到     加载定时任务                   处理 HTTP/SSE
                Langfuse（失败仅警告）
  应用停止 ─────► TrackingScheduler.stop()  (lifespan)
@@ -1265,7 +1265,7 @@ Prompt 版本管理：本地 prompt 用 Python `.format()` 语法（`{var}`）�
 
 | 概念 | 本项目用法 | 文件 |
 |------|-----------|------|
-| **lifespan** | 应用启动注册 prompt + 启动调度器，停止关调度器 | api.py |
+| **lifespan** | 按配置同步 Prompt + 启动调度器，停止关调度器 | api.py |
 | **EventSourceResponse** | SSE 流式响应（ping=15） | api.py |
 | **StaticFiles** | 挂载 Web UI（必须放在路由之后） | api.py |
 | **Pydantic BaseModel** | 请求/响应模型 | api.py |

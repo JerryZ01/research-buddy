@@ -18,6 +18,7 @@ from research_buddy import api
 planner_module = import_module("research_buddy.nodes.planner")
 searcher_module = import_module("research_buddy.nodes.searcher")
 validator_module = import_module("research_buddy.nodes.validator")
+editorial_planner_module = import_module("research_buddy.nodes.editorial_planner")
 synthesizer_module = import_module("research_buddy.nodes.synthesizer")
 reflector_module = import_module("research_buddy.nodes.reflector")
 
@@ -32,6 +33,17 @@ _PLAN = [{
 _EVALUATION = {
     "completeness": 5, "accuracy": 5, "clarity": 5,
     "total_score": 15, "pass": True, "feedback": "", "supplement_queries": [],
+}
+
+_EDITORIAL_BRIEF = {
+    "intent": "explanation", "audience": "技术读者", "thesis": "证据支持的核心判断",
+    "scope_include": ["问题本身"], "scope_exclude": [],
+    "must_cover": [{"point": "核心事实", "evidence_ids": ["E1"]}],
+    "section_plan": [
+        {"heading": "机制", "purpose": "建立解释", "evidence_ids": ["E1"]},
+        {"heading": "影响", "purpose": "完成推论", "evidence_ids": ["E2"]},
+    ],
+    "claims_to_avoid": [], "evidence_gaps": [], "ending": "回答原问题",
 }
 
 _REPORT_PIECES = (
@@ -75,14 +87,30 @@ def _fake_search(_query, **_kwargs):
 @pytest.fixture
 def offline_graph(monkeypatch):
     """把整张图的外部依赖换成假实现，图结构和状态流转保持真实。"""
-    monkeypatch.setattr(api, "get_langfuse_handler", lambda: None)
+    class _MemoryRunDb:
+        conn = object()
 
-    for module in (planner_module, synthesizer_module, reflector_module):
+        def create_run(self, *_args, **_kwargs):
+            pass
+
+        def update_run_on_connection(self, *_args, **_kwargs):
+            pass
+
+        def get_run(self, _run_id):
+            return None
+
+    monkeypatch.setattr(api, "get_langfuse_handler", lambda: None)
+    memory_db = _MemoryRunDb()
+    monkeypatch.setattr(api, "get_db", lambda: memory_db)
+
+    for module in (planner_module, editorial_planner_module, synthesizer_module, reflector_module):
         monkeypatch.setattr(module, "get_prompt_from_langfuse",
                             lambda *_args, **_kwargs: "prompt")
 
     monkeypatch.setattr(planner_module, "create_llm",
                         lambda **_: _InvokeLLM(json.dumps(_PLAN)))
+    monkeypatch.setattr(editorial_planner_module, "create_llm",
+                        lambda **_: _InvokeLLM(json.dumps(_EDITORIAL_BRIEF, ensure_ascii=False)))
     monkeypatch.setattr(synthesizer_module, "create_llm", lambda **_: _StreamLLM())
     monkeypatch.setattr(reflector_module, "create_llm",
                         lambda **_: _InvokeLLM(json.dumps(_EVALUATION)))
@@ -125,10 +153,11 @@ def test_stream_emits_node_progress_in_graph_order(offline_graph):
     events = _run_stream()
     nodes = [data.get("node") for name, data in events if name == "progress"]
     assert nodes[0] == "start"
-    for node in ("planner", "searcher", "validator", "synthesizer", "reflector"):
+    for node in ("planner", "searcher", "validator", "editorial_planner", "synthesizer", "reflector"):
         assert node in nodes, f"缺少 {node} 的 progress 事件"
     assert nodes.index("planner") < nodes.index("searcher") < nodes.index("validator")
-    assert nodes.index("validator") < nodes.index("synthesizer") < nodes.index("reflector")
+    assert nodes.index("validator") < nodes.index("editorial_planner") < nodes.index("synthesizer")
+    assert nodes.index("synthesizer") < nodes.index("reflector")
 
 
 def test_stream_emits_messages_and_final_report(offline_graph):

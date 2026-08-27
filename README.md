@@ -157,6 +157,11 @@ uv sync --extra multilingual
 # 单元测试（全离线，不需要 API Key）
 uv run pytest -q
 
+# 文章质量 A/B 回归（会实际调用 LLM，先用一题一次估算费用）
+uv run python scripts/run_article_eval.py \
+  --candidate-rules eval/prompts/candidate-v1.md \
+  --limit 1 --samples 1
+
 # 测试线性工作流（规划→搜索→综合）
 uv run python scripts/test_phase1.py
 
@@ -170,6 +175,8 @@ uv run python scripts/test_phase3.py
 uv run python -m research_buddy.eval.dataset   # 首次：创建/更新测试集
 uv run python scripts/run_eval.py
 ```
+
+程序测试与文章质量评测用途不同。后者会冻结搜索证据，对 baseline/candidate 多次采样，生成本地 JSON 和 HTML 对比报告；完整说明见 [文章质量回归评测](docs/article-quality-evaluation.md)。
 
 ## 🐳 Docker 部署
 

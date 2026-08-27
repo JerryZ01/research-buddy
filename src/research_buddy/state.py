@@ -50,6 +50,18 @@ class EvidenceAssessment(TypedDict):
     contradictions: list[str]
 
 
+class EvidenceItem(TypedDict):
+    """写作阶段的稳定证据账本条目。"""
+    id: str
+    title: str
+    url: str
+    excerpt: str
+    score: float
+    sub_question_ids: list[str]
+    assessment_status: str
+    contradictions: list[str]
+
+
 class ResearchState(TypedDict):
     """研究工作流的全局状态
 
@@ -60,6 +72,10 @@ class ResearchState(TypedDict):
     # 输入
     question: str  # 原始研究问题
     style: str  # 写作风格 id（research_buddy.styles.STYLES 的键，默认 tech-blog）
+    # 仅供离线文章回归评测注入。
+    writing_rules_override: str
+    style_section_override: str
+    eval_use_local_prompts: bool
 
     # 知识层（Phase 6）
     topic_id: str  # 关联的研究主题 ID（可选，为空则不持久化）
@@ -79,6 +95,7 @@ class ResearchState(TypedDict):
     # 验证阶段（Phase 2）
     validation_gaps: list[ValidationGap]  # 信息缺口（覆盖语义，搜索后可清空）
     evidence_assessments: list[EvidenceAssessment]  # 当前证据评估（覆盖语义）
+    evidence_ledger: list[EvidenceItem]  # 去重后的写作证据账本（覆盖语义）
     evidence_assessment_degraded: bool  # 语义评估不可用，仅确定性判断（报告需披露）
     search_history: Annotated[list[dict], operator.add]  # 已执行搜索任务
     search_round: int
@@ -88,6 +105,8 @@ class ResearchState(TypedDict):
     search_unavailable: bool  # 搜索层不可用（无 key 或全部请求失败）
 
     # 综合阶段
+    editorial_brief: dict  # 写作前的核心判断、范围、章节职责与证据映射
+    evidence_edits: list[dict]  # 后续定向编辑保留的可审计修改（覆盖语义）
     report: str  # 最终报告（可发布的文章正文，不含评价性内容与内嵌链接）
     confidence: str  # 置信度（高/中/低），由代码从证据质量计算，不进报告正文
     research_notes: list[str]  # 研究说明（局限/降级/未解决缺口），不进正文，供 API/前端展示

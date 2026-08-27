@@ -3,7 +3,9 @@
 import json
 import logging
 import os
+from queue import Empty, Queue
 import re
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -44,13 +46,17 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时注册 prompt + 启动追踪调度器，停止时关闭"""
+    """应用生命周期：按配置同步 Prompt、启动追踪调度器，停止时关闭。"""
     # Startup
-    try:
-        from research_buddy.eval.prompts import register_prompts
-        register_prompts()
-    except Exception as e:
-        logger.warning("Langfuse prompt 注册失败（不影响运行）: %s", e)
+    from research_buddy.config import LANGFUSE_AUTO_REGISTER_PROMPTS
+    if LANGFUSE_AUTO_REGISTER_PROMPTS:
+        try:
+            from research_buddy.eval.prompts import register_prompts
+            register_prompts()
+        except Exception as e:
+            logger.warning("Langfuse prompt 注册失败（不影响运行）: %s", e)
+    else:
+        logger.info("Langfuse Prompt 自动注册已关闭；评测通过后再显式发布")
     try:
         from research_buddy.knowledge.vector import describe_embedding_backend
         logger.info("向量 embedding 后端: %s", describe_embedding_backend())
@@ -713,6 +719,19 @@ def _done_payload(result: dict) -> dict:
     return {"message": "研究完成", "token_usage": result.get("token_usage", {})}
 
 
+def _persist_run_result(connection, run_id: str, status: str,
+                        result: dict | None = None, error: str = "") -> None:
+    """SSE 完成后快速落盘，SQLite 等锁不得阻塞报告交付。"""
+    if connection is None:
+        return
+    try:
+        get_db().update_run_on_connection(
+            connection, run_id, status, result=result, error=error,
+        )
+    except Exception as exc:
+        logger.warning("研究运行记录落盘失败 (run_id=%s): %s", run_id, exc)
+
+
 def _emit_stream_event(queue, mode: str, payload, result: dict) -> None:
     """把 graph.stream 的一个 (mode, payload) 事件转成 SSE 队列条目，并累积状态。
 
@@ -761,12 +780,14 @@ def _event_generator(question: str, topic_id: str = "",
                      is_incremental: bool = False, style: str = "tech-blog"):
     """SSE 事件生成器（共用）
 
-    使用 asyncio.Queue + asyncio.to_thread 将同步的 graph.stream()
-    放到线程中执行，避免阻塞事件循环，实现真正的 SSE 实时推送。
+    使用 daemon 线程执行同步 graph.stream()，通过线程安全队列
+    把事件交给异步生成器，避免阻塞事件循环。
     """
 
     async def inner():
         import asyncio
+
+        event_loop = asyncio.get_running_loop()
 
         # 选择图
         if topic_id:
@@ -787,7 +808,7 @@ def _event_generator(question: str, topic_id: str = "",
         if langfuse_handler:
             config["callbacks"] = [langfuse_handler]
 
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: Queue = Queue()
         run_id = uuid.uuid4().hex[:12]
         # 断线恢复：run_id → 运行记录。客户端断开后线程继续跑完并把结果存进来，
         # 客户端可轮询 /research/run/{run_id} 取回结果（研究动辄数分钟，断线即丢体验太差）。
@@ -799,14 +820,18 @@ def _event_generator(question: str, topic_id: str = "",
             "error": None,
             "created_at": time.time(),
         }
+        run_db_connection = None
         try:
-            get_db().create_run(run_id, question, style)
+            database = get_db()
+            database.create_run(run_id, question, style)
+            run_db_connection = database.conn
         except Exception:
             pass  # 持久化失败不影响本次运行
         _prune_research_runs()
 
         def _run_graph():
             """在线程中运行 graph.stream()，将事件推入队列"""
+            persistence: tuple[str, dict | None, str] | None = None
             try:
                 queue.put_nowait({
                     "event": "progress",
@@ -825,14 +850,12 @@ def _event_generator(question: str, topic_id: str = "",
 
                     result.setdefault("question", question)
                     result["token_usage"] = dict(usage)
+                logger.info("SSE 研究图执行完成 (run_id=%s)", run_id)
 
                 # 存结果（即使客户端已断开，后台线程也会执行到这里）
                 _research_runs[run_id]["result"] = result
                 _research_runs[run_id]["status"] = "done"
-                try:
-                    get_db().update_run(run_id, "done", result=result)
-                except Exception:
-                    pass
+                persistence = ("done", result, "")
 
                 queue.put_nowait({
                     "event": "report",
@@ -843,15 +866,13 @@ def _event_generator(question: str, topic_id: str = "",
                     "event": "done",
                     "data": json.dumps(_done_payload(result)),
                 })
+                logger.info("SSE 最终报告事件已入队 (run_id=%s)", run_id)
 
             except Exception as e:
                 logger.error("SSE 图执行失败: %s", e)
                 _research_runs[run_id]["status"] = "error"
                 _research_runs[run_id]["error"] = str(e)
-                try:
-                    get_db().update_run(run_id, "error", error=str(e))
-                except Exception:
-                    pass
+                persistence = ("error", None, str(e))
                 queue.put_nowait({
                     "event": "error",
                     "data": json.dumps({"message": str(e)}),
@@ -860,21 +881,32 @@ def _event_generator(question: str, topic_id: str = "",
             finally:
                 # 哨兵值，通知异步生成器结束
                 queue.put_nowait(None)
+                if persistence:
+                    event_loop.call_soon_threadsafe(
+                        _persist_run_result,
+                        run_db_connection, run_id, persistence[0], persistence[1], persistence[2],
+                    )
                 if langfuse_handler:
                     langfuse_handler._langfuse_client.flush()
 
-        # 在线程中启动 graph.stream()
-        thread_task = asyncio.ensure_future(asyncio.to_thread(_run_graph))
+        # 显式 daemon 线程保证客户断开后研究仍可继续，同时不让
+        # asyncio 默认执行器在 SSE 收尾时等待一个无法取消的 to_thread 任务。
+        worker_thread = threading.Thread(target=_run_graph, daemon=True)
+        worker_thread.start()
 
         try:
             while True:
-                item = await queue.get()
+                try:
+                    item = queue.get_nowait()
+                except Empty:
+                    await asyncio.sleep(0.05)
+                    continue
                 if item is None:
                     break
                 yield item
         finally:
             # 客户端断开时不取消后台线程：让它跑完并把结果写进 _research_runs，
-            # 供 /research/run/{run_id} 恢复。to_thread 的取消本也杀不掉线程。
+            # 供 /research/run/{run_id} 恢复。daemon 线程不需要在 SSE 请求中 join。
             pass
 
     return inner()
@@ -908,7 +940,7 @@ def _hitl_event_generator(question: str, style: str = "tech-blog"):
             "config": config,
         }
 
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: Queue = Queue()
 
         def _run_hitl_graph():
             """在线程中运行 HITL 图，检测中断并推送事件"""
@@ -981,17 +1013,21 @@ def _hitl_event_generator(question: str, style: str = "tech-blog"):
                 if langfuse_handler:
                     langfuse_handler._langfuse_client.flush()
 
-        thread_task = asyncio.ensure_future(asyncio.to_thread(_run_hitl_graph))
+        worker_thread = threading.Thread(target=_run_hitl_graph, daemon=True)
+        worker_thread.start()
 
         try:
             while True:
-                item = await queue.get()
+                try:
+                    item = queue.get_nowait()
+                except Empty:
+                    await asyncio.sleep(0.05)
+                    continue
                 if item is None:
                     break
                 yield item
         finally:
-            if not thread_task.done():
-                thread_task.cancel()
+            pass
 
     return inner()
 
@@ -1014,7 +1050,7 @@ def _hitl_resume_event_generator(thread_id: str, resume_data: dict):
         graph = session["graph"]
         config = session["config"]
 
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: Queue = Queue()
 
         def _run_resume():
             """在线程中恢复 HITL 图执行"""
@@ -1103,17 +1139,21 @@ def _hitl_resume_event_generator(thread_id: str, resume_data: dict):
             finally:
                 queue.put_nowait(None)
 
-        thread_task = asyncio.ensure_future(asyncio.to_thread(_run_resume))
+        worker_thread = threading.Thread(target=_run_resume, daemon=True)
+        worker_thread.start()
 
         try:
             while True:
-                item = await queue.get()
+                try:
+                    item = queue.get_nowait()
+                except Empty:
+                    await asyncio.sleep(0.05)
+                    continue
                 if item is None:
                     break
                 yield item
         finally:
-            if not thread_task.done():
-                thread_task.cancel()
+            pass
 
     return inner()
 
@@ -1162,6 +1202,15 @@ def _extract_detail(node_name: str, state_update: dict) -> dict:
             )
         detail["assessment_degraded"] = bool(state_update.get("evidence_assessment_degraded"))
 
+    elif node_name == "editorial_planner":
+        ledger = state_update.get("evidence_ledger", [])
+        brief = state_update.get("editorial_brief", {})
+        detail["evidence_count"] = len(ledger)
+        detail["thesis"] = brief.get("thesis", "")
+        detail["intent"] = brief.get("intent", "")
+        detail["section_count"] = len(brief.get("section_plan", []))
+        detail["degraded"] = not bool(brief)
+
     elif node_name == "synthesizer":
         report = state_update.get("report", "")
         detail["report_length"] = len(report)
@@ -1209,6 +1258,11 @@ def _summarize_update(node_name: str, state_update: dict) -> str:
         if count > 0:
             return f"{count} 个子问题信息不足"
         return "搜索结果充足"
+    elif node_name == "editorial_planner":
+        brief = state_update.get("editorial_brief", {})
+        if not brief:
+            return "编辑规划不可用，已降级为直接写作"
+        return f"完成证据账本与 {len(brief.get('section_plan', []))} 节写作规划"
     elif node_name == "synthesizer":
         return "报告生成完成"
     elif node_name == "reflector":

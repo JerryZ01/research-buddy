@@ -24,6 +24,8 @@ class Database:
     def __init__(self, db_path: str | None = None):
         self.db_path = db_path or str(Path(DATA_DIR) / "research_buddy.db")
         self._local = threading.local()
+        self._schema_lock = threading.Lock()
+        self._schema_ready = False
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -33,10 +35,16 @@ class Database:
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
             self._local.conn = conn
-            self._create_tables(conn)
+            # SSE 图在后台线程收尾，每个线程都重跑 WAL + 整套 DDL
+            # 会在 Windows 挂载盘上长时间等锁。每进程只需初始化一次 schema。
+            if not self._schema_ready:
+                with self._schema_lock:
+                    if not self._schema_ready:
+                        conn.execute("PRAGMA journal_mode=WAL")
+                        self._create_tables(conn)
+                        self._schema_ready = True
         return conn
 
     def _create_tables(self, conn: sqlite3.Connection) -> None:
@@ -341,6 +349,16 @@ class Database:
             (status, json.dumps(result or {}, ensure_ascii=False), error, run_id),
         )
         self.conn.commit()
+
+    def update_run_on_connection(self, conn: sqlite3.Connection, run_id: str, status: str,
+                                 result: dict | None = None, error: str = "") -> None:
+        """复用已初始化的连接快速落盘 SSE 结果。"""
+        conn.execute("PRAGMA busy_timeout=200")
+        conn.execute(
+            "UPDATE runs SET status=?, result=?, error=? WHERE run_id=?",
+            (status, json.dumps(result or {}, ensure_ascii=False), error, run_id),
+        )
+        conn.commit()
 
     def get_run(self, run_id: str) -> dict | None:
         """取运行记录（含解析后的 result）。"""

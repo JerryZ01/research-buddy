@@ -94,9 +94,9 @@ def test_track_run_tokens_accumulates_and_resets():
     assert get_current_token_usage() == {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
 
-def test_llm_propagates_config_callbacks():
+def test_llm_propagates_config_callbacks(monkeypatch):
     """create_llm 的调用必须传播 config 里的 callbacks（Langfuse 依赖此机制）。"""
-    from research_buddy.utils import create_llm
+    import research_buddy.utils as utils
     from langchain_core.callbacks import BaseCallbackHandler
 
     events = []
@@ -105,7 +105,11 @@ def test_llm_propagates_config_callbacks():
         def on_llm_start(self, *args, **kwargs):
             events.append("start")
 
-    llm = create_llm()
+    # 使用本地不可达端口，验证回调传播但不发起真实模型请求。
+    monkeypatch.setattr(utils, "OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(utils, "OPENAI_API_BASE", "http://127.0.0.1:1/v1")
+    monkeypatch.setattr(utils, "OPENAI_STRIP_SDK_HEADERS", False)
+    llm = utils.create_llm()
     try:
         # 网络会失败，但 on_llm_start 在发起请求前就会触发
         llm.invoke("hi", config={"callbacks": [_Recorder()]})
@@ -148,3 +152,52 @@ def test_invoke_llm_does_not_retry_non_transient():
     with pytest.raises(Exception):
         invoke_llm(_Bad(), "p")
     assert calls["n"] == 1
+
+
+def test_strip_openai_sdk_headers_removes_gateway_blocked_fingerprint():
+    import httpx
+    from research_buddy.utils import _strip_openai_sdk_headers
+
+    request = httpx.Request("POST", "https://gateway.example/v1/chat/completions", headers={
+        "User-Agent": "OpenAI/Python 2.x",
+        "X-Stainless-Lang": "python",
+        "X-Stainless-Package-Version": "2.x",
+        "X-Stainless-Raw-Response": "true",
+        "X-Stainless-Helper-Method": "chat.completions.create",
+        "X-Request-ID": "keep-me",
+    })
+    _strip_openai_sdk_headers(request)
+    assert request.headers["user-agent"] == "python-httpx"
+    assert "x-stainless-lang" not in request.headers
+    assert "x-stainless-package-version" not in request.headers
+    assert request.headers["x-stainless-raw-response"] == "true"
+    assert request.headers["x-stainless-helper-method"] == "chat.completions.create"
+    assert request.headers["x-request-id"] == "keep-me"
+
+
+def test_create_llm_injects_compat_clients_only_when_enabled(monkeypatch):
+    import research_buddy.utils as utils
+
+    captured = []
+
+    class _FakeLLM:
+        def __init__(self, **kwargs):
+            captured.append(kwargs)
+
+        def with_config(self, _config):
+            return self
+
+    sync_client = object()
+    async_client = object()
+    monkeypatch.setattr(utils, "ChatOpenAI", _FakeLLM)
+    monkeypatch.setattr(utils, "_compat_http_clients", lambda: (sync_client, async_client))
+
+    monkeypatch.setattr(utils, "OPENAI_STRIP_SDK_HEADERS", True)
+    utils.create_llm()
+    assert captured[-1]["http_client"] is sync_client
+    assert captured[-1]["http_async_client"] is async_client
+
+    monkeypatch.setattr(utils, "OPENAI_STRIP_SDK_HEADERS", False)
+    utils.create_llm()
+    assert "http_client" not in captured[-1]
+    assert "http_async_client" not in captured[-1]

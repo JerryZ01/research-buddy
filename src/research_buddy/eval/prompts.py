@@ -15,6 +15,7 @@ from langfuse import Langfuse
 from research_buddy.config import (
     LANGFUSE_HOST,
     LANGFUSE_PROMPT_CACHE_TTL,
+    LANGFUSE_PROMPT_REGISTER_LABEL,
     LANGFUSE_PUBLIC_KEY,
     LANGFUSE_SECRET_KEY,
     LANGFUSE_TIMEOUT,
@@ -126,6 +127,7 @@ def register_prompts() -> None:
     from research_buddy.tracking.diff import DIFF_ANALYZER_PROMPT
     from research_buddy.eval.judge import JUDGE_PROMPT
     from research_buddy.nodes.knowledge_store import KEY_FACTS_PROMPT
+    from research_buddy.nodes.editorial_planner import EDITORIAL_BRIEF_PROMPT
 
     langfuse = _get_client()
 
@@ -142,6 +144,7 @@ def register_prompts() -> None:
         "research-buddy-key-facts": KEY_FACTS_PROMPT,
         "research-buddy-core-refs": CORE_REFS_PROMPT,
         "research-buddy-heading-rewrite": HEADING_REWRITE_PROMPT,
+        "research-buddy-editorial-brief": EDITORIAL_BRIEF_PROMPT,
     }
 
     for name, template in prompts.items():
@@ -156,7 +159,7 @@ def register_prompts() -> None:
                     name=name,
                     type="text",
                     prompt=mustache_template,
-                    labels=["production"],
+                    labels=[LANGFUSE_PROMPT_REGISTER_LABEL],
                     config={},
                     commit_message="Auto-sync from local constants",
                 )
@@ -170,7 +173,7 @@ def register_prompts() -> None:
                     name=name,
                     type="text",
                     prompt=mustache_template,
-                    labels=["production"],
+                    labels=[LANGFUSE_PROMPT_REGISTER_LABEL],
                     config={},
                     commit_message="Initial registration from local constants",
                 )

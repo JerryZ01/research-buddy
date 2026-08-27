@@ -19,6 +19,7 @@ from research_buddy.config import (
 )
 from research_buddy.state import ResearchState
 from research_buddy.styles import get_style_section
+from research_buddy.nodes.editorial_planner import format_editorial_brief
 from research_buddy.tools.images import select_images
 from research_buddy.utils import (_is_transient_error, create_llm, get_prompt_from_langfuse,
                               invoke_llm, normalize_url, parse_llm_json)
@@ -81,7 +82,7 @@ graph TD
     C -- 失败 --> E[拒绝]
 ```
 20. 图解服务于理解：节点用简短名词、边用动词说明关系；不要画与正文无关的装饰图。
-涉及数学公式/复杂度/推导时用 LaTeX 书写：行内公式 $...$（如 $O(n \log n)$），独立公式用 $$...$$ 独占一行。
+涉及数学公式/复杂度/推导时用 LaTeX 书写：行内公式 $...$（如 $O(n \\log n)$），独立公式用 $$...$$ 独占一行。
 
 ### 文章结构（开放，因题而异，不要套模板）
 结构没有标准模板：先想清楚**这个问题最自然的展开方式**（从现象切入？从冲突
@@ -316,7 +317,7 @@ HEADING_REWRITE_PROMPT = """下面是一篇文章的标题列表，其中大量�
 - 不要再用冒号「：」
 - 交替使用陈述句标题、疑问句标题、短语式标题
 - 标题必须准确对应原内容，不能改变含义或丢失信息
-- 输出 JSON 对象：{"titles": ["新标题1", "新标题2", ...]}，与输入顺序一一对应
+- 输出 JSON 对象：{{"titles": ["新标题1", "新标题2", ...]}}，与输入顺序一一对应
 
 ## 文章主题
 {question}
@@ -354,7 +355,8 @@ def _colon_heading_ratio(headings: list[dict]) -> tuple[float, int]:
 
 
 def _normalize_headings(question: str, report: str,
-                          config: RunnableConfig | None = None) -> str:
+                          config: RunnableConfig | None = None,
+                          use_local_prompt: bool = False) -> str:
     """若冒号式标题过多，用一次小 LLM 调用重写标题（代码级保底）。
 
     在 synthesizer 出稿前执行，不依赖反思循环是否拦截；
@@ -366,11 +368,15 @@ def _normalize_headings(question: str, report: str,
         return report
     try:
         llm = create_llm()
-        prompt = get_prompt_from_langfuse(
-            "research-buddy-heading-rewrite", HEADING_REWRITE_PROMPT,
-            question=question,
-            headings="\n".join(f"- {h['text']}" for h in headings),
-        )
+        prompt_kwargs = {
+            "question": question,
+            "headings": "\n".join(f"- {h['text']}" for h in headings),
+        }
+        prompt = (HEADING_REWRITE_PROMPT.format(**prompt_kwargs) if use_local_prompt else
+                  get_prompt_from_langfuse(
+                      "research-buddy-heading-rewrite", HEADING_REWRITE_PROMPT,
+                      **prompt_kwargs,
+                  ))
         response = invoke_llm(llm, prompt, config=config)
         parsed = parse_llm_json(response.content)
         titles = parsed.get("titles", []) if isinstance(parsed, dict) else []
@@ -500,14 +506,25 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
     else:
         image_section = "（无）"
 
-    # 格式化搜索结果
+    # 格式化写作证据。编辑规划节点已生成账本时，必须使用同一份
+    # E1/E2 编号，确保简报中的证据映射与写作输入一致。
     formatted_results = ""
-    for i, r in enumerate(search_results, 1):
-        formatted_results += f"\n### 结果 {i}（子问题：{r['sub_question']}）\n"
-        formatted_results += f"- 标题：{r['title']}\n"
-        formatted_results += f"- 来源：{r['url']}\n"
-        formatted_results += f"- 内容：{r['content']}\n"
-        formatted_results += f"- 相关度：{r['score']}\n"
+    evidence_ledger = state.get("evidence_ledger", [])
+    if evidence_ledger:
+        for item in evidence_ledger:
+            formatted_results += f"\n### {item.get('id', '')}：{item.get('title', '未命名来源')}\n"
+            formatted_results += f"- 来源：{item.get('url', '')}\n"
+            formatted_results += f"- 内容：{item.get('excerpt', '')}\n"
+            formatted_results += f"- 相关度：{item.get('score', 0)}\n"
+            if item.get("contradictions"):
+                formatted_results += "- 已知冲突：" + "; ".join(item["contradictions"]) + "\n"
+    else:
+        for i, r in enumerate(search_results, 1):
+            formatted_results += f"\n### 结果 {i}（子问题：{r['sub_question']}）\n"
+            formatted_results += f"- 标题：{r['title']}\n"
+            formatted_results += f"- 来源：{r['url']}\n"
+            formatted_results += f"- 内容：{r['content']}\n"
+            formatted_results += f"- 相关度：{r['score']}\n"
 
     if evidence_assessments:
         formatted_results += "\n## 证据覆盖状态（仅供你判断，不要写进正文）\n"
@@ -533,6 +550,15 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
         )
     if stop_reason in {"search_budget_exhausted", "no_new_queries", "reflection_budget_exhausted"}:
         formatted_results += f"\n研究因 {stop_reason} 停止。正文不得将有限结论描述为已完全验证。\n"
+    editorial_brief = state.get("editorial_brief") or {}
+    if editorial_brief:
+        formatted_results += (
+            "\n## 编辑简报（必须遵循；E1/E2 仅供内部映射，正文严禁输出这些编号）\n"
+            + format_editorial_brief(editorial_brief)
+            + "\n写作时只能把上方检索证据当作事实来源；简报只决定范围和组织，"
+              "不能作为新增事实来源。claims_to_avoid 中的断言不得写入正文；"
+              "不要写「E1 说明」「根据 E2」等研究过程表述。\n"
+        )
 
     # 文章正文生成：MAX_ARTICLE_TOKENS 控制最大长度（0 = 不限制）。
     # WRITER_TEMPERATURE（默认 0.9）：写作调用放开采样温度，让多次生成在
@@ -543,16 +569,27 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
         "question": question,
         "search_results": formatted_results,
         "image_section": image_section,
-        "style_section": get_style_section(state.get("style")),
+        "style_section": state.get("style_section_override") or get_style_section(state.get("style")),
         "image_limit": str(MAX_IMAGES_IN_ARTICLE),
         # 共享写作规范（单一事实来源；image_limit 在这里渲染进规则文本）
-        "writing_rules": WRITING_RULES.format(image_limit=str(MAX_IMAGES_IN_ARTICLE)),
+        "writing_rules": (state.get("writing_rules_override") or WRITING_RULES).format(
+            image_limit=str(MAX_IMAGES_IN_ARTICLE)
+        ),
     }
+
+    # 离线回归必须固定本地模板，不能让 Langfuse 远程版本在两次运行之间漂移。
+    # 正常生产 state 不包含 eval_use_local_prompts，仍走 Prompt Management。
+    use_local_prompts = bool(state.get("eval_use_local_prompts"))
+
+    def resolve_prompt(name: str, template: str, **kwargs) -> str:
+        if use_local_prompts:
+            return template.format(**kwargs)
+        return get_prompt_from_langfuse(name, template, **kwargs)
 
     # 选择模式
     if feedback and report:
         # 改进模式（反思后重写）
-        prompt = get_prompt_from_langfuse(
+        prompt = resolve_prompt(
             "research-buddy-synthesizer-refine", SYNTHESIZER_REFINE_PROMPT,
             **prompt_kwargs,
             report=report,
@@ -561,7 +598,7 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
         mode = "改进"
     elif is_incremental and has_knowledge and knowledge_context:
         # 增量模式也走 Langfuse Prompt 管理
-        prompt = get_prompt_from_langfuse(
+        prompt = resolve_prompt(
             "research-buddy-synthesizer-incremental", SYNTHESIZER_INCREMENTAL_PROMPT,
             **prompt_kwargs,
             knowledge_context=knowledge_context,
@@ -569,7 +606,7 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
         mode = "增量"
     else:
         # 全新模式
-        prompt = get_prompt_from_langfuse(
+        prompt = resolve_prompt(
             "research-buddy-synthesizer", SYNTHESIZER_PROMPT,
             **prompt_kwargs,
         )
@@ -622,7 +659,9 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
 
     # 标题去模板化（代码级保底）：模型即使反复写「名词：副题」式冒号标题，
     # 这里也直接重写标题让风格多样——不依赖反思循环是否拦住。
-    full_report = _normalize_headings(question, full_report, config=config)
+    full_report = _normalize_headings(
+        question, full_report, config=config, use_local_prompt=use_local_prompts,
+    )
 
     # 文末核心参考文献：LLM 从全部来源中筛选子集，代码重新编号生成。
     # 跨轮次复用：来源集（URL 签名）未变时直接复用上一轮的筛选结果，

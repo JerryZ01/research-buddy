@@ -5,13 +5,20 @@ import logging
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import lru_cache
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Any
 
+import httpx
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_openai import ChatOpenAI
 
-from research_buddy.config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL
+from research_buddy.config import (
+    OPENAI_API_KEY,
+    OPENAI_API_BASE,
+    OPENAI_MODEL,
+    OPENAI_STRIP_SDK_HEADERS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -158,8 +165,38 @@ def invoke_llm(llm, prompt: str, config: dict | None = None,
     raise last_error
 
 
+def _strip_openai_sdk_headers(request: httpx.Request) -> None:
+    """清理 SDK 环境指纹，保留 LangChain 解析响应所需的功能性头。"""
+    functional_headers = {"x-stainless-raw-response", "x-stainless-helper-method"}
+    for name in list(request.headers):
+        normalized = name.lower()
+        if normalized.startswith("x-stainless-") and normalized not in functional_headers:
+            del request.headers[name]
+    request.headers["user-agent"] = "python-httpx"
+
+
+async def _strip_openai_sdk_headers_async(request: httpx.Request) -> None:
+    _strip_openai_sdk_headers(request)
+
+
+@lru_cache(maxsize=1)
+def _compat_http_clients() -> tuple[httpx.Client, httpx.AsyncClient]:
+    """进程内复用连接池，避免每次节点调用都新建 HTTP 客户端。"""
+    timeout = httpx.Timeout(600.0, connect=30.0)
+    return (
+        httpx.Client(
+            timeout=timeout,
+            event_hooks={"request": [_strip_openai_sdk_headers]},
+        ),
+        httpx.AsyncClient(
+            timeout=timeout,
+            event_hooks={"request": [_strip_openai_sdk_headers_async]},
+        ),
+    )
+
+
 def create_llm(streaming: bool = False, max_tokens: int | None = None,
-               temperature: float = 0) -> ChatOpenAI:
+               temperature: float = 0, model: str | None = None) -> ChatOpenAI:
     """创建 ChatOpenAI 实例（统一配置，每次调用自动累计 token 用量）
 
     Args:
@@ -168,18 +205,27 @@ def create_llm(streaming: bool = False, max_tokens: int | None = None,
         temperature: 采样温度。默认 0（确定性）用于规划/评估/反思等需要稳定的
             调用；写作类调用（synthesizer 出稿）传 WRITER_TEMPERATURE 放开
             随机性，避免多次生成结构雷同。
+        model: 可选模型覆盖；Article Eval 可借此使用独立 Judge 模型。
 
     Returns:
         配置好的 ChatOpenAI 实例
     """
+    client_kwargs = {}
+    if OPENAI_STRIP_SDK_HEADERS:
+        http_client, http_async_client = _compat_http_clients()
+        client_kwargs = {
+            "http_client": http_client,
+            "http_async_client": http_async_client,
+        }
     llm = ChatOpenAI(
-        model=OPENAI_MODEL,
+        model=model or OPENAI_MODEL,
         api_key=OPENAI_API_KEY,
         base_url=OPENAI_API_BASE,
         temperature=temperature,
         streaming=streaming,
         stream_usage=streaming,
         max_tokens=max_tokens,
+        **client_kwargs,
     )
     # 挂上 usage 记录回调（不依赖 langchain 的回调传播，节点内裸调用也能计数）
     return llm.with_config({"callbacks": [_UsageRecorder()]})
@@ -250,6 +296,7 @@ def normalize_url(url: str) -> str:
 _OVERWRITE_LIST_KEYS = frozenset({
     "sub_questions", "validation_gaps", "evidence_assessments",
     "research_notes", "source_table", "selected_images", "core_refs",
+    "evidence_ledger", "evidence_edits",
 })
 
 

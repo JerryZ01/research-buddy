@@ -449,6 +449,42 @@ def test_unknown_style_falls_back_to_default(monkeypatch):
     assert "专业、克制、自信的技术博客文风" in captured["prompt"]["style_section"]
 
 
+def test_eval_overrides_writing_rules_and_style(monkeypatch):
+    """离线评测可注入候选规则；不设置覆盖字段时仍走生产默认值。"""
+    captured: dict = {}
+
+    def fake_get_prompt(name, fallback, **kwargs):
+        captured.update(kwargs)
+        return "prompt"
+
+    monkeypatch.setattr(synthesizer_module, "create_llm", lambda **_: _FakeLLM())
+    monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse", fake_get_prompt)
+    monkeypatch.setattr(synthesizer_module, "curate_core_references",
+                        lambda _q, table, **_k: table)
+    _graph().invoke({
+        "question": "测试问题", "search_results": [],
+        "writing_rules_override": "候选规则，最多 {image_limit} 张图。",
+        "style_section_override": "候选风格",
+    })
+    assert captured["writing_rules"] == "候选规则，最多 8 张图。"
+    assert captured["style_section"] == "候选风格"
+
+
+def test_eval_can_pin_local_synthesizer_prompt(monkeypatch):
+    """回归评测不能因 Langfuse 远程模板变化而漂移。"""
+    monkeypatch.setattr(synthesizer_module, "create_llm", lambda **_: _FakeLLM())
+    monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
+                        lambda *_a, **_k: (_ for _ in ()).throw(
+                            AssertionError("评测模式不应读取远程 Prompt")))
+    monkeypatch.setattr(synthesizer_module, "curate_core_references",
+                        lambda _q, table, **_k: table)
+    result = _graph().invoke({
+        "question": "测试问题", "search_results": [],
+        "eval_use_local_prompts": True,
+    })
+    assert result["report"].startswith("# 研究报告")
+
+
 # ── 标题去模板化（防「名词：副题」式冒号标题） ───────────
 
 def test_collect_headings_finds_md_and_bold_skips_code():
@@ -478,6 +514,27 @@ def test_normalize_headings_rewrites_via_llm(monkeypatch):
     assert "## 当每个 token 都成为检索者" in out
     assert "## 从一种相关性到多种" in out
     assert "：" not in out
+
+
+def test_heading_rewrite_local_prompt_formats_json_example(monkeypatch):
+    """离线评测固定本地模板时，JSON 示例花括号必须正确转义。"""
+    report = "## A：副题一\n正文\n\n## B：副题二\n正文\n"
+    captured = {}
+
+    class _Resp:
+        content = '{"titles": ["标题一", "标题二"]}'
+
+    class _LLM:
+        def invoke(self, prompt, **_kwargs):
+            captured["prompt"] = prompt
+            return _Resp()
+
+    monkeypatch.setattr(synthesizer_module, "create_llm", lambda **_: _LLM())
+    out = synthesizer_module._normalize_headings(
+        "问题", report, use_local_prompt=True,
+    )
+    assert '{"titles":' in captured["prompt"]
+    assert "## 标题一" in out and "## 标题二" in out
 
 
 def test_normalize_headings_noop_when_already_mixed(monkeypatch):

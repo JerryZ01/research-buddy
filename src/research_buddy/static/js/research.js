@@ -444,6 +444,7 @@ const NODE_META = {
   planner: { icon: '◈', title: '问题规划', status: '研究问题正在形成分支', color: 'purple' },
   searcher: { icon: '◉', title: '并行搜索', status: '外部来源信号正在汇入', color: 'purple' },
   validator: { icon: '✓', title: '结果验证', status: '正在标记证据缺口', color: 'green' },
+  editorial_planner: { icon: '≡', title: '编辑规划', status: '正在建立证据账本与写作主线', color: 'cyan' },
   synthesizer: { icon: '▯', title: '报告综合', status: '证据正在向核心收束', color: 'purple' },
   reflector: { icon: '↻', title: '质量反思', status: '正在扫描结论稳定性', color: 'amber' },
   knowledge_store: { icon: '◈', title: '知识存储', status: '研究结果正在归档', color: 'green' },
@@ -524,6 +525,17 @@ function buildNodeBody(node, detail) {
     } else {
       body = `<div class="nd-ok">✓ 所有子问题搜索结果充足</div>`;
     }
+  }
+
+  // ── Editorial Planner ──
+  if (node === 'editorial_planner') {
+    const count = detail.evidence_count || 0;
+    const sections = detail.section_count || 0;
+    badge = detail.degraded ? '已降级' : `${sections} 个章节`;
+    body = detail.degraded
+      ? `<div class="nd-warn">编辑简报生成失败，将使用 ${count} 条证据直接写作</div>`
+      : `<div class="nd-info">证据账本 <strong class="text-cyan">${count}</strong> 条，规划 <strong class="text-purple2">${sections}</strong> 个章节</div>
+         <div class="nd-sq"><div class="nd-sq-copy"><div class="nd-sq-q">${esc(detail.thesis || '')}</div></div></div>`;
   }
 
   // ── Synthesizer ──
@@ -1092,4 +1104,3 @@ async function refreshResearchModes() {
     }
   } catch { /* ignore */ }
 }
-

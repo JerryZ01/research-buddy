@@ -14,6 +14,7 @@ from research_buddy.state import ResearchState
 from research_buddy.nodes.planner import planner
 from research_buddy.nodes.searcher import searcher
 from research_buddy.nodes.validator import validator
+from research_buddy.nodes.editorial_planner import editorial_planner
 from research_buddy.nodes.synthesizer import synthesizer
 from research_buddy.nodes.reflector import reflector
 from research_buddy.nodes.knowledge_lookup import knowledge_lookup
@@ -134,6 +135,7 @@ def _add_core_nodes_and_edges(graph: StateGraph) -> None:
     graph.add_node("planner", planner)
     graph.add_node("searcher", searcher)
     graph.add_node("validator", validator)
+    graph.add_node("editorial_planner", editorial_planner)
     graph.add_node("synthesizer", synthesizer)
     graph.add_node("reflector", reflector)
 
@@ -143,8 +145,9 @@ def _add_core_nodes_and_edges(graph: StateGraph) -> None:
     graph.add_conditional_edges(
         "validator",
         route_after_validation,
-        {"search_again": "searcher", "synthesize": "synthesizer"},
+        {"search_again": "searcher", "synthesize": "editorial_planner"},
     )
+    graph.add_edge("editorial_planner", "synthesizer")
     graph.add_edge("synthesizer", "reflector")
 
     graph.add_conditional_edges(
@@ -170,7 +173,8 @@ def create_research_graph() -> StateGraph:
 def create_knowledge_research_graph() -> StateGraph:
     """创建知识研究工作流（带知识层，支持增量研究）
 
-    流程：knowledge_lookup → planner → searcher → validator → synthesizer → reflector → knowledge_store → END
+    流程：knowledge_lookup → planner → searcher → validator →
+          editorial_planner → synthesizer → reflector → knowledge_store → END
     """
     graph = StateGraph(ResearchState)
 
@@ -178,6 +182,7 @@ def create_knowledge_research_graph() -> StateGraph:
     graph.add_node("planner", planner)
     graph.add_node("searcher", searcher)
     graph.add_node("validator", validator)
+    graph.add_node("editorial_planner", editorial_planner)
     graph.add_node("synthesizer", synthesizer)
     graph.add_node("reflector", reflector)
 
@@ -185,7 +190,8 @@ def create_knowledge_research_graph() -> StateGraph:
     graph.add_node("knowledge_lookup", knowledge_lookup)
     graph.add_node("knowledge_store", knowledge_store)
 
-    # 边：START → knowledge_lookup → planner → searcher → validator → synthesizer → reflector
+    # 边：START → knowledge_lookup → planner → searcher → validator
+    #     → editorial_planner → synthesizer → reflector
     graph.add_edge(START, "knowledge_lookup")
     graph.add_edge("knowledge_lookup", "planner")
     graph.add_edge("planner", "searcher")
@@ -193,8 +199,9 @@ def create_knowledge_research_graph() -> StateGraph:
     graph.add_conditional_edges(
         "validator",
         route_after_validation,
-        {"search_again": "searcher", "synthesize": "synthesizer"},
+        {"search_again": "searcher", "synthesize": "editorial_planner"},
     )
+    graph.add_edge("editorial_planner", "synthesizer")
     graph.add_edge("synthesizer", "reflector")
 
     # 条件边：reflector → knowledge_store（通过） 或 searcher（不通过）
@@ -331,8 +338,9 @@ def run_knowledge_research(question: str, topic_id: str,
 def create_tracking_graph() -> StateGraph:
     """创建追踪工作流
 
-    流程：knowledge_lookup → planner → searcher → validator → synthesizer
-          → reflector → knowledge_store → diff_analyzer → change_notifier → END
+    流程：knowledge_lookup → planner → searcher → validator
+          → editorial_planner → synthesizer → reflector
+          → knowledge_store → diff_analyzer → change_notifier → END
 
     与知识研究工作流的区别：
     - 反思通过后先保存报告，再做变化分析
@@ -344,6 +352,7 @@ def create_tracking_graph() -> StateGraph:
     graph.add_node("planner", planner)
     graph.add_node("searcher", searcher)
     graph.add_node("validator", validator)
+    graph.add_node("editorial_planner", editorial_planner)
     graph.add_node("synthesizer", synthesizer)
     graph.add_node("reflector", reflector)
 
@@ -363,8 +372,9 @@ def create_tracking_graph() -> StateGraph:
     graph.add_conditional_edges(
         "validator",
         route_after_validation,
-        {"search_again": "searcher", "synthesize": "synthesizer"},
+        {"search_again": "searcher", "synthesize": "editorial_planner"},
     )
+    graph.add_edge("editorial_planner", "synthesizer")
     graph.add_edge("synthesizer", "reflector")
 
     # 条件边：reflector → knowledge_store（通过） 或 searcher（不通过）

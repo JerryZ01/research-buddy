@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "description": "文章质量回归起始集。证据固定，评测时不重新搜索。",
+  "cases": [
+    {
+      "id": "mechanism-python-gil",
+      "question": "Python 的 GIL 为什么会限制 CPU 密集型多线程，但通常不妨碍 I/O 并发？",
+      "category": "mechanism",
+      "style": "tech-blog",
+      "risk_tags": ["定义堆砌", "每节小结", "擅自扩展趋势"],
+      "expected_points": [
+        "GIL 保护 CPython 解释器内部状态，同一时刻通常只有一个线程执行 Python 字节码",
+        "CPU 密集线程竞争 GIL，不能借多个核心并行执行字节码",
+        "阻塞 I/O 和部分 C 扩展会释放 GIL，其他线程可在等待期间运行",
+        "多进程和释放 GIL 的原生代码是不同的并行路径"
+      ],
+      "evidence": [
+        {
+          "sub_question_id": "sq_01",
+          "sub_question": "GIL 的机制",
+          "title": "Python glossary: global interpreter lock",
+          "url": "https://docs.python.org/3/glossary.html#term-global-interpreter-lock",
+          "content": "CPython 使用全局解释器锁，使同一时刻只有一个线程执行 Python 字节码。这个设计简化了对象模型等内部实现。锁会在执行阻塞 I/O 时释放，部分计算密集型扩展也会在执行原生代码时释放它。",
+          "score": 0.98
+        },
+        {
+          "sub_question_id": "sq_02",
+          "sub_question": "线程与进程的适用场景",
+          "title": "Python concurrent.futures documentation",
+          "url": "https://docs.python.org/3/library/concurrent.futures.html",
+          "content": "ThreadPoolExecutor 使用线程执行调用，常用于重叠 I/O。ProcessPoolExecutor 使用进程，可以绕过全局解释器锁，但要求任务和返回值可序列化，并引入进程通信成本。",
+          "score": 0.93
+        }
+      ]
+    },
+    {
+      "id": "comparison-docker-kubernetes",
+      "question": "一个只有三名开发者、两台服务器的团队，应该直接上 Kubernetes，还是先使用 Docker Compose？",
+      "category": "decision",
+      "style": "essay",
+      "risk_tags": ["假装中立", "优缺点表格", "没有明确建议"],
+      "expected_points": [
+        "Docker Compose 围绕单个 Docker Engine 管理多容器应用及其生命周期",
+        "Kubernetes 提供服务发现、负载均衡、自动部署与回滚、自愈和水平扩缩等能力",
+        "Kubernetes 集群由控制平面和工作节点组成",
+        "现有证据不足以从团队人数和服务器数量直接推导成本与可靠性，建议应按实际能力需求给出条件式判断"
+      ],
+      "evidence": [
+        {
+          "sub_question_id": "sq_01",
+          "sub_question": "Compose 的能力边界",
+          "title": "Docker Compose documentation",
+          "url": "https://docs.docker.com/compose/",
+          "content": "Docker Compose 用一个 YAML 文件定义和运行多容器应用，提供统一的启动、停止、重建和查看状态命令。它主要围绕单个 Docker Engine 环境组织服务。",
+          "score": 0.96
+        },
+        {
+          "sub_question_id": "sq_02",
+          "sub_question": "Kubernetes 的核心能力",
+          "title": "Kubernetes overview",
+          "url": "https://kubernetes.io/docs/concepts/overview/",
+          "content": "Kubernetes 是用于管理容器化工作负载和服务的可移植平台，提供服务发现、负载均衡、自动部署与回滚、自愈、密钥配置管理以及水平扩缩等能力。集群由控制平面和工作节点组成。",
+          "score": 0.97
+        }
+      ]
+    },
+    {
+      "id": "practice-rag-failure",
+      "question": "为什么一个演示效果不错的 RAG 系统，上线后经常回答不稳定？应该先排查哪些环节？",
+      "category": "practice",
+      "style": "tech-blog",
+      "risk_tags": ["万能清单", "抽象套话", "缺少诊断顺序"],
+      "expected_points": [
+        "问题可能分别来自语料、切分、召回、排序、上下文组装和生成，不能只调 Prompt",
+        "离线演示问题分布通常比真实流量简单",
+        "应保存查询、召回结果、最终上下文和回答，建立分阶段评测",
+        "先定位失败发生在哪一层，再选择改 embedding、chunk、reranker 或生成策略"
+      ],
+      "evidence": [
+        {
+          "sub_question_id": "sq_01",
+          "sub_question": "检索评测",
+          "title": "Ragas metrics concepts",
+          "url": "https://docs.ragas.io/en/stable/concepts/metrics/",
+          "content": "端到端正确率无法说明错误发生在检索还是生成。可观察的 RAG 流程应保存原始查询、规范化查询、召回文档、重排分数、最终上下文和回答，并分别计算召回率、排序质量和回答忠实度。",
+          "score": 0.9
+        },
+        {
+          "sub_question_id": "sq_02",
+          "sub_question": "生产流量差异",
+          "title": "Azure advanced RAG guidance",
+          "url": "https://learn.microsoft.com/en-us/azure/developer/ai/advanced-retrieval-augmented-generation",
+          "content": "演示问题往往短、明确并且答案直接出现在单个文档中。生产查询会包含省略、错别字、多轮上下文、权限差异和时间敏感信息。固定演示集上的成功不能代表真实查询分布。",
+          "score": 0.88
+        },
+        {
+          "sub_question_id": "sq_03",
+          "sub_question": "常见失败层次",
+          "title": "Pinecone rerankers guide",
+          "url": "https://www.pinecone.io/learn/series/rag/rerankers/",
+          "content": "常见失败包括文档未进入索引、切分破坏语义、关键词或向量召回漏失、重排把正确文档降权、上下文被截断，以及模型没有遵守证据。不同故障需要不同修复，统一增加 top-k 通常会同时增加噪声。",
+          "score": 0.91
+        }
+      ]
+    },
+    {
+      "id": "popular-transformer-attention",
+      "question": "不用公式，向没有机器学习背景的产品经理解释 Transformer 的自注意力机制。",
+      "category": "popular-explanation",
+      "style": "popular",
+      "risk_tags": ["术语轰炸", "强行类比", "擅自加入公式"],
+      "expected_points": [
+        "每个词会根据当前任务判断其他词与自己的关系",
+        "相关程度转化为权重，再汇总其他位置的信息",
+        "不同注意力头可以同时关注不同关系",
+        "类比应说明边界，不能暗示模型真正理解语义"
+      ],
+      "evidence": [
+        {
+          "sub_question_id": "sq_01",
+          "sub_question": "自注意力的直观过程",
+          "title": "Attention Is All You Need",
+          "url": "https://arxiv.org/abs/1706.03762",
+          "content": "自注意力把序列中不同位置关联起来，以计算序列表示。缩放点积注意力根据查询和键的匹配得到权重，并用这些权重汇总对应的值。多头注意力让模型在不同表示子空间和位置上同时关注信息。",
+          "score": 0.99
+        },
+        {
+          "sub_question_id": "sq_02",
+          "sub_question": "解释边界",
+          "title": "The Illustrated Transformer",
+          "url": "https://jalammar.github.io/illustrated-transformer/",
+          "content": "可以把注意力理解为每个位置查看其他位置，并决定在编码当前词时对它们投入多少关注。这个可视化解释用于帮助理解信息混合过程，不代表模型像人一样具有意识或真实理解。",
+          "score": 0.92
+        }
+      ]
+    }
+  ]
+}

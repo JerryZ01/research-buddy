@@ -109,6 +109,11 @@ def test_run_persistence_crud_and_stale_marking(db):
     assert r["status"] == "done"
     assert r["result"]["report"] == "x"
 
+    # SSE 后台收尾复用请求开始时已初始化的连接，不在挂载盘上重跑 DDL。
+    db.create_run("run3", "问题3")
+    db.update_run_on_connection(db.conn, "run3", "done", result={"report": "y"})
+    assert db.get_run("run3")["result"]["report"] == "y"
+
     # 重启残留：旧 running 标记为 error
     marked = db.mark_stale_runs(max_age_seconds=2 * 3600)
     assert marked >= 1
@@ -118,3 +123,4 @@ def test_run_persistence_crud_and_stale_marking(db):
     db.delete_old_runs(max_age_seconds=0)
     assert db.get_run("run1") is None
     assert db.get_run("run2") is None
+    assert db.get_run("run3") is None

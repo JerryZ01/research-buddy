@@ -19,6 +19,14 @@ DATA_DIR = os.getenv("DATA_DIR", str(PROJECT_ROOT / "data"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+# 少数 OpenAI 兼容中转站的 WAF 会误拦截 SDK 的 User-Agent / x-stainless-* 头。
+# 默认关闭，只有原始 HTTP 可用但 OpenAI SDK 返回 403 时才启用。
+OPENAI_STRIP_SDK_HEADERS = os.getenv(
+    "OPENAI_STRIP_SDK_HEADERS", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
+# Article Eval 可使用独立评审模型，降低写作模型评判自身文风的相关偏差。
+# 留空或未设置时保持兼容，继续使用 OPENAI_MODEL。
+ARTICLE_EVAL_JUDGE_MODEL = os.getenv("ARTICLE_EVAL_JUDGE_MODEL", "").strip() or OPENAI_MODEL
 
 # 视觉模型选图（可选）：默认与文本模型共用 OPENAI_API_KEY / OPENAI_API_BASE，
 # 需要独立的中转站/密钥时单独指定（比如视觉走 DeepSeek、文本走别的站）。
@@ -41,6 +49,14 @@ LANGFUSE_TIMEOUT = int(os.getenv("LANGFUSE_TIMEOUT", "20"))
 # Prompt 缓存 TTL。SDK 默认 60 秒，意味着每分钟就有一次冷取会阻塞节点；
 # prompt 内容变动频率远低于此，放到 10 分钟。
 LANGFUSE_PROMPT_CACHE_TTL = int(os.getenv("LANGFUSE_PROMPT_CACHE_DEFAULT_TTL_SECONDS", "600"))
+# Prompt 发布必须经过文章回归和人工确认。应用启动默认不再把本地常量自动
+# 标成 production；需要显式同步时运行 python -m research_buddy.eval.prompts。
+LANGFUSE_AUTO_REGISTER_PROMPTS = os.getenv(
+    "LANGFUSE_AUTO_REGISTER_PROMPTS", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
+LANGFUSE_PROMPT_REGISTER_LABEL = os.getenv(
+    "LANGFUSE_PROMPT_REGISTER_LABEL", "production"
+).strip() or "production"
 
 # Langfuse 的客户端是「按 public key 的单例，首次构造的配置生效」，
 # 而构造点分散在 register_prompts / get_prompt / CallbackHandler / get_client 等处。

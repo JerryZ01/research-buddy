@@ -42,11 +42,11 @@ const appState = {
 
 const STEPS = [
   'knowledge_lookup', 'planner', 'searcher',
-  'validator', 'synthesizer', 'reflector',
+  'validator', 'editorial_planner', 'synthesizer', 'reflector',
   'knowledge_store', 'diff_analyzer', 'change_notifier'
 ];
 
-const CORE_RESEARCH_STEPS = ['planner', 'searcher', 'validator', 'synthesizer', 'reflector'];
+const CORE_RESEARCH_STEPS = ['planner', 'searcher', 'validator', 'editorial_planner', 'synthesizer', 'reflector'];
 const KNOWLEDGE_RESEARCH_STEPS = ['knowledge_lookup', ...CORE_RESEARCH_STEPS, 'knowledge_store'];
 
 let researchViz = null;
@@ -152,6 +152,10 @@ class ResearchEvidenceMap {
       });
     }
 
+    if (node === 'editorial_planner') {
+      this.branches.forEach(branch => { if (branch.status !== 'gap') branch.status = 'verified'; });
+    }
+
     if (node === 'synthesizer') {
       this.synthesisStartedAt = performance.now();
       this.branches.forEach(branch => { if (branch.status !== 'gap') branch.status = 'gathering'; });
@@ -183,6 +187,7 @@ class ResearchEvidenceMap {
     if (node === 'planner') return `生成 ${this.branches.length} 个研究分支`;
     if (node === 'searcher') return `接入 ${detail.results_count || 0} 条来源信号`;
     if (node === 'validator') return this.gaps.size ? `发现 ${this.gaps.size} 个证据缺口` : '全部研究分支证据充足';
+    if (node === 'editorial_planner') return detail.degraded ? '编辑规划不可用，将直接写作' : `形成 ${detail.section_count || 0} 个章节的证据化写作计划`;
     if (node === 'synthesizer') return '证据开始向报告结构收束';
     if (node === 'reflector') return detail.reflection_pass ? `第 ${detail.reflection_round || 0} 轮质量检查通过` : `第 ${detail.reflection_round || 0} 轮检查需要补充研究`;
     if (node === 'knowledge_store') return '研究结果已写入知识库';
@@ -637,4 +642,3 @@ async function api(path, opts = {}) {
   }
   return r.json();
 }
-
