@@ -72,16 +72,28 @@ MAX_TOTAL_QUERIES = int(os.getenv("MAX_TOTAL_QUERIES", "30"))
 # 文末参考文献最多展示条数（LLM 从全部来源中筛选核心子集）
 MAX_REFERENCES = int(os.getenv("MAX_REFERENCES", "8"))
 # 单篇文章插图数量上限（视觉选图供图 + synthesizer 插入共用）
-MAX_IMAGES_IN_ARTICLE = int(os.getenv("MAX_IMAGES_IN_ARTICLE", "8"))
+MAX_IMAGES_IN_ARTICLE = max(0, min(12, int(os.getenv("MAX_IMAGES_IN_ARTICLE", "10"))))
 # 文章正文最大生成长度（token）。0 = 不限制（默认，由模型/提供商自然决定）；
 # 设具体值（如 4000）会限制 synthesizer 流式生成的长度，参考文献/图解
 # 由代码追加不受影响。注意别设太小导致文章被截断。
 MAX_ARTICLE_TOKENS = int(os.getenv("MAX_ARTICLE_TOKENS", "0"))
 # 文章正文生成长度/温度。MAX_ARTICLE_TOKENS 见上文；WRITER_TEMPERATURE 只影响
 # synthesizer 出稿（写作调用），planner/validator/reflector 等评估类调用仍保持
-# 温度 0 以保证判断稳定。默认 0.9：写作任务常见的采样温度，让多次生成在结构、
-# 措辞上自然有差异，而不是每次都收敛到同一篇"标准文"。
-WRITER_TEMPERATURE = float(os.getenv("WRITER_TEMPERATURE", "0.9"))
+# 温度 0 以保证判断稳定。默认 0.5：保留措辞变化，同时降低长文在高温度下
+# 出现术语漂移、格式损坏和重写轮质量波动的概率。
+WRITER_TEMPERATURE = max(0.0, min(1.0, float(os.getenv("WRITER_TEMPERATURE", "0.5"))))
+# 初稿后的事实审校。默认只扫描 1 轮；存在非空替换时会再用
+# 1 次独立调用复核证据支持，因此每次出稿最多新增 2 次 LLM 调用。
+ENABLE_ARTICLE_EDITOR = os.getenv(
+    "ENABLE_ARTICLE_EDITOR", "true"
+).strip().lower() in {"1", "true", "yes", "on"}
+# 生产只允许关闭或扫描一轮，确保审校 + 独立复核最多增加 2 次调用。
+# 离线评测可通过函数参数显式使用更多轮次。
+ARTICLE_EDITOR_ROUNDS = min(1, max(0, int(os.getenv("ARTICLE_EDITOR_ROUNDS", "1"))))
+# 只在确定性扫描发现高置信模板句时调用一次语言审校模型。
+ENABLE_LANGUAGE_EDITOR = os.getenv(
+    "ENABLE_LANGUAGE_EDITOR", "true"
+).strip().lower() in {"1", "true", "yes", "on"}
 MIN_EVIDENCE_COVERAGE = float(os.getenv("MIN_EVIDENCE_COVERAGE", "0.75"))
 # LLM 语义评估的覆盖度门槛（软闸）。评估器把 coverage 理解为「核心结论可信度」
 # 而非「所有细节完备度」，复杂话题给 0.6 以上即可视为语义充足，避免永远补搜

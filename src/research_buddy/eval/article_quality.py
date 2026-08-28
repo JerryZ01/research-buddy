@@ -499,7 +499,9 @@ def generate_sample(case: dict, rules: str, run_judge: bool = True,
                 result = synthesizer(state, {}, writer=lambda _event: None)
             if use_evidence_editor:
                 edited_report, evidence_edits = edit_article_evidence(
-                    state, result.get("report", ""), config={},
+                    # 历史回归样本使用两轮定向编辑；生产默认一轮的
+                    # 延迟/费用限制不应改变已有评测协议。
+                    state, result.get("report", ""), config={}, max_rounds=2,
                 )
                 result["report"] = edited_report
                 state["evidence_edits"] = evidence_edits

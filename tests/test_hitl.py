@@ -17,7 +17,7 @@ class TestHITLGraph:
         graph = create_research_graph_with_hitl()
         nodes = set(graph.get_graph().nodes.keys())
         expected = {"__start__", "__end__", "planner", "searcher", "validator",
-                    "editorial_planner", "synthesizer", "reflector"}
+                    "editorial_planner", "synthesizer", "language_editor", "article_editor", "reflector"}
         assert expected.issubset(nodes), f"Missing nodes: {expected - nodes}"
 
     def test_has_checkpointer(self):

@@ -42,6 +42,26 @@ def test_parse_failure_does_not_pass(monkeypatch):
     assert result["validation_gaps"]
 
 
+def test_terminal_parse_failure_restores_previous_best(monkeypatch):
+    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM("not-json"))
+    monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
+    monkeypatch.setattr(reflector_module, "MAX_REFLECTION_ROUNDS", 2)
+    state = _state("当前坏稿。")
+    state.update({
+        "reflection_round": 1,
+        "best_report": "此前最佳稿。",
+        "best_quality_rank": 111,
+        "best_reflection_score": 11,
+        "best_reflection_round": 1,
+        "best_evidence_signature": reflector_module.normalize_url("https://a.example/source"),
+        "best_feedback_signature": "",
+    })
+    result = reflector_module.reflector(state)
+    assert result["report"] == "此前最佳稿。"
+    assert result["best_report_restored"] is True
+    assert result["reflection_score"] == 11
+
+
 def test_code_computes_pass_from_dimensions(monkeypatch):
     evaluation = {
         "completeness": 5, "accuracy": 5, "clarity": 5,
@@ -225,9 +245,15 @@ def _passing_eval():
     }
 
 
-def _reflect(state, monkeypatch):
+def _reflect(state, monkeypatch, *, completeness=5, accuracy=5, clarity=5):
+    evaluation = {
+        **_passing_eval(),
+        "completeness": completeness,
+        "accuracy": accuracy,
+        "clarity": clarity,
+    }
     monkeypatch.setattr(reflector_module, "create_llm",
-                        lambda: _LLM(json.dumps(_passing_eval())))
+                        lambda: _LLM(json.dumps(evaluation)))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
     return reflector_module.reflector(state)
 
@@ -311,6 +337,96 @@ def test_unselected_image_url_fails(monkeypatch):
     result = _reflect(state, monkeypatch)
     assert result["reflection_pass"] is False
     assert "不在证据集" in result["reflection_feedback"]
+
+
+def test_terminal_reflection_restores_historical_best_report(monkeypatch):
+    evaluations = iter([
+        {"completeness": 4, "accuracy": 4, "clarity": 3,
+         "feedback": "还可改进", "supplement_queries": []},
+        {"completeness": 2, "accuracy": 2, "clarity": 2,
+         "feedback": "重写后更差", "supplement_queries": []},
+    ])
+
+    class _SequenceLLM:
+        def invoke(self, _prompt, **_kwargs):
+            return _Response(json.dumps(next(evaluations), ensure_ascii=False))
+
+    monkeypatch.setattr(reflector_module, "create_llm", lambda: _SequenceLLM())
+    monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
+    monkeypatch.setattr(reflector_module, "MAX_REFLECTION_ROUNDS", 2)
+
+    state = _state("第一稿内容完整，表达尚可。")
+    first = reflector_module.reflector(state)
+    assert first["best_report"] == state["report"]
+    assert first["reflection_pass"] is False
+
+    second_state = {**state, **first, "report": "第二稿明显更差。"}
+    events = []
+    second = reflector_module.reflector(
+        second_state, writer=lambda event: events.append(event),
+    )
+    assert second["report"] == "第一稿内容完整，表达尚可。"
+    assert second["reflection_score"] == 11
+    assert second["best_report_restored"] is True
+    assert events[0]["type"] == "report_reset"
+    assert "".join(event.get("content", "") for event in events[1:]) == second["report"]
+
+
+def test_new_evidence_invalidates_historical_best_report(monkeypatch):
+    monkeypatch.setattr(reflector_module, "MAX_REFLECTION_ROUNDS", 2)
+    state = _state("当前稿使用了补充证据。")
+    state.update({
+        "reflection_round": 1,
+        "best_report": "只基于旧证据的历史稿。",
+        "best_quality_rank": 115,
+        "best_reflection_score": 15,
+        "best_reflection_round": 1,
+        "best_evidence_signature": reflector_module.normalize_url("https://old.example/source"),
+        "best_feedback_signature": "",
+    })
+    result = _reflect(state, monkeypatch, completeness=2, accuracy=2, clarity=2)
+    assert result["report"] == state["report"]
+    assert result["best_report"] == state["report"]
+    assert result["best_report_restored"] is False
+
+
+def test_new_user_feedback_invalidates_historical_best_report(monkeypatch):
+    monkeypatch.setattr(reflector_module, "MAX_REFLECTION_ROUNDS", 2)
+    state = _state("当前稿已经响应新的用户要求。")
+    state.update({
+        "reflection_round": 1,
+        "user_feedback": "增加实现细节",
+        "best_report": "未响应用户要求的历史稿。",
+        "best_quality_rank": 115,
+        "best_reflection_score": 15,
+        "best_reflection_round": 1,
+        "best_evidence_signature": reflector_module.normalize_url("https://a.example/source"),
+        "best_feedback_signature": "旧的用户要求",
+    })
+    result = _reflect(state, monkeypatch, completeness=2, accuracy=2, clarity=2)
+    assert result["report"] == state["report"]
+    assert result["best_report"] == state["report"]
+    assert result["best_report_restored"] is False
+
+
+def test_processed_user_feedback_can_pass_and_outranks_unprocessed_draft(monkeypatch):
+    feedback = "增加实现细节"
+    state = _state("已经按反馈补充实现细节的稿件。")
+    state.update({
+        "user_feedback": feedback,
+        "report_feedback_signature": feedback,
+        "best_report": "尚未响应反馈的旧稿。",
+        "best_quality_rank": 15,
+        "best_reflection_score": 15,
+        "best_reflection_round": 1,
+        "best_evidence_signature": reflector_module.normalize_url("https://a.example/source"),
+        "best_feedback_signature": feedback,
+    })
+    result = _reflect(state, monkeypatch, completeness=4, accuracy=4, clarity=4)
+    assert result["reflection_pass"] is True
+    assert result["report"] == state["report"]
+    assert result["best_report"] == state["report"]
+    assert result["best_quality_rank"] == 112
 
 
 # ── AI 味硬校验（防模板腔） ─────────────────────────────

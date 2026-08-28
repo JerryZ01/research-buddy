@@ -446,6 +446,8 @@ const NODE_META = {
   validator: { icon: '✓', title: '结果验证', status: '正在标记证据缺口', color: 'green' },
   editorial_planner: { icon: '≡', title: '编辑规划', status: '正在建立证据账本与写作主线', color: 'cyan' },
   synthesizer: { icon: '▯', title: '报告综合', status: '证据正在向核心收束', color: 'purple' },
+  language_editor: { icon: '≡', title: '语言审校', status: '正在清理模板化表达', color: 'cyan' },
+  article_editor: { icon: '✓', title: '事实审校', status: '正在逐项核对断言与证据', color: 'green' },
   reflector: { icon: '↻', title: '质量反思', status: '正在扫描结论稳定性', color: 'amber' },
   knowledge_store: { icon: '◈', title: '知识存储', status: '研究结果正在归档', color: 'green' },
   diff_analyzer: { icon: '⇄', title: '变化分析', status: '正在标记时间差异', color: 'amber' },
@@ -541,8 +543,53 @@ function buildNodeBody(node, detail) {
   // ── Synthesizer ──
   if (node === 'synthesizer') {
     const len = detail.report_length || 0;
+    const selected = detail.selected_images_count || 0;
+    const cached = detail.cached_images_count || 0;
+    const embedded = detail.embedded_images_count || 0;
     badge = `${len > 1000 ? (len / 1000).toFixed(1) + 'k' : len} 字符`;
-    body = `<div class="nd-info">报告长度: <strong class="text-purple2">${len > 1000 ? (len / 1000).toFixed(1) + 'k' : len}</strong> 字符</div>`;
+    body = `<div class="nd-info">报告长度: <strong class="text-purple2">${len > 1000 ? (len / 1000).toFixed(1) + 'k' : len}</strong> 字符</div>
+      <div class="nd-refl"><dt>视觉选图</dt><dd>${selected}</dd><dt>本地缓存</dt><dd>${cached}</dd><dt>正文配图</dt><dd>${embedded}</dd></div>`;
+  }
+
+  // ── Language Editor ──
+  if (node === 'language_editor') {
+    const count = detail.edits_count || 0;
+    const candidates = detail.candidates_count || 0;
+    const labels = {
+      contrast_template: '模板对比',
+      empty_transition: '空泛转折',
+      reader_directive: '读者指令',
+      meta_summary: '仪式化总结',
+      repetitive_opening: '重复开头',
+    };
+    badge = count ? `${count} 处改写` : candidates ? '候选未改' : '✓ 通过';
+    body = count
+      ? `<div class="nd-info">已改写 <strong class="text-cyan">${count}</strong> 处模板化表达</div>` +
+        (detail.edits_preview || []).map(edit => `
+          <div class="nd-sq">
+            <div class="nd-sq-copy">
+              <div class="nd-sq-kw">${esc(labels[edit.issue_type] || edit.issue_type || '语言问题')} · ${esc(edit.reason || '')}</div>
+              <div class="nd-sq-q">原：${esc(edit.before || '')}</div>
+              <div class="nd-info">改：${esc(edit.after || '')}</div>
+            </div>
+          </div>
+        `).join('')
+      : candidates
+        ? `<div class="nd-warn">发现 ${candidates} 处模板表达，但没有通过安全校验的改写</div>`
+        : '<div class="nd-ok">✓ 未发现需要处理的模板化表达</div>';
+  }
+
+  // ── Article Editor ──
+  if (node === 'article_editor') {
+    const count = detail.edits_count || 0;
+    const types = detail.edit_types || {};
+    badge = count ? `${count} 处修改` : detail.changed ? '已去重' : '✓ 通过';
+    body = count
+      ? `<div class="nd-info">已应用 <strong class="text-green">${count}</strong> 处可验证修改</div>
+         <div class="nd-refl"><dt>无支持</dt><dd>${types.unsupported || 0}</dd><dt>过度断言</dt><dd>${types.overstated || 0}</dd><dt>重复</dt><dd>${types.redundant || 0}</dd></div>`
+      : detail.changed
+        ? '<div class="nd-ok">✓ 已清理正文中的重复表达</div>'
+        : '<div class="nd-ok">✓ 未发现需要局部修改的断言</div>';
   }
 
   // ── Reflector ──
@@ -558,6 +605,9 @@ function buildNodeBody(node, detail) {
     `;
     if (detail.reflection_feedback) {
       body += `<dt>反馈</dt><dd>${esc(detail.reflection_feedback)}</dd>`;
+    }
+    if (detail.best_report_restored) {
+      body += `<dt>交付版本</dt><dd class="text-cyan">已恢复第 ${detail.best_reflection_round || 1} 轮最佳稿</dd>`;
     }
     if (detail.supplement_queries) {
       body += `<dt>补充</dt><dd class="text-cyan">${detail.supplement_queries.map(esc).join(', ')}</dd>`;

@@ -1,16 +1,21 @@
 """基于冻结证据对初稿做可验证的局部编辑，不整篇重写。"""
 
-from __future__ import annotations
-
 import json
 import logging
 import re
 from difflib import SequenceMatcher
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.types import StreamWriter
 
+from research_buddy.config import ARTICLE_EDITOR_ROUNDS, ENABLE_ARTICLE_EDITOR
 from research_buddy.state import ResearchState
-from research_buddy.utils import create_llm, invoke_llm, parse_llm_json
+from research_buddy.utils import (
+    create_llm,
+    get_prompt_from_langfuse,
+    invoke_llm,
+    parse_llm_json,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +79,24 @@ GROUNDING_VERIFIER_PROMPT = """你是独立证据复核员。逐项判断候选 
 每个输入 index 必须恰好出现一次。"""
 
 
+def _evidence_items(state: ResearchState) -> list[dict]:
+    """返回与编辑简报共用 E1/E2 编号的证据列表。"""
+    ledger = state.get("evidence_ledger", [])
+    if ledger:
+        return [
+            {
+                "title": item.get("title", "未命名来源"),
+                "content": item.get("excerpt", ""),
+            }
+            for item in ledger
+        ]
+    return state.get("search_results", [])
+
+
 def _evidence_text(state: ResearchState, max_chars: int = 16000) -> str:
     return "\n\n".join(
         f"E{index} | {item.get('title', '未命名来源')}\n{item.get('content', '')}"
-        for index, item in enumerate(state.get("search_results", []), 1)
+        for index, item in enumerate(_evidence_items(state), 1)
     )[:max_chars]
 
 
@@ -104,7 +123,7 @@ def validate_edits(payload, report: str, evidence: list[dict]) -> list[dict]:
             if evidence_id in valid_ids and evidence_id not in ids:
                 ids.append(evidence_id)
         if (not 10 <= len(quote) <= 300 or quote not in report or quote in used_quotes
-                or "\n#" in quote or "```" in quote or "http" in quote):
+                or "\n#" in quote or "```" in quote or "http" in quote or "![" in quote):
             continue
         if not reason or edit_type not in {"unsupported", "overstated", "redundant"}:
             continue
@@ -174,9 +193,16 @@ def verify_replacements(edits: list[dict], state: ResearchState,
          "support_quotes": edit["support_quotes"]}
         for local_index, (_original_index, edit) in enumerate(replacements)
     ]
-    prompt = GROUNDING_VERIFIER_PROMPT.format(
-        evidence=_evidence_text(state),
-        edits=json.dumps(verifier_edits, ensure_ascii=False, indent=2),
+    prompt_kwargs = {
+        "evidence": _evidence_text(state),
+        "edits": json.dumps(verifier_edits, ensure_ascii=False, indent=2),
+    }
+    prompt = (
+        GROUNDING_VERIFIER_PROMPT.format(**prompt_kwargs)
+        if state.get("eval_use_local_prompts") else
+        get_prompt_from_langfuse(
+            "research-buddy-grounding-verifier", GROUNDING_VERIFIER_PROMPT, **prompt_kwargs,
+        )
     )
     try:
         response = invoke_llm(create_llm(), prompt, config=config)
@@ -195,11 +221,20 @@ def verify_replacements(edits: list[dict], state: ResearchState,
 
 def apply_evidence_edits(report: str, edits: list[dict]) -> str:
     """只替换验证过且仍存在的第一个精确片段。"""
+    revised, _applied = _apply_evidence_edits_with_audit(report, edits)
+    return revised
+
+
+def _apply_evidence_edits_with_audit(report: str, edits: list[dict]) -> tuple[str, list[dict]]:
+    applied = []
     for edit in edits:
         quote = edit["quote"]
         if quote in report and _context_safe(report, edit):
             report = report.replace(quote, edit["replacement"], 1)
-    return _normalize_blank_lines(remove_exact_duplicate_sentences(report))
+            applied.append(edit)
+    if not applied:
+        return report, []
+    return _normalize_blank_lines(remove_exact_duplicate_sentences(report)), applied
 
 
 def _normalize_blank_lines(report: str) -> str:
@@ -219,6 +254,15 @@ def _context_safe(report: str, edit: dict) -> bool:
     replacement = edit["replacement"]
     before = report[max(0, start - 240):start]
     after = report[start + len(quote):start + len(quote) + 240]
+    line_start = report.rfind("\n", 0, start) + 1
+    line_end = report.find("\n", start + len(quote))
+    if line_end < 0:
+        line_end = len(report)
+    line = report[line_start:line_end]
+    if not replacement and re.match(r"\s*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>)", line):
+        return False
+    if not replacement and line.count("|") >= 2:
+        return False
     if not replacement and re.search(r"[：:]\s*$", before):
         return False
     if not replacement and re.match(r"\s*(?:[，、；：]|但|而|因此|所以|同时)", after):
@@ -267,32 +311,76 @@ def remove_exact_duplicate_sentences(report: str) -> str:
 
 
 def edit_article_evidence(state: ResearchState, report: str,
-                          config: RunnableConfig | None = None) -> tuple[str, list[dict]]:
-    evidence_count = len(state.get("search_results", []))
-    if not report or evidence_count == 0:
+                          config: RunnableConfig | None = None,
+                          max_rounds: int | None = None) -> tuple[str, list[dict]]:
+    evidence = _evidence_items(state)
+    if not report or not evidence:
         return report, []
+    rounds = ARTICLE_EDITOR_ROUNDS if max_rounds is None else max(0, max_rounds)
+    use_local_prompts = bool(state.get("eval_use_local_prompts"))
     all_edits = []
     revised = report
-    for _round in range(2):
+    for _round in range(rounds):
         try:
-            round_prompt = EVIDENCE_EDITOR_PROMPT.format(
-                question=state.get("question", ""),
-                evidence=_evidence_text(state),
-                brief=json.dumps(state.get("editorial_brief", {}), ensure_ascii=False, indent=2),
-                report=revised[:28000],
+            prompt_kwargs = {
+                "question": state.get("question", ""),
+                "evidence": _evidence_text(state),
+                "brief": json.dumps(
+                    state.get("editorial_brief", {}), ensure_ascii=False, indent=2,
+                ),
+                "report": revised[:28000],
+            }
+            round_prompt = (
+                EVIDENCE_EDITOR_PROMPT.format(**prompt_kwargs)
+                if use_local_prompts else
+                get_prompt_from_langfuse(
+                    "research-buddy-evidence-editor", EVIDENCE_EDITOR_PROMPT, **prompt_kwargs,
+                )
             )
             response = invoke_llm(create_llm(), round_prompt, config=config)
             edits = validate_edits(
-                parse_llm_json(response.content), revised, state.get("search_results", []),
+                parse_llm_json(response.content), revised, evidence,
             )
             if not edits:
                 break
             edits = verify_replacements(edits, state, config=config)
             if not edits:
                 continue
-            revised = apply_evidence_edits(revised, edits)
-            all_edits.extend(edits)
+            revised, applied = _apply_evidence_edits_with_audit(revised, edits)
+            all_edits.extend(applied)
         except Exception as exc:
             logger.warning("第 %d 轮证据定向编辑失败，保留已完成修改: %s", _round + 1, exc)
             break
     return revised, all_edits
+
+
+def article_editor(state: ResearchState, config: RunnableConfig | None = None,
+                   *, writer: StreamWriter) -> dict:
+    """生产事实审校节点：只应用可验证局部修改，失败时保留原稿。"""
+    report = state.get("report", "")
+    if not ENABLE_ARTICLE_EDITOR or ARTICLE_EDITOR_ROUNDS == 0:
+        return {
+            "evidence_edits": [],
+            "article_editor_changed": False,
+            "messages": ["事实审校已关闭，保留初稿"],
+        }
+
+    revised, edits = edit_article_evidence(state, report, config=config)
+    changed = revised != report
+    if changed and writer:
+        writer({"type": "report_reset"})
+        for offset in range(0, len(revised), 2000):
+            writer({"type": "report_chunk", "content": revised[offset:offset + 2000]})
+
+    return {
+        "report": revised,
+        "evidence_edits": edits,
+        "article_editor_changed": changed,
+        "messages": [
+            f"事实审校完成，应用 {len(edits)} 处可验证修改"
+            if edits else
+            "事实审校完成，已清理重复表达"
+            if changed else
+            "事实审校完成，未发现需要修改的断言"
+        ],
+    }

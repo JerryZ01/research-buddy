@@ -97,6 +97,15 @@ def test_search_unavailable_moves_to_research_notes(monkeypatch):
     assert "未获得任何新证据" not in result["report"]
 
 
+def test_report_records_processed_user_feedback(monkeypatch):
+    result = _run(monkeypatch, {
+        "question": "测试问题",
+        "search_results": [],
+        "user_feedback": "增加实现细节",
+    })
+    assert result["report_feedback_signature"] == "增加实现细节"
+
+
 def test_budget_exhaustion_lists_gaps_in_notes(monkeypatch):
     gaps = [{
         "sub_question_id": f"sq_{i:02d}", "question": f"缺口问题{i}",
@@ -277,8 +286,8 @@ def test_writing_rules_contain_all_shared_requirements():
     """共享写作规范（单一事实来源）应包含 mermaid/意图范围/去AI味/结构等全部规则。"""
     rules = synthesizer_module.WRITING_RULES
     for phrase in ("```mermaid", "技术图解", "先理解问题意图再决定写什么",
-                   "只覆盖问题明确问到的范围", "去 AI 味", "归因节制",
-                   "小标题风格要多样", "通常 4~6 张", "氛围装饰图", "因题而异",
+                       "只覆盖问题明确问到的范围", "去 AI 味", "归因节制",
+                       "小标题风格要多样", "根据当前问题", "有解释价值", "因题而异",
                    "不要每次都写「结论：1. 2. 3.」"):
         assert phrase in rules, f"WRITING_RULES 缺少: {phrase}"
     # image_limit 占位符在 WRITING_RULES 里，注入时渲染为具体数字
@@ -332,8 +341,58 @@ def test_selected_images_injected_into_prompt(monkeypatch):
         "image_candidates": [{"url": "https://img.example/pic.jpg",
                               "sub_question_id": "sq_01", "query": "查询"}],
     })
-    assert "https://img.example/pic.jpg" in captured["prompt"]["image_section"]
+    assert "[[IMAGE_1]]" in captured["prompt"]["image_section"]
+    assert "https://img.example/pic.jpg" not in captured["prompt"]["image_section"]
     assert result["selected_images"][0]["alt"] == "架构示意图"
+
+
+def test_report_image_tokens_are_replaced_with_cached_urls():
+    images = [{
+        "url": "https://img.example/original.jpg",
+        "cached_url": "/media/research-images/abc.jpg",
+        "alt": "架构示意图",
+    }]
+    report = "正文。\n\n[[IMAGE_1]]\n\n后文。"
+    normalized = synthesizer_module.normalize_report_images(report, images)
+    assert "[[IMAGE_1]]" not in normalized
+    assert "![架构示意图](/media/research-images/abc.jpg)" in normalized
+
+
+def test_report_images_repair_mutated_url_and_plain_link():
+    images = [{"url": "https://cdn.openai.com/real.png", "alt": "流程图"}]
+    mutated = "![流程图](https://cdn.AI Platform.com/real.png)"
+    assert synthesizer_module.normalize_report_images(mutated, images) == (
+        "![流程图](https://cdn.openai.com/real.png)"
+    )
+    plain_link = "[流程图](https://cdn.openai.com/real.png)"
+    assert synthesizer_module.normalize_report_images(plain_link, images) == (
+        "![流程图](https://cdn.openai.com/real.png)"
+    )
+
+
+def test_report_images_drop_unknown_and_duplicate_images():
+    images = [{"url": "https://img.example/known.jpg", "alt": "已选图片"}]
+    report = (
+        "![未知](https://img.example/unknown.jpg)\n\n"
+        "[[IMAGE_1]]\n\n[[IMAGE_1]]"
+    )
+    normalized = synthesizer_module.normalize_report_images(report, images)
+    assert "unknown.jpg" not in normalized
+    assert normalized.count("known.jpg") == 1
+
+
+def test_image_budget_scales_with_editorial_sections():
+    state = {
+        "editorial_brief": {"section_plan": [{"heading": str(i)} for i in range(5)]},
+        "sub_questions": [],
+    }
+    assert synthesizer_module.compute_image_budget(state, selected_count=10) == 10
+    assert synthesizer_module.compute_image_budget(state, selected_count=3) == 3
+
+
+def test_image_budget_keeps_three_candidates_for_single_topic():
+    state = {"editorial_brief": {"section_plan": []}, "sub_questions": []}
+    assert synthesizer_module.compute_image_budget(state, selected_count=8) == 3
 
 
 def test_no_candidates_skips_selection(monkeypatch):
@@ -466,7 +525,7 @@ def test_eval_overrides_writing_rules_and_style(monkeypatch):
         "writing_rules_override": "候选规则，最多 {image_limit} 张图。",
         "style_section_override": "候选风格",
     })
-    assert captured["writing_rules"] == "候选规则，最多 8 张图。"
+    assert captured["writing_rules"] == "候选规则，最多 0 张图。"
     assert captured["style_section"] == "候选风格"
 
 

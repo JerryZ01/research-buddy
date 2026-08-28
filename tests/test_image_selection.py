@@ -10,6 +10,11 @@ images_module = import_module("research_buddy.tools.images")
 _FAKE_IMG = b"\xff\xd8\xff\xe0fake-jpeg-bytes"
 
 
+@pytest.fixture(autouse=True)
+def _isolated_image_cache(monkeypatch, tmp_path):
+    monkeypatch.setattr(images_module, "IMAGE_CACHE_DIR", tmp_path / "research-images")
+
+
 class _FakeResp:
     def __init__(self, content: bytes | None = None, headers: dict | None = None,
                  json_body: dict | None = None, status_code: int = 200):
@@ -105,6 +110,7 @@ def test_select_images_returns_picked_images(monkeypatch):
 
     assert len(picked) == 1
     assert picked[0]["url"] == "https://img.example/b.jpg"  # index=2 → 第二个候选
+    assert picked[0]["cached_url"].startswith("/media/research-images/")
     assert picked[0]["alt"] == "画面内容示意图"
     assert picked[0]["sub_question_id"] == "sq_01"
     # 请求参数正确：vision 模型 + base64 data URL
@@ -301,8 +307,16 @@ def test_global_image_cap_limits_total(monkeypatch):
     ]
     picked = images_module.select_images(sub_questions, candidates)
     assert calls["n"] == 5                      # 5 个子问题各一次视觉调用
-    assert len(picked) == images_module.MAX_TOTAL_IMAGES  # 15 选 → 截断到 12
-    assert images_module.MAX_TOTAL_IMAGES >= 8  # 供图池要足够文章模型配图
+    assert len(picked) == images_module.MAX_TOTAL_IMAGES
+    assert images_module.MAX_TOTAL_IMAGES <= 12
+
+
+def test_cache_image_is_content_addressed(images_module=images_module):
+    first = images_module._cache_image(_FAKE_IMG, "image/jpeg")
+    second = images_module._cache_image(_FAKE_IMG, "image/jpeg")
+    assert first == second
+    assert first.endswith(".jpg")
+    assert len(list(images_module.IMAGE_CACHE_DIR.iterdir())) == 1
 
 
 def test_download_retries_on_403(monkeypatch):

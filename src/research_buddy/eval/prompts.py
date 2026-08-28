@@ -128,6 +128,11 @@ def register_prompts() -> None:
     from research_buddy.eval.judge import JUDGE_PROMPT
     from research_buddy.nodes.knowledge_store import KEY_FACTS_PROMPT
     from research_buddy.nodes.editorial_planner import EDITORIAL_BRIEF_PROMPT
+    from research_buddy.nodes.article_editor import (
+        EVIDENCE_EDITOR_PROMPT,
+        GROUNDING_VERIFIER_PROMPT,
+    )
+    from research_buddy.nodes.language_editor import LANGUAGE_EDITOR_PROMPT
 
     langfuse = _get_client()
 
@@ -145,6 +150,9 @@ def register_prompts() -> None:
         "research-buddy-core-refs": CORE_REFS_PROMPT,
         "research-buddy-heading-rewrite": HEADING_REWRITE_PROMPT,
         "research-buddy-editorial-brief": EDITORIAL_BRIEF_PROMPT,
+        "research-buddy-evidence-editor": EVIDENCE_EDITOR_PROMPT,
+        "research-buddy-grounding-verifier": GROUNDING_VERIFIER_PROMPT,
+        "research-buddy-language-editor": LANGUAGE_EDITOR_PROMPT,
     }
 
     for name, template in prompts.items():

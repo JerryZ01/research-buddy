@@ -174,8 +174,11 @@ class ResearchState(TypedDict):
                   有缺口              无缺口 / 预算耗尽
                     │                      │
                     ▼                      ▼
-                 searcher ←(回环补搜)   synthesizer → reflector
-                                                    │
+                 searcher ←(回环补搜)   editorial_planner → synthesizer
+                                                                      │
+                                                                      ▼
+                                                     language_editor → article_editor → reflector
+                                                                                  │
                                             should_continue
                               ┌──────────────┬──────────────┐
                        通过/预算/轮次      有缺口        无缺口
@@ -1070,7 +1073,8 @@ Prompt 版本管理：本地 prompt 用 Python `.format()` 语法（`{var}`）�
  create_tracking_graph().stream()  (is_incremental=True)
       │
       ▼
- knowledge_lookup → planner → searcher → validator → synthesizer → reflector
+ knowledge_lookup → planner → searcher → validator → editorial_planner
+      → synthesizer → language_editor → article_editor → reflector
       │ (通过后)
       ▼
  knowledge_store → diff_analyzer → change_notifier
@@ -1223,7 +1227,7 @@ Prompt 版本管理：本地 prompt 用 Python `.format()` 语法（`{var}`）�
 | **StateGraph** | 定义工作流图，节点读写 ResearchState | graph.py |
 | **Node** | 每个研究步骤是一个节点函数 | nodes/*.py |
 | **State** | TypedDict + Annotated[list, operator.add] 追加语义；部分字段覆盖语义 | state.py |
-| **Conditional Edge** | validator→synthesizer/searcher；reflector→end/store/searcher/synthesizer | graph.py |
+| **Conditional Edge** | validator→editorial_planner/searcher；reflector→end/store/searcher/synthesizer | graph.py |
 | **Loop** | 补搜回路（validator） + 修正回路（reflector），三道预算闸 | graph.py |
 | **interrupt_before** | HITL 图在 searcher 和 reflector 前暂停 | graph.py |
 | **MemorySaver** | HITL 图的 Checkpointer，保存中断状态 | graph.py |

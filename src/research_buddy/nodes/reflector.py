@@ -4,6 +4,7 @@ import logging
 import re
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.types import StreamWriter
 
 from research_buddy.config import MAX_REFLECTION_ROUNDS
 from research_buddy.state import ResearchState
@@ -256,7 +257,8 @@ def _ai_flavor_issues(report: str) -> list[str]:
     return issues
 
 
-def reflector(state: ResearchState, config: RunnableConfig | None = None) -> dict:
+def reflector(state: ResearchState, config: RunnableConfig | None = None,
+              *, writer: StreamWriter = None) -> dict:
     """反思节点：LLM 评估报告质量
 
     返回：
@@ -271,10 +273,27 @@ def reflector(state: ResearchState, config: RunnableConfig | None = None) -> dic
     report = state.get("report", "")
     current_round = state.get("reflection_round", 0)
     user_feedback = state.get("user_feedback", "")
+    unprocessed_user_feedback = bool(
+        user_feedback and state.get("report_feedback_signature", "") != user_feedback
+    )
     evidence_assessments = state.get("evidence_assessments", [])
     # validator 标出但还没解决的缺口，必须带到本节点的输出里，不能被覆盖掉
     inherited_gaps = list(state.get("validation_gaps", []))
     supplement_targets = _supplement_targets(sub_questions, evidence_assessments)
+    evidence_signature = "|".join(sorted({
+        normalize_url(result.get("url", ""))
+        for result in search_results if result.get("url")
+    } | {
+        normalize_url(url) for url in state.get("known_source_urls", []) if url
+    }))
+    best_is_eligible = (
+        state.get("best_evidence_signature", "") == evidence_signature
+        and state.get("best_feedback_signature", "") == user_feedback
+    )
+    eligible_best_report = state.get("best_report", "") if best_is_eligible else ""
+    eligible_best_rank = state.get("best_quality_rank", -1) if best_is_eligible else -1
+    eligible_best_score = state.get("best_reflection_score", 0) if best_is_eligible else 0
+    eligible_best_round = state.get("best_reflection_round", 0) if best_is_eligible else 0
 
     # 格式化子问题
     sq_text = "\n".join(
@@ -327,15 +346,31 @@ def reflector(state: ResearchState, config: RunnableConfig | None = None) -> dic
     except Exception as exc:
         logger.warning("反思节点解析失败，按未通过处理: %s", exc)
         next_round = current_round + 1
+        terminal = next_round >= MAX_REFLECTION_ROUNDS
+        best_report = eligible_best_report
+        restored = bool(terminal and best_report and best_report != report)
+        delivered_report = best_report if restored else report
+        if restored and writer:
+            writer({"type": "report_reset"})
+            for offset in range(0, len(delivered_report), 2000):
+                writer({"type": "report_chunk", "content": delivered_report[offset:offset + 2000]})
         fallback_target = supplement_targets[0] if supplement_targets else {
             "sub_question_id": "", "question": question,
             "language": "auto", "region": "GLOBAL",
         }
         return {
+            "report": delivered_report,
             "reflection_pass": False,
             "reflection_feedback": "反思结果无法解析，未将报告标记为通过",
             "reflection_round": next_round,
-            "reflection_score": 0,
+            "reflection_score": eligible_best_score if restored else 0,
+            "best_report": best_report,
+            "best_quality_rank": eligible_best_rank,
+            "best_reflection_score": eligible_best_score,
+            "best_reflection_round": eligible_best_round,
+            "best_evidence_signature": evidence_signature,
+            "best_feedback_signature": user_feedback,
+            "best_report_restored": restored,
             "validation_gaps": _merge_gaps([{
                 "sub_question_id": fallback_target["sub_question_id"],
                 "question": fallback_target["question"],
@@ -381,6 +416,9 @@ def reflector(state: ResearchState, config: RunnableConfig | None = None) -> dic
     known_urls.update(
         normalize_url(img.get("url", "")) for img in state.get("selected_images", [])
     )
+    known_urls.update(
+        normalize_url(img.get("cached_url", "")) for img in state.get("selected_images", [])
+    )
     known_urls.discard("")
 
     citation_issues = []
@@ -408,9 +446,10 @@ def reflector(state: ResearchState, config: RunnableConfig | None = None) -> dic
         passed = False
         feedback = "报告生成时仍存在未解决证据缺口。\n" + feedback
 
-    # 有用户反馈时一律不通过（用户要求优先），无论评分多高
-    if user_feedback and passed:
-        logger.info("存在用户反馈，强制不通过以处理用户要求")
+    # 只在当前报告尚未纳入最新反馈时强制重写。反馈进入新稿后不能继续
+    # 永久阻止通过，否则 HITL 会重复改同一条要求直到耗尽反思预算。
+    if unprocessed_user_feedback and passed:
+        logger.info("当前报告尚未纳入最新用户反馈，强制不通过")
         passed = False
 
     logger.info("评分: %d/15 → %s", total_score, "✅ 通过" if passed else "⚠️  需要修正")
@@ -448,11 +487,44 @@ def reflector(state: ResearchState, config: RunnableConfig | None = None) -> dic
     if not passed and next_round >= MAX_REFLECTION_ROUNDS:
         stop_reason = "reflection_budget_exhausted"
 
+    # 硬校验通过的稿件永远优先于高分但含未知 URL/模板问题/未解决缺口的稿件；
+    # 同一层级再比较三维评分。这样重写轮变差时不会覆盖已经更好的历史版本。
+    hard_failure = bool(citation_issues or inherited_gaps or unprocessed_user_feedback)
+    quality_rank = total_score + (0 if hard_failure else 100)
+    best_report = eligible_best_report
+    best_rank = eligible_best_rank
+    best_score = eligible_best_score
+    best_round = eligible_best_round
+    if report and quality_rank > best_rank:
+        best_report = report
+        best_rank = quality_rank
+        best_score = total_score
+        best_round = next_round
+
+    terminal = passed or next_round >= MAX_REFLECTION_ROUNDS
+    restored = bool(terminal and best_report and best_report != report)
+    delivered_report = best_report if restored else report
+    delivered_score = best_score if restored else total_score
+    if restored and writer:
+        writer({"type": "report_reset"})
+        for offset in range(0, len(delivered_report), 2000):
+            writer({"type": "report_chunk", "content": delivered_report[offset:offset + 2000]})
+    if restored:
+        result_msg += f"；最终恢复第 {best_round} 轮的历史最佳稿"
+
     return {
+        "report": delivered_report,
         "reflection_pass": passed,
         "reflection_feedback": feedback,
         "reflection_round": next_round,
-        "reflection_score": total_score,
+        "reflection_score": delivered_score,
+        "best_report": best_report,
+        "best_quality_rank": best_rank,
+        "best_reflection_score": best_score,
+        "best_reflection_round": best_round,
+        "best_evidence_signature": evidence_signature,
+        "best_feedback_signature": user_feedback,
+        "best_report_restored": restored,
         "validation_gaps": gaps,
         "stop_reason": "completed" if passed else stop_reason,
         "research_complete": passed,

@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,6 +39,7 @@ from research_buddy.utils import (
     stream_and_accumulate,
     track_run_tokens,
 )
+from research_buddy.config import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -701,11 +703,22 @@ def _report_payload(result: dict, question: str, topic_id: str = "",
         "research_notes": result.get("research_notes", []),
         "sub_questions": result.get("sub_questions", []),
         "search_results_count": len(result.get("search_results", [])),
+        "selected_images_count": len(result.get("selected_images", [])),
+        "embedded_images_count": result.get("report", "").count("!["),
+        "cached_images_count": sum(
+            1 for image in result.get("selected_images", []) if image.get("cached_url")
+        ),
         "reflection_round": result.get("reflection_round", 0),
         "reflection_pass": result.get("reflection_pass", False),
         "reflection_score": result.get("reflection_score", 0),
+        "best_report_restored": bool(result.get("best_report_restored")),
         "stop_reason": result.get("stop_reason", ""),
         "evidence_assessment_degraded": bool(result.get("evidence_assessment_degraded")),
+        "language_editor_changed": bool(result.get("language_editor_changed")),
+        "language_edits_count": len(result.get("language_edits", [])),
+        "language_candidates_count": result.get("language_candidates_count", 0),
+        "article_editor_changed": bool(result.get("article_editor_changed")),
+        "evidence_edits_count": len(result.get("evidence_edits", [])),
         "search_unavailable": bool(result.get("search_unavailable")),
         "topic_id": topic_id,
         "report_id": result.get("saved_report_id", ""),
@@ -1211,15 +1224,47 @@ def _extract_detail(node_name: str, state_update: dict) -> dict:
         detail["section_count"] = len(brief.get("section_plan", []))
         detail["degraded"] = not bool(brief)
 
+    elif node_name == "article_editor":
+        edits = state_update.get("evidence_edits", [])
+        detail["edits_count"] = len(edits)
+        detail["edit_types"] = {
+            edit_type: sum(1 for edit in edits if edit.get("edit_type") == edit_type)
+            for edit_type in ("unsupported", "overstated", "redundant")
+        }
+        detail["changed"] = bool(state_update.get("article_editor_changed"))
+
+    elif node_name == "language_editor":
+        edits = state_update.get("language_edits", [])
+        detail["edits_count"] = len(edits)
+        detail["candidates_count"] = state_update.get("language_candidates_count", 0)
+        detail["changed"] = bool(state_update.get("language_editor_changed"))
+        detail["edits_preview"] = [
+            {
+                "before": str(edit.get("quote", ""))[:220],
+                "after": str(edit.get("replacement", ""))[:220],
+                "reason": str(edit.get("reason", ""))[:160],
+                "issue_type": edit.get("issue_type", ""),
+            }
+            for edit in edits[:5]
+        ]
+
     elif node_name == "synthesizer":
         report = state_update.get("report", "")
         detail["report_length"] = len(report)
+        selected_images = state_update.get("selected_images", [])
+        detail["selected_images_count"] = len(selected_images)
+        detail["cached_images_count"] = sum(
+            1 for image in selected_images if image.get("cached_url")
+        )
+        detail["embedded_images_count"] = report.count("![")
 
     elif node_name == "reflector":
         detail["reflection_pass"] = state_update.get("reflection_pass", False)
         detail["reflection_round"] = state_update.get("reflection_round", 0)
         detail["reflection_score"] = state_update.get("reflection_score", 0)
         detail["reflection_feedback"] = state_update.get("reflection_feedback", "")
+        detail["best_report_restored"] = bool(state_update.get("best_report_restored"))
+        detail["best_reflection_round"] = state_update.get("best_reflection_round", 0)
         gaps = state_update.get("validation_gaps", [])
         if gaps:
             detail["supplement_queries"] = [g.get("search_query", "") for g in gaps[:3]]
@@ -1263,6 +1308,19 @@ def _summarize_update(node_name: str, state_update: dict) -> str:
         if not brief:
             return "编辑规划不可用，已降级为直接写作"
         return f"完成证据账本与 {len(brief.get('section_plan', []))} 节写作规划"
+    elif node_name == "article_editor":
+        count = len(state_update.get("evidence_edits", []))
+        if count:
+            return f"事实审校完成，应用 {count} 处修改"
+        if state_update.get("article_editor_changed"):
+            return "事实审校完成，已清理重复表达"
+        return "事实审校通过"
+    elif node_name == "language_editor":
+        count = len(state_update.get("language_edits", []))
+        candidates = state_update.get("language_candidates_count", 0)
+        if count:
+            return f"语言审校完成，改写 {count} 处模板化表达"
+        return f"语言审校发现 {candidates} 处候选但未修改" if candidates else "语言审校通过"
     elif node_name == "synthesizer":
         return "报告生成完成"
     elif node_name == "reflector":
@@ -1281,6 +1339,13 @@ def _summarize_update(node_name: str, state_update: dict) -> str:
 
 
 # 挂载静态文件（Web UI）— 必须放在路由之后
+_image_cache_dir = Path(DATA_DIR) / "research-images"
+_image_cache_dir.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/media/research-images",
+    StaticFiles(directory=str(_image_cache_dir)),
+    name="research-images",
+)
 _static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")
 

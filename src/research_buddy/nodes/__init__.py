@@ -7,6 +7,8 @@ from research_buddy.nodes.planner import planner
 from research_buddy.nodes.searcher import searcher
 from research_buddy.nodes.validator import validator
 from research_buddy.nodes.synthesizer import synthesizer
+from research_buddy.nodes.language_editor import language_editor
+from research_buddy.nodes.article_editor import article_editor
 from research_buddy.nodes.reflector import reflector
 from research_buddy.nodes.knowledge_lookup import knowledge_lookup
 from research_buddy.nodes.knowledge_store import knowledge_store
@@ -18,6 +20,8 @@ __all__ = [
     "searcher",
     "validator",
     "synthesizer",
+    "language_editor",
+    "article_editor",
     "reflector",
     "knowledge_lookup",
     "knowledge_store",

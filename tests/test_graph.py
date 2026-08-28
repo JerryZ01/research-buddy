@@ -20,7 +20,8 @@ class TestResearchGraph:
         graph = create_research_graph()
         nodes = set(graph.get_graph().nodes.keys())
         expected = {"__start__", "__end__", "planner", "searcher", "validator",
-                    "editorial_planner", "synthesizer", "reflector"}
+                    "editorial_planner", "synthesizer", "language_editor",
+                    "article_editor", "reflector"}
         assert expected.issubset(nodes), f"Missing nodes: {expected - nodes}"
 
     def test_validator_routes_to_search_or_synthesis(self):
@@ -29,6 +30,9 @@ class TestResearchGraph:
         assert ("validator", "searcher", "search_again") in edge_keys
         assert ("validator", "editorial_planner", "synthesize") in edge_keys
         assert ("editorial_planner", "synthesizer", None) in edge_keys
+        assert ("synthesizer", "language_editor", None) in edge_keys
+        assert ("language_editor", "article_editor", None) in edge_keys
+        assert ("article_editor", "reflector", None) in edge_keys
 
 
 class TestKnowledgeResearchGraph:
@@ -40,7 +44,7 @@ class TestKnowledgeResearchGraph:
         graph = create_knowledge_research_graph()
         nodes = set(graph.get_graph().nodes.keys())
         expected = {"__start__", "__end__", "planner", "searcher", "validator",
-                    "editorial_planner", "synthesizer", "reflector",
+                    "editorial_planner", "synthesizer", "language_editor", "article_editor", "reflector",
                     "knowledge_lookup", "knowledge_store"}
         assert expected.issubset(nodes), f"Missing nodes: {expected - nodes}"
 
@@ -64,7 +68,7 @@ class TestTrackingGraph:
         graph = create_tracking_graph()
         nodes = set(graph.get_graph().nodes.keys())
         expected = {"__start__", "__end__", "planner", "searcher", "validator",
-                    "editorial_planner", "synthesizer", "reflector",
+                    "editorial_planner", "synthesizer", "language_editor", "article_editor", "reflector",
                     "knowledge_lookup", "knowledge_store",
                     "diff_analyzer", "change_notifier"}
         assert expected.issubset(nodes), f"Missing nodes: {expected - nodes}"
@@ -90,5 +94,5 @@ class TestHITLGraph:
         graph = create_research_graph_with_hitl()
         nodes = set(graph.get_graph().nodes.keys())
         expected = {"__start__", "__end__", "planner", "searcher", "validator",
-                    "editorial_planner", "synthesizer", "reflector"}
+                    "editorial_planner", "synthesizer", "language_editor", "article_editor", "reflector"}
         assert expected.issubset(nodes), f"Missing nodes: {expected - nodes}"

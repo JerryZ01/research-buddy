@@ -296,7 +296,7 @@ def normalize_url(url: str) -> str:
 _OVERWRITE_LIST_KEYS = frozenset({
     "sub_questions", "validation_gaps", "evidence_assessments",
     "research_notes", "source_table", "selected_images", "core_refs",
-    "evidence_ledger", "evidence_edits",
+    "evidence_ledger", "language_edits", "evidence_edits",
 })
 
 

@@ -106,8 +106,13 @@ class ResearchState(TypedDict):
 
     # 综合阶段
     editorial_brief: dict  # 写作前的核心判断、范围、章节职责与证据映射
-    evidence_edits: list[dict]  # 后续定向编辑保留的可审计修改（覆盖语义）
+    language_edits: list[dict]  # 语言审校实际应用的局部修改（覆盖语义）
+    language_editor_changed: bool  # 语言审校是否改变正文
+    language_candidates_count: int  # 确定性扫描发现的模板句数量
+    evidence_edits: list[dict]  # 事实审校已应用的可审计修改（覆盖语义）
+    article_editor_changed: bool  # 审校是否改变正文（含确定性去重）
     report: str  # 最终报告（可发布的文章正文，不含评价性内容与内嵌链接）
+    report_feedback_signature: str  # 当前报告生成时已纳入的用户反馈
     confidence: str  # 置信度（高/中/低），由代码从证据质量计算，不进报告正文
     research_notes: list[str]  # 研究说明（局限/降级/未解决缺口），不进正文，供 API/前端展示
     source_table: list[dict]  # 编号引用表 [{index, title, url, source}]，synthesizer 构建，reflector 校验用
@@ -123,6 +128,13 @@ class ResearchState(TypedDict):
     reflection_feedback: str  # 反思反馈/改进建议
     reflection_round: int  # 当前反思轮次
     reflection_score: int  # 三维度总分（满分 15），供 API 层展示证据质量
+    best_report: str  # 反思循环中质量排序最高的历史稿
+    best_quality_rank: int  # 硬校验优先、模型评分次之的内部排序值
+    best_reflection_score: int  # 最佳稿对应的三维度分数
+    best_reflection_round: int  # 最佳稿出现的反思轮次
+    best_evidence_signature: str  # 最佳稿对应的来源集合签名
+    best_feedback_signature: str  # 最佳稿对应的用户反馈
+    best_report_restored: bool  # 最终是否从最后一稿恢复为历史最佳稿
 
     # Human-in-the-loop（Phase 3）
     user_feedback: str  # 用户在中断时提供的反馈/调整

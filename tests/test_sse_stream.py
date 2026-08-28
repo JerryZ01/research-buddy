@@ -20,6 +20,8 @@ searcher_module = import_module("research_buddy.nodes.searcher")
 validator_module = import_module("research_buddy.nodes.validator")
 editorial_planner_module = import_module("research_buddy.nodes.editorial_planner")
 synthesizer_module = import_module("research_buddy.nodes.synthesizer")
+language_editor_module = import_module("research_buddy.nodes.language_editor")
+article_editor_module = import_module("research_buddy.nodes.article_editor")
 reflector_module = import_module("research_buddy.nodes.reflector")
 
 _URL_A = "https://a.example/one"
@@ -111,7 +113,10 @@ def offline_graph(monkeypatch):
                         lambda **_: _InvokeLLM(json.dumps(_PLAN)))
     monkeypatch.setattr(editorial_planner_module, "create_llm",
                         lambda **_: _InvokeLLM(json.dumps(_EDITORIAL_BRIEF, ensure_ascii=False)))
+    # SSE 协议测试只验证节点与事件流，审校内部行为由独立单测覆盖。
+    monkeypatch.setattr(article_editor_module, "ENABLE_ARTICLE_EDITOR", False)
     monkeypatch.setattr(synthesizer_module, "create_llm", lambda **_: _StreamLLM())
+    monkeypatch.setattr(language_editor_module, "ENABLE_LANGUAGE_EDITOR", False)
     monkeypatch.setattr(reflector_module, "create_llm",
                         lambda **_: _InvokeLLM(json.dumps(_EVALUATION)))
     monkeypatch.setattr(validator_module, "_llm_assess", lambda *_args, **_kwargs: None)
@@ -153,11 +158,13 @@ def test_stream_emits_node_progress_in_graph_order(offline_graph):
     events = _run_stream()
     nodes = [data.get("node") for name, data in events if name == "progress"]
     assert nodes[0] == "start"
-    for node in ("planner", "searcher", "validator", "editorial_planner", "synthesizer", "reflector"):
+    for node in ("planner", "searcher", "validator", "editorial_planner",
+                 "synthesizer", "language_editor", "article_editor", "reflector"):
         assert node in nodes, f"缺少 {node} 的 progress 事件"
     assert nodes.index("planner") < nodes.index("searcher") < nodes.index("validator")
     assert nodes.index("validator") < nodes.index("editorial_planner") < nodes.index("synthesizer")
-    assert nodes.index("synthesizer") < nodes.index("reflector")
+    assert nodes.index("synthesizer") < nodes.index("language_editor")
+    assert nodes.index("language_editor") < nodes.index("article_editor") < nodes.index("reflector")
 
 
 def test_stream_emits_messages_and_final_report(offline_graph):
@@ -192,7 +199,12 @@ def test_report_payload_carries_quality_fields(offline_graph):
     events = _run_stream()
     report = next(data for name, data in events if name == "report")
     for key in ("reflection_score", "stop_reason",
+                "best_report_restored",
+                "selected_images_count", "embedded_images_count", "cached_images_count",
                 "evidence_assessment_degraded", "search_unavailable",
+                "language_editor_changed", "language_edits_count",
+                "language_candidates_count",
+                "article_editor_changed", "evidence_edits_count",
                 "confidence", "research_notes", "token_usage"):
         assert key in report, f"report 事件缺少 {key}"
     assert report["reflection_score"] == 15

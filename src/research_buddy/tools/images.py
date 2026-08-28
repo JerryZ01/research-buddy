@@ -13,16 +13,19 @@
 """
 
 import base64
+import hashlib
 import json
 import logging
 import struct
+import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
 
-from research_buddy.config import (OPENAI_API_BASE, OPENAI_API_KEY,
-                              VISION_API_BASE, VISION_API_KEY, VISION_MODEL)
+from research_buddy.config import (DATA_DIR, MAX_IMAGES_IN_ARTICLE, OPENAI_API_BASE,
+                              OPENAI_API_KEY, VISION_API_BASE, VISION_API_KEY, VISION_MODEL)
 from research_buddy.utils import add_tokens, parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -31,7 +34,7 @@ logger = logging.getLogger(__name__)
 MAX_CANDIDATES_PER_SUB_QUESTION = 6   # 每个子问题最多提交给视觉模型的候选数
 MAX_IMAGES_PER_SUB_QUESTION = 3       # 每个子问题最多选中的插图数
 # 全局供图上限：要足够多，让文章模型能按 MAX_IMAGES_IN_ARTICLE 配图
-MAX_TOTAL_IMAGES = 12
+MAX_TOTAL_IMAGES = MAX_IMAGES_IN_ARTICLE
 MAX_DOWNLOAD_BYTES = 3 * 1024 * 1024  # 单张图片下载大小上限（3MB）
 MAX_PAYLOAD_BYTES = 4 * 1024 * 1024   # 单次视觉调用累计原始字节上限（4MB）
 # 插图质量下限：过小的图（logo/图标）和宽高比极端的图（横幅）放进文章很难看
@@ -41,6 +44,32 @@ MIN_ASPECT_RATIO = 0.25   # 1:4
 MAX_ASPECT_RATIO = 4.0    # 4:1
 _DOWNLOAD_TIMEOUT = 10.0
 _VISION_TIMEOUT = 60.0
+IMAGE_CACHE_DIR = Path(DATA_DIR) / "research-images"
+_MIME_EXTENSIONS = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
+
+def _cache_image(data: bytes, mime: str) -> str:
+    """按内容哈希缓存已验证图片，返回同源静态 URL；失败时返回空串。"""
+    extension = _MIME_EXTENSIONS.get(mime.lower())
+    if not data or not extension:
+        return ""
+    try:
+        IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        filename = hashlib.sha256(data).hexdigest()[:24] + extension
+        target = IMAGE_CACHE_DIR / filename
+        if not target.exists():
+            temporary = target.with_name(f".{filename}.{threading.get_ident()}.tmp")
+            temporary.write_bytes(data)
+            temporary.replace(target)
+        return f"/media/research-images/{filename}"
+    except OSError as exc:
+        logger.warning("缓存选中图片失败，继续使用原始 URL: %s", exc)
+        return ""
 
 
 def _image_size(data: bytes) -> tuple[int, int] | None:
@@ -422,6 +451,13 @@ def select_images(sub_questions: list[dict],
 
         try:
             picked = _vision_select_with_retry(question, images)
+            downloaded_by_url = {
+                item_[0].get("url", ""): (item_[1], item_[2]) for item_ in images
+            }
+            for selected_image in picked:
+                downloaded = downloaded_by_url.get(selected_image.get("url", ""))
+                if downloaded:
+                    selected_image["cached_url"] = _cache_image(downloaded[0], downloaded[1])
             if picked:
                 logger.info("子问题 %s 选中 %d 张插图", sq_id, len(picked))
             return picked
@@ -430,16 +466,20 @@ def select_images(sub_questions: list[dict],
             return []
 
     # 子问题之间并行（≤3 并发，pool.map 保持顺序，截断/去重不受影响）
-    selected: list[dict] = []
+    selected_groups: list[list[dict]] = []
     with httpx.Client() as client:
         with ThreadPoolExecutor(max_workers=min(_MAX_VISION_PARALLEL, len(by_subq))) as pool:
             for picked in pool.map(_select_for_subq, list(by_subq.items())):
-                selected.extend(picked)
+                selected_groups.append(picked)
 
-    # 全局上限：宁可少图也不要塞一堆不相关的
-    if len(selected) > MAX_TOTAL_IMAGES:
-        logger.info("选中插图超过 %d 张，截断到上限", MAX_TOTAL_IMAGES)
-        selected = selected[:MAX_TOTAL_IMAGES]
+    # 按子问题轮询取图，避免前几个分支各占 3 张后把后续章节全部截掉。
+    selected: list[dict] = []
+    for position in range(MAX_IMAGES_PER_SUB_QUESTION):
+        for group in selected_groups:
+            if position < len(group):
+                selected.append(group[position])
+                if len(selected) >= MAX_TOTAL_IMAGES:
+                    return selected
 
     return selected
 

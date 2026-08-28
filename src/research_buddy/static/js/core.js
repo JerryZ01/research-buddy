@@ -42,11 +42,11 @@ const appState = {
 
 const STEPS = [
   'knowledge_lookup', 'planner', 'searcher',
-  'validator', 'editorial_planner', 'synthesizer', 'reflector',
+  'validator', 'editorial_planner', 'synthesizer', 'language_editor', 'article_editor', 'reflector',
   'knowledge_store', 'diff_analyzer', 'change_notifier'
 ];
 
-const CORE_RESEARCH_STEPS = ['planner', 'searcher', 'validator', 'editorial_planner', 'synthesizer', 'reflector'];
+const CORE_RESEARCH_STEPS = ['planner', 'searcher', 'validator', 'editorial_planner', 'synthesizer', 'language_editor', 'article_editor', 'reflector'];
 const KNOWLEDGE_RESEARCH_STEPS = ['knowledge_lookup', ...CORE_RESEARCH_STEPS, 'knowledge_store'];
 
 let researchViz = null;
@@ -160,6 +160,9 @@ class ResearchEvidenceMap {
       this.synthesisStartedAt = performance.now();
       this.branches.forEach(branch => { if (branch.status !== 'gap') branch.status = 'gathering'; });
     }
+    if (node === 'article_editor') {
+      this.branches.forEach(branch => { if (branch.status !== 'gap') branch.status = 'verified'; });
+    }
     if (node === 'reflector') this.reflection = { pass: !!detail.reflection_pass, round: detail.reflection_round || 0, at: performance.now() };
     if (node === 'knowledge_store') this.stored = true;
     if (node === 'diff_analyzer') this.changeCount = detail.changes_count || 0;
@@ -189,6 +192,14 @@ class ResearchEvidenceMap {
     if (node === 'validator') return this.gaps.size ? `发现 ${this.gaps.size} 个证据缺口` : '全部研究分支证据充足';
     if (node === 'editorial_planner') return detail.degraded ? '编辑规划不可用，将直接写作' : `形成 ${detail.section_count || 0} 个章节的证据化写作计划`;
     if (node === 'synthesizer') return '证据开始向报告结构收束';
+    if (node === 'language_editor') {
+      if (detail.changed) return `语言审校改写 ${detail.edits_count || 0} 处模板化表达`;
+      return detail.candidates_count ? `发现 ${detail.candidates_count} 处候选但未安全改写` : '语言审校未发现需处理表达';
+    }
+    if (node === 'article_editor') {
+      if (!detail.changed) return '事实审校未发现需修改断言';
+      return detail.edits_count ? `事实审校应用 ${detail.edits_count} 处修改` : '事实审校清理了重复表达';
+    }
     if (node === 'reflector') return detail.reflection_pass ? `第 ${detail.reflection_round || 0} 轮质量检查通过` : `第 ${detail.reflection_round || 0} 轮检查需要补充研究`;
     if (node === 'knowledge_store') return '研究结果已写入知识库';
     if (node === 'diff_analyzer') return `检测到 ${detail.changes_count || 0} 项变化`;

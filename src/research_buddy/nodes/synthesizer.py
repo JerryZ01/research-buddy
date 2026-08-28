@@ -6,6 +6,8 @@
 """
 
 import logging
+import math
+import re
 import time
 
 from langchain_core.runnables import RunnableConfig
@@ -25,6 +27,80 @@ from research_buddy.utils import (_is_transient_error, create_llm, get_prompt_fr
                               invoke_llm, normalize_url, parse_llm_json)
 
 logger = logging.getLogger(__name__)
+
+_IMAGE_MARKDOWN_RE = re.compile(r"!\[([^\]\n]*)\]\(([^)\n]+)\)")
+_IMAGE_LINK_RE = re.compile(r"(?<!!)\[([^\]\n]*)\]\(([^)\n]+)\)")
+_IMAGE_TOKEN_RE = re.compile(r"\[\[IMAGE_(\d+)\]\]")
+
+
+def _display_image_url(image: dict) -> str:
+    return str(image.get("cached_url") or image.get("url") or "").strip()
+
+
+def compute_image_budget(state: ResearchState, selected_count: int) -> int:
+    """按文章结构分配候选额度，实际用图数量仍由内容相关性决定。"""
+    section_count = len((state.get("editorial_brief") or {}).get("section_plan", []))
+    if not section_count:
+        section_count = len(state.get("sub_questions", []))
+    # 视觉模型已经先做相关性筛选，这里只控制交给写作者的候选池大小。
+    # 每个核心章节允许两张互补图片；单一主题也保留三张候选，避免复杂机制
+    # 只能在架构图、流程图、界面截图中三选一。写作者不需要用满额度。
+    desired = 3 if section_count <= 1 else math.ceil(section_count * 2)
+    return min(MAX_IMAGES_IN_ARTICLE, selected_count, max(0, desired))
+
+
+def normalize_report_images(report: str, selected_images: list[dict],
+                            max_images: int = MAX_IMAGES_IN_ARTICLE) -> str:
+    """由代码恢复选中图片，修复普通链接/篡改 URL，并删除未知图片。"""
+    images = [image for image in selected_images if _display_image_url(image)][:max_images]
+    if not images:
+        return _IMAGE_TOKEN_RE.sub("", _IMAGE_MARKDOWN_RE.sub("", report))
+
+    by_url: dict[str, int] = {}
+    by_alt: dict[str, list[int]] = {}
+    for index, image in enumerate(images):
+        for value in (image.get("url", ""), image.get("cached_url", "")):
+            key = normalize_url(str(value))
+            if key:
+                by_url[key] = index
+        alt = str(image.get("alt", "")).strip()
+        if alt:
+            by_alt.setdefault(alt, []).append(index)
+
+    used: set[int] = set()
+
+    def render(index: int) -> str:
+        if index in used or index < 0 or index >= len(images):
+            return ""
+        used.add(index)
+        image = images[index]
+        alt = str(image.get("alt", "")).strip() or "文章插图"
+        return f"![{alt}]({_display_image_url(image)})"
+
+    def resolve(alt: str, url: str) -> int | None:
+        key = normalize_url(url.strip())
+        if key in by_url:
+            return by_url[key]
+        matches = by_alt.get(alt.strip(), [])
+        return matches[0] if len(matches) == 1 else None
+
+    def normalize_markdown(match: re.Match) -> str:
+        index = resolve(match.group(1), match.group(2))
+        return render(index) if index is not None else ""
+
+    report = _IMAGE_MARKDOWN_RE.sub(normalize_markdown, report)
+
+    def normalize_link(match: re.Match) -> str:
+        index = resolve(match.group(1), match.group(2))
+        return render(index) if index is not None else match.group(0)
+
+    report = _IMAGE_LINK_RE.sub(normalize_link, report)
+
+    def replace_token(match: re.Match) -> str:
+        return render(int(match.group(1)) - 1)
+
+    report = _IMAGE_TOKEN_RE.sub(replace_token, report)
+    return re.sub(r"\n{3,}", "\n\n", report)
 
 
 # ── Prompt 模板（可发布文章风格） ────────────────────────
@@ -60,7 +136,7 @@ WRITING_RULES = """## 写作要求
 7. 小标题要有信息量，能看出这一节的观点（如「为什么 I/O 密集场景不受 GIL 影响」），避免「概述」「背景介绍」这类空标题；章节按主题逻辑重组，不要机械地按子问题逐条罗列。**小标题风格要多样**：不要连续用「名词：解释」式冒号标题（如「自注意力：当每个 token 都成为检索者」），同一篇里交替使用陈述句、疑问句、短语式标题，冒号式标题整篇最多 1~2 个。
 8. 语气专业、克制、自信；语言自然流畅，像一个有经验的人认真讲清楚一件事，避免套话、模板腔和「综上」「众所周知」式的空泛表达。
 9. 论点直接陈述，**不需要**标注引用编号或来源链接（文末参考文献由系统自动生成）。
-10. 如果提供了「可用插图」，在内容最相关的位置插入插图（**整篇最多 {image_limit} 张、通常 4~6 张即可**，各章节合理分配）。插图按优先级：① 能说明内容的图（图表/架构图/截图）② 与主题相关的配图 ③ 氛围装饰图（全篇不超过 2 张）。每张图插入前自问：它能帮助读者理解这一段吗？不能就不插——宁可少一张，不放无关的图：`![alt文本](图片URL)`。图片 URL 必须原样来自「可用插图」列表，禁止使用列表之外的图片；alt 文本用「可用插图」里给出的描述。
+10. 如果提供了「可用插图」，根据当前问题和各章节的信息密度决定是否配图，在真正有帮助的位置单独插入对应占位符（如 `[[IMAGE_1]]`），整篇最多 {image_limit} 张。默认使用所有能解释概念、机制、差异、数据或操作步骤的插图；核心章节可使用多张互补的图，不要为了控制数量而省略有解释价值的图片。只有图片与正文重复、彼此重复或只是无关装饰时才省略，不能为了凑数插图。占位符必须逐字复制、独占一行且每个最多使用一次；不要输出 Markdown 图片、图片 URL 或自行编写 alt。
 11. 不要在正文中直接写出任何 URL，也不要出现**研究过程元评论**——包括但不限于：「信息存在矛盾」「证据不足」「研究局限」「本报告基于……搜索」「从检索到的资料看」「有来源提到」「检索到的证据」「多个来源指出」「据资料显示」「公开资料称」等；不要自行添加「参考文献」「来源」「置信度」章节（文末参考文献由系统自动生成）。
 12. 使用中文撰写。
 
@@ -498,10 +574,13 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
     elif selected_images:
         logger.info("复用上一轮选中的 %d 张插图", len(selected_images))
 
-    if selected_images:
+    image_budget = compute_image_budget(state, len(selected_images))
+    article_images = selected_images[:image_budget]
+    if article_images:
         image_section = "\n".join(
-            f"- 图{i}: {img.get('url', '')}（子问题：{img.get('sub_question_id', '')}，alt：{img.get('alt', '')}）"
-            for i, img in enumerate(selected_images, 1)
+            f"- [[IMAGE_{i}]]（子问题：{img.get('sub_question_id', '')}，"
+            f"内容：{img.get('alt', '')}）"
+            for i, img in enumerate(article_images, 1)
         )
     else:
         image_section = "（无）"
@@ -570,10 +649,10 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
         "search_results": formatted_results,
         "image_section": image_section,
         "style_section": state.get("style_section_override") or get_style_section(state.get("style")),
-        "image_limit": str(MAX_IMAGES_IN_ARTICLE),
+        "image_limit": str(image_budget),
         # 共享写作规范（单一事实来源；image_limit 在这里渲染进规则文本）
         "writing_rules": (state.get("writing_rules_override") or WRITING_RULES).format(
-            image_limit=str(MAX_IMAGES_IN_ARTICLE)
+            image_limit=str(image_budget)
         ),
     }
 
@@ -663,6 +742,16 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
         question, full_report, config=config, use_local_prompt=use_local_prompts,
     )
 
+    # 模型只决定图片位置，不接触 URL。代码统一恢复本地缓存地址，并兼容修复
+    # 旧 prompt 可能生成的 Markdown 图片、普通图片链接或被篡改的 URL。
+    normalized_report = normalize_report_images(full_report, article_images, max_images=image_budget)
+    if normalized_report != full_report:
+        full_report = normalized_report
+        if writer:
+            writer({"type": "report_reset"})
+            for offset in range(0, len(full_report), 2000):
+                writer({"type": "report_chunk", "content": full_report[offset:offset + 2000]})
+
     # 文末核心参考文献：LLM 从全部来源中筛选子集，代码重新编号生成。
     # 跨轮次复用：来源集（URL 签名）未变时直接复用上一轮的筛选结果，
     # 不再调 LLM（省 ~10s/轮）；补充搜索带来了新来源才重新筛选。
@@ -684,6 +773,7 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
 
     return {
         "report": full_report,
+        "report_feedback_signature": state.get("user_feedback", ""),
         "confidence": compute_confidence(state),
         "research_notes": _build_research_notes(state),
         "source_table": source_table,

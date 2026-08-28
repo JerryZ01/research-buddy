@@ -1,6 +1,10 @@
 import json
 from importlib import import_module
 
+from langgraph.graph import END, START, StateGraph
+
+from research_buddy.state import ResearchState
+
 editor = import_module("research_buddy.nodes.article_editor")
 
 
@@ -32,6 +36,19 @@ def test_invalid_or_hallucinated_edits_are_ignored():
          "support_quotes": [{"evidence_id": "E1", "quote": "模型编造的证据引文"}]},
     ]}
     assert editor.validate_edits(payload, report, [{"content": "证据里的原话足够长。"}]) == []
+
+
+def test_fact_editor_never_edits_inserted_image_markdown():
+    report = "![架构示意图](/media/research-images/abc.png)"
+    payload = {"edits": [{
+        "quote": report,
+        "replacement": "",
+        "reason": "模型误判图片为冗余内容",
+        "edit_type": "redundant",
+        "evidence_ids": [],
+        "support_quotes": [],
+    }]}
+    assert editor.validate_edits(payload, report, [{"content": "有效证据内容"}]) == []
 
 
 def test_deletion_of_unsupported_claim_does_not_require_support_quote():
@@ -87,6 +104,25 @@ def test_context_guard_rejects_dangling_colon_and_adjacent_repetition():
     assert editor.apply_evidence_edits(near_duplicate, [edit]) == near_duplicate
 
 
+def test_context_guard_rejects_deleting_markdown_structure():
+    for report, quote in [
+        ("## 一个足够长的章节标题\n正文。", "一个足够长的章节标题"),
+        ("- 一个足够长的列表项目内容。\n正文。", "一个足够长的列表项目内容。"),
+        ("| 字段 | 一个足够长的表格单元内容 |\n", "一个足够长的表格单元内容"),
+    ]:
+        edit = {"quote": quote, "replacement": ""}
+        assert editor.apply_evidence_edits(report, [edit]) == report
+
+
+def test_rejected_edits_do_not_trigger_unrelated_duplicate_cleanup():
+    duplicate = "部分扩展在执行原生代码时会释放 GIL。"
+    report = f"它回答的是另一类问题：当容器跨机器运行时需要协调。{duplicate}{duplicate}"
+    rejected = {"quote": "当容器跨机器运行时需要协调。", "replacement": ""}
+    revised, applied = editor._apply_evidence_edits_with_audit(report, [rejected])
+    assert revised == report
+    assert applied == []
+
+
 def test_exact_duplicate_sentences_removed_but_references_preserved():
     report = ("第一段。部分扩展在执行原生代码时会释放 GIL。\n\n"
               "部分扩展在执行原生代码时会释放 GIL。后续内容。\n"
@@ -107,7 +143,8 @@ def test_editor_fails_open_on_bad_model_output(monkeypatch):
     monkeypatch.setattr(editor, "create_llm", lambda: _LLM())
     report = "这是一段足够长的真实文章内容。"
     revised, edits = editor.edit_article_evidence(
-        {"question": "Q", "search_results": [{"title": "S", "content": "E"}]}, report,
+        {"question": "Q", "search_results": [{"title": "S", "content": "E"}],
+         "eval_use_local_prompts": True}, report,
     )
     assert revised == report
     assert edits == []
@@ -127,7 +164,79 @@ def test_editor_prompt_accepts_empty_edits_json(monkeypatch):
     monkeypatch.setattr(editor, "create_llm", lambda: _LLM())
     report = "这是一段足够长的真实文章内容。"
     revised, edits = editor.edit_article_evidence(
-        {"question": "Q", "search_results": [{"title": "S", "content": "E"}]}, report,
+        {"question": "Q", "search_results": [{"title": "S", "content": "E"}],
+         "eval_use_local_prompts": True}, report,
     )
     assert revised == report and edits == []
     assert '{"edits": []}' in captured["prompt"]
+
+
+def test_editor_uses_deduplicated_evidence_ledger(monkeypatch):
+    captured = {}
+
+    class _Response:
+        content = json.dumps({"edits": []})
+
+    class _LLM:
+        def invoke(self, prompt, **_kwargs):
+            captured["prompt"] = prompt
+            return _Response()
+
+    monkeypatch.setattr(editor, "create_llm", lambda: _LLM())
+    state = {
+        "question": "Q", "eval_use_local_prompts": True,
+        "search_results": [
+            {"title": "重复来源", "content": "不应出现的原始搜索片段"},
+            {"title": "另一条", "content": "也不应出现"},
+        ],
+        "evidence_ledger": [
+            {"id": "E1", "title": "去重来源", "excerpt": "账本中的唯一证据"},
+        ],
+    }
+    editor.edit_article_evidence(state, "这是一段足够长的真实文章内容。", max_rounds=1)
+    assert "E1 | 去重来源" in captured["prompt"]
+    assert "不应出现的原始搜索片段" not in captured["prompt"]
+
+
+def test_article_editor_resets_and_streams_only_when_report_changed(monkeypatch):
+    report = "原始初稿。"
+    revised = "修订后的文章。"
+    applied = [{"quote": report, "replacement": revised, "edit_type": "overstated"}]
+    monkeypatch.setattr(editor, "ENABLE_ARTICLE_EDITOR", True)
+    monkeypatch.setattr(editor, "ARTICLE_EDITOR_ROUNDS", 1)
+    monkeypatch.setattr(editor, "edit_article_evidence", lambda *_args, **_kwargs: (revised, applied))
+
+    graph = StateGraph(ResearchState)
+    graph.add_node("article_editor", editor.article_editor)
+    graph.add_edge(START, "article_editor")
+    graph.add_edge("article_editor", END)
+    compiled = graph.compile()
+
+    custom = []
+    update = None
+    for mode, payload in compiled.stream(
+        {"report": report}, stream_mode=["custom", "updates"],
+    ):
+        if mode == "custom":
+            custom.append(payload)
+        elif mode == "updates":
+            update = payload["article_editor"]
+    assert custom[0]["type"] == "report_reset"
+    assert "".join(item.get("content", "") for item in custom[1:]) == revised
+    assert update["report"] == revised
+    assert update["evidence_edits"] == applied
+
+
+def test_article_editor_keeps_stream_untouched_when_no_change(monkeypatch):
+    monkeypatch.setattr(editor, "ENABLE_ARTICLE_EDITOR", True)
+    monkeypatch.setattr(editor, "ARTICLE_EDITOR_ROUNDS", 1)
+    monkeypatch.setattr(
+        editor, "edit_article_evidence", lambda _state, report, config=None: (report, []),
+    )
+    events = []
+    result = editor.article_editor(
+        {"report": "原稿"}, config=None, writer=lambda event: events.append(event),
+    )
+    assert events == []
+    assert result["report"] == "原稿"
+    assert result["evidence_edits"] == []

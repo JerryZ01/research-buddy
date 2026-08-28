@@ -136,6 +136,7 @@ function renderMarkdown(markdown) {
   template.content.querySelectorAll('img').forEach(img => {
     try {
       img.loading = 'lazy';
+      img.referrerPolicy = 'no-referrer';
       const parent = img.parentNode;
       const onlyChild = !!(parent && parent.tagName === 'P' && parent.childNodes.length === 1);
       const fig = document.createElement('figure');
@@ -188,7 +189,14 @@ function attachImageFallbacks(root) {
   root.querySelectorAll('img').forEach(img => {
     if (img.dataset.imgFallback) return;
     img.dataset.imgFallback = '1';
-    img.addEventListener('error', () => { img.style.display = 'none'; });
+    const hideFailedImage = () => {
+      const holder = img.closest('figure') || img;
+      holder.style.display = 'none';
+      holder.setAttribute('aria-hidden', 'true');
+    };
+    img.addEventListener('error', hideFailedImage);
+    // innerHTML 插入后图片可能在监听器绑定前已经失败，必须补一次同步检查。
+    if (img.complete && img.naturalWidth === 0) hideFailedImage();
   });
 }
 
@@ -246,4 +254,3 @@ function fmtTokens(n) {
   if (n < 1000) return String(n);
   return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
 }
-
