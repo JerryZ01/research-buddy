@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 from langfuse import Langfuse
 from langfuse.langchain import CallbackHandler
@@ -40,6 +40,7 @@ from research_buddy.utils import (
     track_run_tokens,
 )
 from research_buddy.config import DATA_DIR
+from research_buddy.archive import complete_generation, fail_generation, start_generation
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,9 @@ async def lifespan(app: FastAPI):
     try:
         get_db().mark_stale_runs()
         get_db().delete_old_runs(_RUNS_TTL_SECONDS)
+        imported = get_db().backfill_reports_to_article_archive()
+        if imported:
+            logger.info("已将 %d 篇历史知识报告回填到文章素材库", imported)
     except Exception:
         pass
     scheduler = get_scheduler()
@@ -111,7 +115,12 @@ def _get_hitl_session(thread_id: str) -> dict | None:
             config["callbacks"] = [langfuse_handler]
         snapshot = graph.get_state(config)
         if snapshot.values:
-            session = {"graph": graph, "config": config}
+            archived = get_db().get_article_generation_by_external_id(thread_id)
+            session = {
+                "graph": graph,
+                "config": config,
+                "generation_id": archived["id"] if archived else "",
+            }
             _hitl_sessions[thread_id] = session
             return session
     except Exception as exc:
@@ -210,6 +219,7 @@ class ResearchResponse(BaseModel):
     reflection_round: int
     reflection_pass: bool
     token_usage: dict = {}
+    article_id: str = ""
 
 
 class HITLResearchRequest(BaseModel):
@@ -247,6 +257,21 @@ class KnowledgeResearchResponse(BaseModel):
     reflection_round: int
     reflection_pass: bool
     token_usage: dict = {}
+    article_id: str = ""
+
+
+class ArticleCurationRequest(BaseModel):
+    curation_status: str
+
+
+class ArticleReviewRequest(BaseModel):
+    reviewer_type: str = "human"
+    reviewer_model: str = ""
+    overall_score: float | None = None
+    dimension_scores: dict = Field(default_factory=dict)
+    issue_tags: list[str] = Field(default_factory=list)
+    notes: str = ""
+    include_in_evaluation: bool = False
 
 
 # ── 健康检查 ────────────────────────────────────────────
@@ -336,6 +361,7 @@ async def refine_question(req: RefineQuestionRequest):
 @app.post("/research", response_model=ResearchResponse)
 async def research(req: ResearchRequest):
     """同步研究接口 - 返回完整报告（无知识层）"""
+    generation_id = start_generation(req.question, req.style, "research_sync")
     graph = create_research_graph()
     langfuse_handler = get_langfuse_handler()
 
@@ -343,12 +369,18 @@ async def research(req: ResearchRequest):
     if langfuse_handler:
         config["callbacks"] = [langfuse_handler]
 
-    with track_run_tokens() as usage:
-        result = stream_and_accumulate(
-            graph, {"question": req.question, "style": req.style}, config,
-        )
+    try:
+        with track_run_tokens() as usage:
+            result = stream_and_accumulate(
+                graph, {"question": req.question, "style": req.style}, config,
+            )
+    except Exception as exc:
+        fail_generation(generation_id, str(exc))
+        raise
     result.setdefault("question", req.question)
     result["token_usage"] = dict(usage)
+    complete_generation(generation_id, result)
+    result["article_id"] = generation_id
 
     if langfuse_handler:
         langfuse_handler._langfuse_client.flush()
@@ -363,6 +395,7 @@ async def research(req: ResearchRequest):
         reflection_round=result.get("reflection_round", 0),
         reflection_pass=result.get("reflection_pass", False),
         token_usage=result.get("token_usage", {}),
+        article_id=generation_id,
     )
 
 
@@ -473,6 +506,9 @@ async def hitl_state(thread_id: str = Query(..., description="会话 thread_id")
 @app.post("/research/knowledge", response_model=KnowledgeResearchResponse)
 async def knowledge_research(req: KnowledgeResearchRequest):
     """知识研究接口 - 支持增量研究，结果保存到知识库"""
+    generation_id = start_generation(
+        req.question, req.style, "knowledge_sync", topic_id=req.topic_id,
+    )
     graph = create_knowledge_research_graph()
     langfuse_handler = get_langfuse_handler()
 
@@ -480,15 +516,21 @@ async def knowledge_research(req: KnowledgeResearchRequest):
     if langfuse_handler:
         config["callbacks"] = [langfuse_handler]
 
-    with track_run_tokens() as usage:
-        result = stream_and_accumulate(graph, {
-            "question": req.question,
-            "topic_id": req.topic_id,
-            "is_incremental": req.is_incremental,
-            "style": req.style,
-        }, config)
+    try:
+        with track_run_tokens() as usage:
+            result = stream_and_accumulate(graph, {
+                "question": req.question,
+                "topic_id": req.topic_id,
+                "is_incremental": req.is_incremental,
+                "style": req.style,
+            }, config)
+    except Exception as exc:
+        fail_generation(generation_id, str(exc))
+        raise
     result.setdefault("question", req.question)
     result["token_usage"] = dict(usage)
+    complete_generation(generation_id, result)
+    result["article_id"] = generation_id
 
     if langfuse_handler:
         langfuse_handler._langfuse_client.flush()
@@ -506,6 +548,7 @@ async def knowledge_research(req: KnowledgeResearchRequest):
         reflection_round=result.get("reflection_round", 0),
         reflection_pass=result.get("reflection_pass", False),
         token_usage=result.get("token_usage", {}),
+        article_id=generation_id,
     )
 
 
@@ -628,6 +671,62 @@ async def delete_report(report_id: str):
     return {"deleted": True}
 
 
+# ── 文章素材库（与知识库分离）────────────────────────────
+
+@app.get("/articles")
+async def list_articles(limit: int = Query(50, ge=1, le=200),
+                        offset: int = Query(0, ge=0),
+                        status: str = Query(""),
+                        curation_status: str = Query("")):
+    """按时间倒序列出永久文章档案；列表不展开版本与评价。"""
+    return get_db().list_article_generations(
+        limit=limit, offset=offset, status=status, curation_status=curation_status,
+    )
+
+
+@app.get("/articles/{article_id}")
+async def get_article(article_id: str):
+    """获取最终稿、配置快照、全部阶段版本和评价。"""
+    record = get_db().get_article_generation(article_id)
+    if not record:
+        return JSONResponse(status_code=404, content={"error": "文章档案不存在"})
+    return record
+
+
+@app.patch("/articles/{article_id}/curation")
+async def update_article_curation(article_id: str, req: ArticleCurationRequest):
+    """标记文章是否适合作为候选、已批准评价样本或排除项。"""
+    allowed = {"raw", "candidate", "approved", "excluded"}
+    if req.curation_status not in allowed:
+        raise HTTPException(status_code=400, detail=f"curation_status 必须是 {sorted(allowed)} 之一")
+    record = get_db().update_article_generation(
+        article_id, curation_status=req.curation_status,
+    )
+    if not record:
+        return JSONResponse(status_code=404, content={"error": "文章档案不存在"})
+    return record
+
+
+@app.post("/articles/{article_id}/reviews")
+async def create_article_review(article_id: str, req: ArticleReviewRequest):
+    """添加人工或模型评价；同一文章可保留多次评价。"""
+    if req.overall_score is not None and not 0 <= req.overall_score <= 10:
+        raise HTTPException(status_code=400, detail="overall_score 必须在 0-10 之间")
+    try:
+        return get_db().create_article_review(
+            article_id,
+            reviewer_type=req.reviewer_type,
+            reviewer_model=req.reviewer_model,
+            overall_score=req.overall_score,
+            dimension_scores=req.dimension_scores,
+            issue_tags=req.issue_tags,
+            notes=req.notes,
+            include_in_evaluation=req.include_in_evaluation,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 # ── 追踪接口（Phase 7）─────────────────────────────────────────
 
 class TrackingRequest(BaseModel):
@@ -724,6 +823,7 @@ def _report_payload(result: dict, question: str, topic_id: str = "",
         "report_id": result.get("saved_report_id", ""),
         "is_incremental": is_incremental,
         "token_usage": result.get("token_usage", {}),
+        "article_id": result.get("article_id", ""),
     }
 
 
@@ -834,10 +934,16 @@ def _event_generator(question: str, topic_id: str = "",
             "created_at": time.time(),
         }
         run_db_connection = None
+        generation_id = ""
         try:
             database = get_db()
             database.create_run(run_id, question, style)
             run_db_connection = database.conn
+            generation_id = start_generation(
+                question, style,
+                "knowledge_stream" if topic_id else "research_stream",
+                external_id=run_id, topic_id=topic_id, database=database,
+            )
         except Exception:
             pass  # 持久化失败不影响本次运行
         _prune_research_runs()
@@ -869,6 +975,8 @@ def _event_generator(question: str, topic_id: str = "",
                 _research_runs[run_id]["result"] = result
                 _research_runs[run_id]["status"] = "done"
                 persistence = ("done", result, "")
+                complete_generation(generation_id, result)
+                result["article_id"] = generation_id
 
                 queue.put_nowait({
                     "event": "report",
@@ -886,6 +994,7 @@ def _event_generator(question: str, topic_id: str = "",
                 _research_runs[run_id]["status"] = "error"
                 _research_runs[run_id]["error"] = str(e)
                 persistence = ("error", None, str(e))
+                fail_generation(generation_id, str(e))
                 queue.put_nowait({
                     "event": "error",
                     "data": json.dumps({"message": str(e)}),
@@ -951,6 +1060,9 @@ def _hitl_event_generator(question: str, style: str = "tech-blog"):
         _hitl_sessions[thread_id] = {
             "graph": graph,
             "config": config,
+            "generation_id": start_generation(
+                question, style, "hitl", external_id=thread_id,
+            ),
         }
 
         queue: Queue = Queue()
@@ -1001,7 +1113,13 @@ def _hitl_event_generator(question: str, style: str = "tech-blog"):
                     })
                 else:
                     # 图正常结束
+                    result = dict(snapshot.values)
                     result.setdefault("question", question)
+                    result["token_usage"] = dict(usage)
+                    complete_generation(
+                        _hitl_sessions.get(thread_id, {}).get("generation_id", ""), result,
+                    )
+                    result["article_id"] = _hitl_sessions.get(thread_id, {}).get("generation_id", "")
                     queue.put_nowait({
                         "event": "report",
                         "data": json.dumps(_report_payload(result, question)),
@@ -1015,6 +1133,9 @@ def _hitl_event_generator(question: str, style: str = "tech-blog"):
 
             except Exception as e:
                 logger.error("HITL 图执行失败: %s", e)
+                fail_generation(
+                    _hitl_sessions.get(thread_id, {}).get("generation_id", ""), str(e),
+                )
                 queue.put_nowait({
                     "event": "error",
                     "data": json.dumps({"message": str(e)}),
@@ -1131,6 +1252,10 @@ def _hitl_resume_event_generator(thread_id: str, resume_data: dict):
                     })
                 else:
                     # 图正常结束
+                    result = dict(snapshot.values)
+                    result["token_usage"] = dict(usage)
+                    complete_generation(session.get("generation_id", ""), result)
+                    result["article_id"] = session.get("generation_id", "")
                     queue.put_nowait({
                         "event": "report",
                         "data": json.dumps(_report_payload(result, result.get("question", ""))),
@@ -1143,6 +1268,7 @@ def _hitl_resume_event_generator(thread_id: str, resume_data: dict):
 
             except Exception as e:
                 logger.error("HITL 恢复执行失败: %s", e)
+                fail_generation(session.get("generation_id", ""), str(e))
                 queue.put_nowait({
                     "event": "error",
                     "data": json.dumps({"message": str(e)}),

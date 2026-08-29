@@ -24,7 +24,7 @@ from research_buddy.styles import get_style_section
 from research_buddy.nodes.editorial_planner import format_editorial_brief
 from research_buddy.tools.images import select_images
 from research_buddy.utils import (_is_transient_error, create_llm, get_prompt_from_langfuse,
-                              invoke_llm, normalize_url, parse_llm_json)
+                              invoke_llm, is_metaphorical_heading, normalize_url, parse_llm_json)
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +133,7 @@ WRITING_RULES = """## 写作要求
 - **句式要有节奏差异**：长短句交错，允许短句独立成段，禁止连续两句结构相同（同长度/同「主谓宾」骨架）；段落长短也应有差异，偶尔出现一行段落
 - **案例必须具体可查**：禁止「某文档 pipeline」「社区报告显示」这类模糊编造——要么给出真实名称/可查的细节，要么不写
 - **各章节结构差异化**：篇幅允许 3:1 的差距；不要每节都是「定义→展开→小结」同一骨架——有的节以具体例子开头、有的以问题开头、有的直接下判断
-7. 小标题要有信息量，能看出这一节的观点（如「为什么 I/O 密集场景不受 GIL 影响」），避免「概述」「背景介绍」这类空标题；章节按主题逻辑重组，不要机械地按子问题逐条罗列。**小标题风格要多样**：不要连续用「名词：解释」式冒号标题（如「自注意力：当每个 token 都成为检索者」），同一篇里交替使用陈述句、疑问句、短语式标题，冒号式标题整篇最多 1~2 个。
+7. **小标题不是必需品**。只在讨论对象、论证阶段或操作步骤发生实质切换时使用标题；不要给每个观点、案例或两三段正文单独起标题。通常只用 `##` 组织 2-4 个核心章节，`###` 只用于一个长章节内确有多个独立层次的情况，每个标题下通常应有至少 2-3 个实质段落。标题优先用直接、克制的陈述或名词短语，准确说明本节谈什么；禁止在标题里使用比喻、拟人、口号、悬念和为了显得生动而写的反问句（如「Agent 的导航仪」「给模型装上大脑」「会思考的镜子」）。避免「概述」「背景介绍」等空标题，也不要连续使用「名词：副题」式冒号标题。
 8. 语气专业、克制、自信；语言自然流畅，像一个有经验的人认真讲清楚一件事，避免套话、模板腔和「综上」「众所周知」式的空泛表达。
 9. 论点直接陈述，**不需要**标注引用编号或来源链接（文末参考文献由系统自动生成）。
 10. 如果提供了「可用插图」，根据当前问题和各章节的信息密度决定是否配图，在真正有帮助的位置单独插入对应占位符（如 `[[IMAGE_1]]`），整篇最多 {image_limit} 张。默认使用所有能解释概念、机制、差异、数据或操作步骤的插图；核心章节可使用多张互补的图，不要为了控制数量而省略有解释价值的图片。只有图片与正文重复、彼此重复或只是无关装饰时才省略，不能为了凑数插图。占位符必须逐字复制、独占一行且每个最多使用一次；不要输出 Markdown 图片、图片 URL 或自行编写 alt。
@@ -142,7 +142,7 @@ WRITING_RULES = """## 写作要求
 
 ### 像真人作者（表达层手法，底盘仍是专业可信）
 13. **允许第一人称做判断**：核心判断、取舍与倾向可以用「我的判断是」「我更倾向于」「在我看来」引出，不必全程客观腔；第一人称只用于观点与判断，不要写成个人经历流水账，也不要编造个人体验。
-14. **鼓励生活化类比**：用读者熟悉的事物打比方（新员工入职第一天拿到的说明书、爬山的安全带、工具箱里的扳手），一个贴切的比喻胜过一段抽象描述；类比只服务于讲清机制，不要为比喻而比喻。
+14. **类比必须克制**：能直接说明就直接说明。只有抽象机制仅靠定义很难理解时，正文才可使用简短类比，整篇通常不超过 1-2 处，用完立即回到准确概念；禁止连续扩展同一个比喻，禁止把类比写进标题，也不要用「护城河」「导航仪」「双刃剑」「拼图」「会思考的镜子」等陈词滥调装饰文章。
 15. **允许承认不确定**：资料不足或判断没把握时，可以诚实地写「这块资料有限，我的判断是……」「这一点目前没有定论，更可能的解释是……」——真诚的局限说明比生硬的免责声明更可信；但要区分「证据不足的推测」与「事实」，推测不能伪装成结论。
 16. **开篇多样化**：开篇可以是反常识的判断、一个具体场景、一个真实案例或一个直击要害的问题，不要每次都「随着……的发展」「近年来……」式起手；正文段落开头也避免整篇同一句式。
 17. **细节要具体可查**：涉及具体工具、命令、数字、版本、组织时给出真实名称（如「pi install npm:pi-web-access」这类可查的细节），禁止「某团队」「相关研究」式虚指。
@@ -162,7 +162,7 @@ graph TD
 
 ### 文章结构（开放，因题而异，不要套模板）
 结构没有标准模板：先想清楚**这个问题最自然的展开方式**（从现象切入？从冲突
-切入？从定义切入？从反常识判断切入？），再定章节与标题，不要机械套用常见骨架。
+切入？从定义切入？从反常识判断切入？），再决定是否需要章节，不要为了版式完整机械加标题或套用常见骨架。
 以下维度按本题自由组合，怎么贴题怎么来：
 - 开头方式：具体场景 / 反常识判断 / 直击问题 / 历史脉络 / 定义与边界，选最有力的
 - 组织逻辑：按时间线、按层次递进、按对比维度、按问题→机制→影响、按操作步骤……
@@ -387,11 +387,14 @@ _HEADING_BOLD_RE = _re.compile(r"^\*\*(.+?)\*\*\s*$")
 _COLON_HEADING_RATIO = 0.5      # 冒号式标题占比 ≥ 50% 且 ≥2 个 → 重写
 _COLON_HEADING_MIN = 2
 
-HEADING_REWRITE_PROMPT = """下面是一篇文章的标题列表，其中大量是「名词：副题」式冒号标题，读起来千篇一律。请把它们重写为风格多样的标题：
+HEADING_REWRITE_PROMPT = """下面是一篇文章的标题列表，包含模板化冒号标题或装饰性比喻。请把它们改成专业、克制、直接的标题：
 
 要求：
 - 不要再用冒号「：」
-- 交替使用陈述句标题、疑问句标题、短语式标题
+- 优先使用直接陈述或准确的名词短语，明确说明本节讨论对象或判断
+- 禁止比喻、类比、拟人、口号、悬念和反问；不要写「导航仪」「护城河」
+  「双刃剑」「会思考的镜子」「给模型装上大脑」一类标题
+- 不必刻意追求标题风格多样，准确自然比修辞变化重要
 - 标题必须准确对应原内容，不能改变含义或丢失信息
 - 输出 JSON 对象：{{"titles": ["新标题1", "新标题2", ...]}}，与输入顺序一一对应
 
@@ -433,14 +436,16 @@ def _colon_heading_ratio(headings: list[dict]) -> tuple[float, int]:
 def _normalize_headings(question: str, report: str,
                           config: RunnableConfig | None = None,
                           use_local_prompt: bool = False) -> str:
-    """若冒号式标题过多，用一次小 LLM 调用重写标题（代码级保底）。
+    """若冒号标题过多或含装饰性比喻，用一次小 LLM 调用重写标题。
 
     在 synthesizer 出稿前执行，不依赖反思循环是否拦截；
     LLM 失败/结果不合法时保留原标题，不影响出稿。
     """
     headings = _collect_headings(report)
     ratio, colon_count = _colon_heading_ratio(headings)
-    if not headings or colon_count < _COLON_HEADING_MIN or ratio < _COLON_HEADING_RATIO:
+    metaphor_count = sum(is_metaphorical_heading(h["text"]) for h in headings)
+    colon_overused = colon_count >= _COLON_HEADING_MIN and ratio >= _COLON_HEADING_RATIO
+    if not headings or (not colon_overused and not metaphor_count):
         return report
     try:
         llm = create_llm()
@@ -459,8 +464,8 @@ def _normalize_headings(question: str, report: str,
         if not isinstance(titles, list) or len(titles) != len(headings):
             raise ValueError(f"标题重写数量不匹配: {len(titles)} != {len(headings)}")
         titles = [str(t).strip() for t in titles]
-        if any(not t or "：" in t for t in titles):
-            raise ValueError("重写结果仍含冒号或为空标题")
+        if any(not t or "：" in t or is_metaphorical_heading(t) for t in titles):
+            raise ValueError("重写结果仍含冒号、装饰性比喻或为空标题")
         # 按原文精确替换（保留 ## / ** 前缀），从前往后逐个替换
         changed = 0
         for h, new_title in zip(headings, titles):
@@ -468,7 +473,7 @@ def _normalize_headings(question: str, report: str,
                 report = report.replace(h["text"], new_title, 1)
                 changed += 1
         if changed:
-            logger.info("标题去模板化：重写 %d/%d 个冒号式标题", changed, len(headings))
+            logger.info("标题去模板化：重写 %d/%d 个标题", changed, len(headings))
         return report
     except Exception as exc:
         logger.warning("标题重写失败，保留原标题: %s", exc)
@@ -773,6 +778,12 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
 
     return {
         "report": full_report,
+        "article_versions": [{
+            "stage": "synthesizer",
+            "reflection_round": int(state.get("reflection_round", 0)),
+            "report": full_report,
+            "metadata": {"mode": mode},
+        }],
         "report_feedback_signature": state.get("user_feedback", ""),
         "confidence": compute_confidence(state),
         "research_notes": _build_research_notes(state),

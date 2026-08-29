@@ -34,7 +34,7 @@ def _state(report: str = "报告 https://a.example/source") -> dict:
 
 
 def test_parse_failure_does_not_pass(monkeypatch):
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM("not-json"))
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _LLM("not-json"))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
     result = reflector_module.reflector(_state())
     assert result["reflection_pass"] is False
@@ -42,8 +42,44 @@ def test_parse_failure_does_not_pass(monkeypatch):
     assert result["validation_gaps"]
 
 
+def test_reflector_uses_configured_independent_model(monkeypatch):
+    called = []
+    evaluation = {
+        "completeness": 5, "accuracy": 5, "clarity": 5,
+        "feedback": "", "supplement_queries": [],
+    }
+
+    def _create(**kwargs):
+        called.append(kwargs)
+        return _LLM(json.dumps(evaluation))
+
+    monkeypatch.setattr(reflector_module, "OPENAI_MODEL", "writer-model")
+    monkeypatch.setattr(reflector_module, "REFLECTOR_MODEL", "judge-model")
+    monkeypatch.setattr(reflector_module, "create_llm", _create)
+    monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
+
+    result = reflector_module.reflector(_state())
+    assert called == [{"model": "judge-model"}]
+    assert result["reflection_pass"] is True
+    assert result["reflection_judge_degraded"] is False
+
+
+def test_reflector_service_failure_degrades_to_deterministic_rules(monkeypatch):
+    class _UnavailableLLM:
+        def invoke(self, _prompt, **_kwargs):
+            raise ValueError("judge unavailable")
+
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _UnavailableLLM())
+    monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
+
+    result = reflector_module.reflector(_state())
+    assert result["reflection_pass"] is True
+    assert result["reflection_judge_degraded"] is True
+    assert "确定性规则" in result["reflection_feedback"]
+
+
 def test_terminal_parse_failure_restores_previous_best(monkeypatch):
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM("not-json"))
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _LLM("not-json"))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
     monkeypatch.setattr(reflector_module, "MAX_REFLECTION_ROUNDS", 2)
     state = _state("当前坏稿。")
@@ -67,7 +103,7 @@ def test_code_computes_pass_from_dimensions(monkeypatch):
         "completeness": 5, "accuracy": 5, "clarity": 5,
         "total_score": 1, "pass": False, "feedback": "", "supplement_queries": [],
     }
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM(json.dumps(evaluation)))
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _LLM(json.dumps(evaluation)))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
     result = reflector_module.reflector(_state())
     assert result["reflection_pass"] is True
@@ -79,7 +115,7 @@ def test_unknown_citation_fails_without_forcing_search(monkeypatch):
         "completeness": 5, "accuracy": 5, "clarity": 5,
         "total_score": 15, "pass": True, "feedback": "", "supplement_queries": [],
     }
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM(json.dumps(evaluation)))
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _LLM(json.dumps(evaluation)))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
     result = reflector_module.reflector(_state("报告 https://unknown.example/source"))
     assert result["reflection_pass"] is False
@@ -93,7 +129,7 @@ def test_historical_sources_count_as_evidence(monkeypatch):
         "completeness": 5, "accuracy": 5, "clarity": 5,
         "total_score": 15, "pass": True, "feedback": "", "supplement_queries": [],
     }
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM(json.dumps(evaluation)))
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _LLM(json.dumps(evaluation)))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
 
     state = _state("报告引用历史来源 https://history.example/old")
@@ -111,7 +147,7 @@ def test_unresolved_validator_gaps_are_preserved(monkeypatch):
         "completeness": 5, "accuracy": 5, "clarity": 5,
         "total_score": 15, "pass": True, "feedback": "", "supplement_queries": [],
     }
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM(json.dumps(evaluation)))
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _LLM(json.dumps(evaluation)))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
 
     state = _state()
@@ -133,7 +169,7 @@ def test_supplement_gaps_are_attributed_to_a_branch(monkeypatch):
         "total_score": 6, "pass": False, "feedback": "证据不足",
         "supplement_queries": ["official statistics 2026"],
     }
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM(json.dumps(evaluation)))
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _LLM(json.dumps(evaluation)))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
 
     state = _state()
@@ -152,7 +188,7 @@ def test_supplements_target_weakest_branch_first(monkeypatch):
         "total_score": 6, "pass": False, "feedback": "",
         "supplement_queries": ["q1", "q2"],
     }
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM(json.dumps(evaluation)))
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _LLM(json.dumps(evaluation)))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
 
     state = _state()
@@ -173,7 +209,7 @@ def test_supplements_target_weakest_branch_first(monkeypatch):
 
 
 def test_parse_failure_gap_is_attributed_and_keeps_inherited(monkeypatch):
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM("not-json"))
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _LLM("not-json"))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
 
     state = _state()
@@ -192,7 +228,7 @@ def test_parse_failure_gap_is_attributed_and_keeps_inherited(monkeypatch):
 
 def test_non_object_evaluation_does_not_pass(monkeypatch):
     """合法 JSON 但不是对象（数组/标量）也必须按未通过处理。"""
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM("[1, 2, 3]"))
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _LLM("[1, 2, 3]"))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
     result = reflector_module.reflector(_state())
     assert result["reflection_pass"] is False
@@ -204,7 +240,7 @@ def test_string_supplement_queries_are_not_split_per_character(monkeypatch):
         "total_score": 6, "pass": False, "feedback": "",
         "supplement_queries": "official statistics",
     }
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM(json.dumps(evaluation)))
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _LLM(json.dumps(evaluation)))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
     gaps = reflector_module.reflector(_state())["validation_gaps"]
     assert [gap["search_query"] for gap in gaps] == ["official statistics"]
@@ -216,7 +252,7 @@ def test_duplicate_gap_queries_are_merged_once(monkeypatch):
         "total_score": 6, "pass": False, "feedback": "",
         "supplement_queries": ["重复查询"],
     }
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _LLM(json.dumps(evaluation)))
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _LLM(json.dumps(evaluation)))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
 
     state = _state()
@@ -253,7 +289,7 @@ def _reflect(state, monkeypatch, *, completeness=5, accuracy=5, clarity=5):
         "clarity": clarity,
     }
     monkeypatch.setattr(reflector_module, "create_llm",
-                        lambda: _LLM(json.dumps(evaluation)))
+                        lambda **_: _LLM(json.dumps(evaluation)))
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
     return reflector_module.reflector(state)
 
@@ -351,7 +387,7 @@ def test_terminal_reflection_restores_historical_best_report(monkeypatch):
         def invoke(self, _prompt, **_kwargs):
             return _Response(json.dumps(next(evaluations), ensure_ascii=False))
 
-    monkeypatch.setattr(reflector_module, "create_llm", lambda: _SequenceLLM())
+    monkeypatch.setattr(reflector_module, "create_llm", lambda **_: _SequenceLLM())
     monkeypatch.setattr(reflector_module, "get_prompt_from_langfuse", lambda *_, **__: "prompt")
     monkeypatch.setattr(reflector_module, "MAX_REFLECTION_ROUNDS", 2)
 
@@ -495,6 +531,23 @@ def test_ai_flavor_colon_headings_detected():
               "## 前馈网络：逐位置的变换\n正文。\n")
     issues = _ai_issues(report)
     assert any("冒号标题" in i for i in issues)
+
+
+def test_metaphorical_heading_is_hard_style_issue():
+    report = "## Agent 的导航仪\n正文直接解释反馈机制。\n\n## 状态流转\n正文。\n"
+    issues = _ai_issues(report)
+    assert any("比喻、拟人或口号式标题" in issue for issue in issues)
+
+
+def test_excessive_tertiary_headings_are_detected():
+    report = (
+        "## 核心机制\n正文。\n"
+        "### 状态读取\n正文。\n"
+        "### 反馈生成\n正文。\n"
+        "### 重新执行\n正文。\n"
+    )
+    issues = _ai_issues(report)
+    assert any("三级小标题" in issue for issue in issues)
 
 
 def test_mixed_heading_styles_pass():

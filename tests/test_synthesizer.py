@@ -287,7 +287,8 @@ def test_writing_rules_contain_all_shared_requirements():
     rules = synthesizer_module.WRITING_RULES
     for phrase in ("```mermaid", "技术图解", "先理解问题意图再决定写什么",
                        "只覆盖问题明确问到的范围", "去 AI 味", "归因节制",
-                       "小标题风格要多样", "根据当前问题", "有解释价值", "因题而异",
+                       "小标题不是必需品", "禁止在标题里使用比喻", "类比必须克制",
+                       "根据当前问题", "有解释价值", "因题而异",
                    "不要每次都写「结论：1. 2. 3.」"):
         assert phrase in rules, f"WRITING_RULES 缺少: {phrase}"
     # image_limit 占位符在 WRITING_RULES 里，注入时渲染为具体数字
@@ -575,6 +576,34 @@ def test_normalize_headings_rewrites_via_llm(monkeypatch):
     assert "：" not in out
 
 
+def test_normalize_headings_rewrites_single_metaphorical_heading(monkeypatch):
+    report = "## Agent 的导航仪\n正文\n\n## 状态如何流转\n正文\n"
+
+    class _Resp:
+        content = '{"titles": ["反思反馈如何修正执行", "状态如何流转"]}'
+
+    monkeypatch.setattr(synthesizer_module, "create_llm",
+                        lambda **_: type("_LLM", (), {"invoke": lambda self, p, **_k: _Resp()})())
+    monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
+                        lambda *a, **k: "prompt")
+    out = synthesizer_module._normalize_headings("问题", report)
+    assert "Agent 的导航仪" not in out
+    assert "## 反思反馈如何修正执行" in out
+
+
+def test_normalize_headings_rejects_metaphor_in_rewrite(monkeypatch):
+    report = "## A：副题一\n正文\n\n## B：副题二\n正文\n"
+
+    class _Resp:
+        content = '{"titles": ["Agent 的指南针", "直接标题"]}'
+
+    monkeypatch.setattr(synthesizer_module, "create_llm",
+                        lambda **_: type("_LLM", (), {"invoke": lambda self, p, **_k: _Resp()})())
+    monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
+                        lambda *a, **k: "prompt")
+    assert synthesizer_module._normalize_headings("问题", report) == report
+
+
 def test_heading_rewrite_local_prompt_formats_json_example(monkeypatch):
     """离线评测固定本地模板时，JSON 示例花括号必须正确转义。"""
     report = "## A：副题一\n正文\n\n## B：副题二\n正文\n"
@@ -602,6 +631,16 @@ def test_normalize_headings_noop_when_already_mixed(monkeypatch):
 
     def _boom(*a, **k):
         raise AssertionError("冒号占比不足，不应调用 LLM")
+
+    monkeypatch.setattr(synthesizer_module, "create_llm", _boom)
+    assert synthesizer_module._normalize_headings("问题", report) == report
+
+
+def test_normalize_headings_does_not_misclassify_technical_terms(monkeypatch):
+    report = "## 搜索引擎与黑箱模型\n正文\n\n## 状态流转\n正文\n"
+
+    def _boom(*a, **k):
+        raise AssertionError("正常技术术语不应触发标题重写")
 
     monkeypatch.setattr(synthesizer_module, "create_llm", _boom)
     assert synthesizer_module._normalize_headings("问题", report) == report

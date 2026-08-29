@@ -53,3 +53,10 @@ def test_plainness_level_differs_by_style():
         assert "朴实原则" in t
         assert "逻辑严密" in t
         assert "不要生造词" in t or "生造词" in t
+
+
+def test_popular_style_prefers_examples_over_frequent_analogies():
+    prompt = get_style_section("popular")
+    assert "优先用具体例子和分步解释" in prompt
+    assert "才少量使用贴切类比" in prompt
+    assert "多用类比" not in prompt

@@ -104,6 +104,12 @@ OPENAI_API_KEY=sk-xxx
 OPENAI_API_BASE=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o
 
+# 可选：生产反思使用独立模型；留空时与 OPENAI_MODEL 相同
+# REFLECTOR_MODEL=gpt-4o
+
+# 可选：离线文章质量回归使用固定独立模型
+# ARTICLE_EVAL_JUDGE_MODEL=gpt-4o
+
 # 搜索 — Tavily（https://tavily.com 注册，免费 1000 次/月）
 TAVILY_API_KEY=tvly-xxx
 
@@ -116,6 +122,9 @@ LANGFUSE_HOST=https://cloud.langfuse.com
 > **提示**：LLM 支持任何 OpenAI 兼容 API，如讯飞 MaaS、硅基流动、DeepSeek 等。
 
 > **`TAVILY_API_KEY` 是必填的**。缺失或搜索层连续失败时，研究会直接中止并报明确错误，而不是让模型凭内部知识编一份零来源的报告。
+
+每次文章生成会自动进入独立素材库，响应中的 `article_id` 可用于查询全文、阶段版本和评价。
+接口与独立 Judge 配置见 [文章素材库说明](docs/article-archive.md)。
 
 ### 2.1 可选：中文向量检索
 

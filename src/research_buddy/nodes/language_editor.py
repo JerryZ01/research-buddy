@@ -218,6 +218,12 @@ def language_editor(state: ResearchState, config: RunnableConfig | None = None,
             "language_edits": [],
             "language_editor_changed": False,
             "language_candidates_count": 0,
+            "article_versions": [{
+                "stage": "language_editor",
+                "reflection_round": int(state.get("reflection_round", 0)),
+                "report": report,
+                "metadata": {"changed": False, "disabled": True},
+            }],
             "messages": ["语言审校已关闭，保留当前文章"],
         }
     revised, edits = edit_article_language(state, report, config=config)
@@ -228,6 +234,12 @@ def language_editor(state: ResearchState, config: RunnableConfig | None = None,
             writer({"type": "report_chunk", "content": revised[offset:offset + 2000]})
     return {
         "report": revised,
+        "article_versions": [{
+            "stage": "language_editor",
+            "reflection_round": int(state.get("reflection_round", 0)),
+            "report": revised,
+            "metadata": {"changed": changed, "edits_count": len(edits)},
+        }],
         "language_edits": edits,
         "language_editor_changed": changed,
         "language_candidates_count": candidate_count,

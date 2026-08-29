@@ -113,11 +113,81 @@ class Database:
                 created_at REAL
             );
 
+            CREATE TABLE IF NOT EXISTS article_generations (
+                id TEXT PRIMARY KEY,
+                external_id TEXT DEFAULT '',
+                source_type TEXT DEFAULT 'research',
+                status TEXT DEFAULT 'running',
+                question TEXT NOT NULL,
+                style TEXT DEFAULT '',
+                topic_id TEXT DEFAULT '',
+                report_id TEXT DEFAULT '',
+                report TEXT DEFAULT '',
+                confidence TEXT DEFAULT '',
+                sources TEXT DEFAULT '[]',
+                selected_images TEXT DEFAULT '[]',
+                sub_questions TEXT DEFAULT '[]',
+                research_notes TEXT DEFAULT '[]',
+                writer_model TEXT DEFAULT '',
+                judge_model TEXT DEFAULT '',
+                config_snapshot TEXT DEFAULT '{}',
+                reflection_rounds INTEGER DEFAULT 0,
+                reflection_score INTEGER DEFAULT 0,
+                reflection_pass INTEGER DEFAULT 0,
+                reflection_judge_degraded INTEGER DEFAULT 0,
+                stop_reason TEXT DEFAULT '',
+                best_report_restored INTEGER DEFAULT 0,
+                language_edits TEXT DEFAULT '[]',
+                evidence_edits TEXT DEFAULT '[]',
+                token_usage TEXT DEFAULT '{}',
+                error TEXT DEFAULT '',
+                curation_status TEXT DEFAULT 'raw',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS article_versions (
+                id TEXT PRIMARY KEY,
+                generation_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                stage TEXT DEFAULT '',
+                reflection_round INTEGER DEFAULT 0,
+                report TEXT DEFAULT '',
+                feedback TEXT DEFAULT '',
+                metadata TEXT DEFAULT '{}',
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (generation_id) REFERENCES article_generations(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS article_reviews (
+                id TEXT PRIMARY KEY,
+                generation_id TEXT NOT NULL,
+                reviewer_type TEXT DEFAULT 'human',
+                reviewer_model TEXT DEFAULT '',
+                overall_score REAL,
+                dimension_scores TEXT DEFAULT '{}',
+                issue_tags TEXT DEFAULT '[]',
+                notes TEXT DEFAULT '',
+                include_in_evaluation INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (generation_id) REFERENCES article_generations(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_reports_topic ON reports(topic_id);
             CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at);
             CREATE INDEX IF NOT EXISTS idx_tracking_topic ON tracking_logs(topic_id);
             CREATE INDEX IF NOT EXISTS idx_changes_log ON changes(tracking_log_id);
             CREATE INDEX IF NOT EXISTS idx_runs_created ON runs(created_at);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_article_generations_external
+                ON article_generations(external_id) WHERE external_id != '';
+            CREATE INDEX IF NOT EXISTS idx_article_generations_created
+                ON article_generations(created_at);
+            CREATE INDEX IF NOT EXISTS idx_article_generations_status
+                ON article_generations(status, curation_status);
+            CREATE INDEX IF NOT EXISTS idx_article_versions_generation
+                ON article_versions(generation_id, sequence);
+            CREATE INDEX IF NOT EXISTS idx_article_reviews_generation
+                ON article_reviews(generation_id, created_at);
         """)
         self._migrate(conn)
         conn.commit()
@@ -393,6 +463,227 @@ class Database:
         )
         self.conn.commit()
         return cur.rowcount
+
+    # ── 文章素材档案 ────────────────────────────────────
+
+    def create_article_generation(self, question: str, style: str = "",
+                                  source_type: str = "research",
+                                  external_id: str = "", topic_id: str = "",
+                                  generation_id: str | None = None) -> dict:
+        """创建永久文章档案；external_id 用于 SSE/HITL 幂等恢复。"""
+        generation_id = generation_id or uuid.uuid4().hex[:12]
+        self.conn.execute(
+            """INSERT INTO article_generations
+               (id, external_id, source_type, status, question, style, topic_id)
+               VALUES (?, ?, ?, 'running', ?, ?, ?)""",
+            (generation_id, external_id, source_type, question, style, topic_id),
+        )
+        self.conn.commit()
+        return self.get_article_generation(generation_id)
+
+    def backfill_reports_to_article_archive(self) -> int:
+        """幂等导入历史知识报告；旧数据没有的模型/配置字段保持为空。"""
+        rows = self.conn.execute(
+            """SELECT id, topic_id, question, report, confidence, sources,
+                      research_notes, input_tokens, output_tokens, total_tokens,
+                      reflection_rounds, created_at
+               FROM reports ORDER BY created_at"""
+        ).fetchall()
+        imported = 0
+        for row in rows:
+            external_id = f"report:{row['id']}"
+            exists = self.conn.execute(
+                "SELECT 1 FROM article_generations WHERE external_id=?", (external_id,),
+            ).fetchone()
+            if exists:
+                continue
+            generation_id = uuid.uuid4().hex[:12]
+            token_usage = {
+                "input_tokens": int(row["input_tokens"] or 0),
+                "output_tokens": int(row["output_tokens"] or 0),
+                "total_tokens": int(row["total_tokens"] or 0),
+            }
+            self.conn.execute(
+                """INSERT INTO article_generations
+                   (id, external_id, source_type, status, question, topic_id, report_id,
+                    report, confidence, sources, research_notes, reflection_rounds,
+                    token_usage, curation_status, created_at, updated_at)
+                   VALUES (?, ?, 'knowledge_legacy', 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                           'raw', ?, ?)""",
+                (generation_id, external_id, row["question"], row["topic_id"], row["id"],
+                 row["report"], row["confidence"], row["sources"], row["research_notes"],
+                 int(row["reflection_rounds"] or 0),
+                 json.dumps(token_usage, ensure_ascii=False), row["created_at"], row["created_at"]),
+            )
+            self.conn.execute(
+                """INSERT INTO article_versions
+                   (id, generation_id, sequence, stage, reflection_round, report, metadata,
+                    created_at)
+                   VALUES (?, ?, 1, 'legacy_final', ?, ?, ?, ?)""",
+                (uuid.uuid4().hex[:12], generation_id, int(row["reflection_rounds"] or 0),
+                 row["report"], json.dumps({"backfilled": True}), row["created_at"]),
+            )
+            imported += 1
+        self.conn.commit()
+        return imported
+
+    def update_article_generation(self, generation_id: str, **kwargs) -> dict | None:
+        """更新档案及其版本快照，不接受 schema 之外的任意字段。"""
+        allowed = {
+            "status", "report_id", "report", "confidence", "sources",
+            "selected_images", "sub_questions", "research_notes", "writer_model",
+            "judge_model", "config_snapshot", "reflection_rounds", "reflection_score",
+            "reflection_pass", "reflection_judge_degraded", "stop_reason",
+            "best_report_restored", "language_edits", "evidence_edits", "token_usage",
+            "error", "curation_status", "topic_id", "style",
+        }
+        versions = kwargs.get("article_versions")
+        updates = {key: value for key, value in kwargs.items() if key in allowed}
+        json_fields = {
+            "sources", "selected_images", "sub_questions", "research_notes",
+            "config_snapshot", "language_edits", "evidence_edits", "token_usage",
+        }
+        bool_fields = {"reflection_pass", "reflection_judge_degraded", "best_report_restored"}
+        for key in list(updates):
+            if key in json_fields:
+                empty_value = {} if key in {"config_snapshot", "token_usage"} else []
+                updates[key] = json.dumps(
+                    updates[key] or empty_value, ensure_ascii=False,
+                )
+            elif key in bool_fields:
+                updates[key] = 1 if updates[key] else 0
+        if updates:
+            set_clause = ", ".join(f"{key}=?" for key in updates)
+            values = list(updates.values()) + [generation_id]
+            self.conn.execute(
+                f"UPDATE article_generations SET {set_clause}, updated_at=datetime('now') WHERE id=?",
+                values,
+            )
+        if versions is not None:
+            self.conn.execute("DELETE FROM article_versions WHERE generation_id=?", (generation_id,))
+            for sequence, version in enumerate(versions, 1):
+                self.conn.execute(
+                    """INSERT INTO article_versions
+                       (id, generation_id, sequence, stage, reflection_round, report, feedback, metadata)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (uuid.uuid4().hex[:12], generation_id, sequence,
+                     str(version.get("stage", "")), int(version.get("reflection_round", 0) or 0),
+                     str(version.get("report", "")), str(version.get("feedback", "")),
+                     json.dumps(version.get("metadata", {}), ensure_ascii=False)),
+                )
+        self.conn.commit()
+        return self.get_article_generation(generation_id)
+
+    def get_article_generation(self, generation_id: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM article_generations WHERE id=?", (generation_id,),
+        ).fetchone()
+        if not row:
+            return None
+        record = self._row_to_article_generation(row)
+        record["versions"] = self.list_article_versions(generation_id)
+        record["reviews"] = self.list_article_reviews(generation_id)
+        return record
+
+    def get_article_generation_by_external_id(self, external_id: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT id FROM article_generations WHERE external_id=?", (external_id,),
+        ).fetchone()
+        return self.get_article_generation(row["id"]) if row else None
+
+    def list_article_generations(self, limit: int = 50, offset: int = 0,
+                                 status: str = "", curation_status: str = "") -> list[dict]:
+        clauses, values = [], []
+        if status:
+            clauses.append("status=?")
+            values.append(status)
+        if curation_status:
+            clauses.append("curation_status=?")
+            values.append(curation_status)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        values.extend([max(1, min(200, int(limit))), max(0, int(offset))])
+        rows = self.conn.execute(
+            """SELECT id, external_id, source_type, status, question, style,
+                      topic_id, report_id, substr(report, 1, 300) AS report_preview,
+                      confidence, writer_model, judge_model, reflection_rounds,
+                      reflection_score, reflection_pass, reflection_judge_degraded,
+                      stop_reason, best_report_restored, error, curation_status,
+                      created_at, updated_at
+               FROM article_generations""" + where
+            + " ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?", values,
+        ).fetchall()
+        records = [dict(row) for row in rows]
+        for record in records:
+            for key in ("reflection_pass", "reflection_judge_degraded", "best_report_restored"):
+                record[key] = bool(record.get(key))
+        return records
+
+    def list_article_versions(self, generation_id: str) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM article_versions WHERE generation_id=? ORDER BY sequence",
+            (generation_id,),
+        ).fetchall()
+        records = []
+        for row in rows:
+            record = dict(row)
+            record["metadata"] = self._load_json(record.get("metadata"), {})
+            records.append(record)
+        return records
+
+    def create_article_review(self, generation_id: str, reviewer_type: str = "human",
+                              reviewer_model: str = "", overall_score: float | None = None,
+                              dimension_scores: dict | None = None,
+                              issue_tags: list[str] | None = None, notes: str = "",
+                              include_in_evaluation: bool = False) -> dict:
+        if not self.get_article_generation(generation_id):
+            raise ValueError("文章档案不存在")
+        review_id = uuid.uuid4().hex[:12]
+        self.conn.execute(
+            """INSERT INTO article_reviews
+               (id, generation_id, reviewer_type, reviewer_model, overall_score,
+                dimension_scores, issue_tags, notes, include_in_evaluation)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (review_id, generation_id, reviewer_type, reviewer_model, overall_score,
+             json.dumps(dimension_scores or {}, ensure_ascii=False),
+             json.dumps(issue_tags or [], ensure_ascii=False), notes,
+             1 if include_in_evaluation else 0),
+        )
+        self.conn.commit()
+        return next(item for item in self.list_article_reviews(generation_id) if item["id"] == review_id)
+
+    def list_article_reviews(self, generation_id: str) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM article_reviews WHERE generation_id=? ORDER BY created_at, rowid",
+            (generation_id,),
+        ).fetchall()
+        records = []
+        for row in rows:
+            record = dict(row)
+            record["dimension_scores"] = self._load_json(record.get("dimension_scores"), {})
+            record["issue_tags"] = self._load_json(record.get("issue_tags"), [])
+            record["include_in_evaluation"] = bool(record.get("include_in_evaluation"))
+            records.append(record)
+        return records
+
+    @staticmethod
+    def _load_json(value, default):
+        try:
+            return json.loads(value or json.dumps(default))
+        except (json.JSONDecodeError, TypeError):
+            return default
+
+    @classmethod
+    def _row_to_article_generation(cls, row: sqlite3.Row) -> dict:
+        record = dict(row)
+        for key, default in (
+            ("sources", []), ("selected_images", []), ("sub_questions", []),
+            ("research_notes", []), ("config_snapshot", {}), ("language_edits", []),
+            ("evidence_edits", []), ("token_usage", {}),
+        ):
+            record[key] = cls._load_json(record.get(key), default)
+        for key in ("reflection_pass", "reflection_judge_degraded", "best_report_restored"):
+            record[key] = bool(record.get(key))
+        return record
 
     def close(self) -> None:
         conn = getattr(self._local, 'conn', None)

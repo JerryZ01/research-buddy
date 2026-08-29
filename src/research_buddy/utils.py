@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -31,6 +32,22 @@ CHANGE_TYPE_LABEL = {
     "update": "更新",
     "contradiction": "⚠️ 矛盾",
 }
+
+
+# 标题中的高置信陈词滥调式比喻。只收容易明确判断的表达，避免把搜索引擎、
+# 黑箱模型等已经成为技术术语的词误判为修辞。
+_HEADING_METAPHOR_RE = re.compile(
+    r"(?:像(?:一个|一把|一面|一座|一条|一台)|如同|犹如|仿佛|好比)|"
+    r"导航仪|指南针|放大镜|护城河|双刃剑|试金石|压舱石|敲门砖|定海神针|幕后英雄|"
+    r"(?:会思考|会反省|会自我修正)的|"
+    r"给.{0,12}(?:装上|穿上).{0,8}(?:大脑|眼睛|翅膀|外衣)|"
+    r"(?:一场|开启).{0,12}(?:之旅|旅程)|当.{0,12}遇上"
+)
+
+
+def is_metaphorical_heading(text: str) -> bool:
+    """判断标题是否使用高置信、装饰性的比喻或拟人表达。"""
+    return bool(_HEADING_METAPHOR_RE.search(str(text).strip()))
 
 
 # ── JSON 解析 ───────────────────────────────────────────

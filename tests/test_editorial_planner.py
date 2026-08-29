@@ -56,6 +56,11 @@ def test_build_brief_uses_local_prompt_and_validates(monkeypatch):
     assert result["thesis"] == "GIL 限制的是字节码执行权"
 
 
+def test_editorial_prompt_limits_sections_and_bans_metaphorical_headings():
+    assert "通常规划 2-4 个核心章节" in planner.EDITORIAL_BRIEF_PROMPT
+    assert "禁止比喻、拟人、口号" in planner.EDITORIAL_BRIEF_PROMPT
+
+
 def test_build_brief_fails_open(monkeypatch):
     monkeypatch.setattr(planner, "create_llm", lambda: (_ for _ in ()).throw(RuntimeError("down")))
     assert planner.build_editorial_brief({"search_results": [{"content": "x"}]}) == {}

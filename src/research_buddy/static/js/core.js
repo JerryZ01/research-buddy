@@ -16,6 +16,9 @@ const appState = {
   currentPage: 'dashboard',
   currentTopicId: null,
   currentReportId: null,
+  currentArticleId: null,
+  currentArticle: null,
+  articles: [],
   isResearchRunning: false,
   runId: null,               // 本次研究的 run_id（断线恢复用）
   userCancelled: false,      // 用户是否主动取消（主动取消不做断线轮询）
@@ -497,6 +500,9 @@ function navigate(page, opts = {}) {
   } else if (page === 'report-detail' && opts.reportId) {
     appState.currentReportId = opts.reportId;
     appState.navHistory.push(appState.currentPage);
+  } else if (page === 'article-detail' && opts.articleId) {
+    appState.currentArticleId = opts.articleId;
+    appState.navHistory.push(appState.currentPage);
   }
 
   appState.currentPage = page;
@@ -513,6 +519,8 @@ function navigate(page, opts = {}) {
     'research': 'research',
     'topics': 'topics',
     'topic-detail': 'topics',
+    'articles': 'articles',
+    'article-detail': 'articles',
     'tracking': 'tracking',
     'report-detail': 'topics',
   };
@@ -525,6 +533,8 @@ function navigate(page, opts = {}) {
   if (page === 'topic-detail') loadTopicDetail(opts.topicId);
   if (page === 'tracking') loadTrackingPage();
   if (page === 'report-detail') loadReportDetail(opts.reportId);
+  if (page === 'articles') loadArticles();
+  if (page === 'article-detail') loadArticleDetail(opts.articleId);
   if (page === 'research') refreshResearchModes();
 
   // Update breadcrumb
@@ -585,6 +595,11 @@ function updateBreadcrumb() {
   } else if (page === 'report-detail') {
     crumbs.push({ label: '研究主题', page: 'topics' });
     crumbs.push({ label: '报告详情', current: true });
+  } else if (page === 'articles') {
+    crumbs.push({ label: '文章素材库', current: true });
+  } else if (page === 'article-detail') {
+    crumbs.push({ label: '文章素材库', page: 'articles' });
+    crumbs.push({ label: '文章详情', current: true });
   } else if (page === 'tracking') {
     crumbs.push({ label: '追踪任务', current: true });
   }
@@ -649,7 +664,7 @@ async function api(path, opts = {}) {
   });
   if (!r.ok) {
     const e = await r.json().catch(() => ({ error: r.statusText }));
-    throw new Error(e.error || r.statusText);
+    throw new Error(e.detail || e.error || r.statusText);
   }
   return r.json();
 }

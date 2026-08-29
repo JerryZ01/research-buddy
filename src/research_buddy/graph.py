@@ -282,6 +282,8 @@ def run_research(question: str, style: str = "tech-blog") -> dict:
     Args:
         style: 写作风格 id（见 research_buddy.styles）
     """
+    from research_buddy.archive import complete_generation, fail_generation, start_generation
+    generation_id = start_generation(question, style, "research_cli")
     graph = create_research_graph()
     langfuse_handler = get_langfuse_handler()
 
@@ -291,12 +293,18 @@ def run_research(question: str, style: str = "tech-blog") -> dict:
 
     logger.info("开始研究: %s", question)
 
-    with track_run_tokens() as usage:
-        with _langfuse_run("research", question, langfuse_handler) as trace_id:
-            result = stream_and_accumulate(graph, {"question": question, "style": style}, config)
+    try:
+        with track_run_tokens() as usage:
+            with _langfuse_run("research", question, langfuse_handler) as trace_id:
+                result = stream_and_accumulate(graph, {"question": question, "style": style}, config)
+    except Exception as exc:
+        fail_generation(generation_id, str(exc))
+        raise
     result.setdefault("question", question)
     result["langfuse_trace_id"] = trace_id
     result["token_usage"] = dict(usage)
+    complete_generation(generation_id, result)
+    result["article_id"] = generation_id
 
     # 确保 Langfuse 数据刷出
     if langfuse_handler:
@@ -315,6 +323,10 @@ def run_knowledge_research(question: str, topic_id: str,
         topic_id: 关联的研究主题 ID
         is_incremental: 是否增量模式（True=只搜索新信息，False=全新研究但保存结果）
     """
+    from research_buddy.archive import complete_generation, fail_generation, start_generation
+    generation_id = start_generation(
+        question, style, "knowledge_cli", topic_id=topic_id,
+    )
     graph = create_knowledge_research_graph()
     langfuse_handler = get_langfuse_handler()
 
@@ -325,17 +337,23 @@ def run_knowledge_research(question: str, topic_id: str,
     mode = "增量" if is_incremental else "全新"
     logger.info("开始%s研究: %s (主题: %s)", mode, question, topic_id)
 
-    with track_run_tokens() as usage:
-        with _langfuse_run("knowledge-research", question, langfuse_handler) as trace_id:
-            result = stream_and_accumulate(graph, {
-                "question": question,
-                "topic_id": topic_id,
-                "is_incremental": is_incremental,
-                "style": style,
-            }, config)
+    try:
+        with track_run_tokens() as usage:
+            with _langfuse_run("knowledge-research", question, langfuse_handler) as trace_id:
+                result = stream_and_accumulate(graph, {
+                    "question": question,
+                    "topic_id": topic_id,
+                    "is_incremental": is_incremental,
+                    "style": style,
+                }, config)
+    except Exception as exc:
+        fail_generation(generation_id, str(exc))
+        raise
     result.setdefault("question", question)
     result["langfuse_trace_id"] = trace_id
     result["token_usage"] = dict(usage)
+    complete_generation(generation_id, result)
+    result["article_id"] = generation_id
 
     # 确保 Langfuse 数据刷出
     if langfuse_handler:
@@ -431,6 +449,11 @@ def run_tracking(topic_id: str, question: str | None = None) -> dict:
         kw_str = "、".join(keywords[:3]) if keywords else topic["name"]
         question = f"{topic['name']} 最新动态和变化（{kw_str}）"
 
+    from research_buddy.archive import complete_generation, fail_generation, start_generation
+    generation_id = start_generation(
+        question, "tech-blog", "tracking", topic_id=topic_id,
+    )
+
     graph = create_tracking_graph()
     langfuse_handler = get_langfuse_handler()
 
@@ -440,16 +463,22 @@ def run_tracking(topic_id: str, question: str | None = None) -> dict:
 
     logger.info("开始追踪: %s (问题: %s)", topic['name'], question)
 
-    with track_run_tokens() as usage:
-        with _langfuse_run("tracking", question, langfuse_handler) as trace_id:
-            result = stream_and_accumulate(graph, {
-                "question": question,
-                "topic_id": topic_id,
-                "is_incremental": True,
-            }, config)
+    try:
+        with track_run_tokens() as usage:
+            with _langfuse_run("tracking", question, langfuse_handler) as trace_id:
+                result = stream_and_accumulate(graph, {
+                    "question": question,
+                    "topic_id": topic_id,
+                    "is_incremental": True,
+                }, config)
+    except Exception as exc:
+        fail_generation(generation_id, str(exc))
+        raise
     result.setdefault("question", question)
     result["langfuse_trace_id"] = trace_id
     result["token_usage"] = dict(usage)
+    complete_generation(generation_id, result)
+    result["article_id"] = generation_id
 
     # 确保 Langfuse 数据刷出
     if langfuse_handler:

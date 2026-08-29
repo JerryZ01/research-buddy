@@ -64,9 +64,11 @@ def _candidate(url: str, sq: str = "sq_01", query: str = "查询") -> dict:
     return {"url": url, "sub_question_id": sq, "query": query}
 
 
-def _vision_reply(indexes_alts: list[tuple[int, str]]) -> dict:
+def _vision_reply(indexes_alts: list[tuple[int, str]],
+                  watermark_status: str = "none") -> dict:
     return {"choices": [{"message": {"content": json.dumps(
-        {"images": [{"index": i, "alt": a} for i, a in indexes_alts]},
+        {"images": [{"index": i, "alt": a, "watermark_status": watermark_status}
+                    for i, a in indexes_alts]},
         ensure_ascii=False,
     )}}]}
 
@@ -112,6 +114,7 @@ def test_select_images_returns_picked_images(monkeypatch):
     assert picked[0]["url"] == "https://img.example/b.jpg"  # index=2 → 第二个候选
     assert picked[0]["cached_url"].startswith("/media/research-images/")
     assert picked[0]["alt"] == "画面内容示意图"
+    assert picked[0]["watermark_status"] == "none"
     assert picked[0]["sub_question_id"] == "sq_01"
     # 请求参数正确：vision 模型 + base64 data URL
     assert captured["json"]["model"] == "v4-flash-vision-exp"
@@ -134,6 +137,29 @@ def test_out_of_range_and_duplicate_indexes_are_dropped(monkeypatch):
     assert len(picked) == 1
     assert picked[0]["url"] == "https://img.example/a.jpg"
     assert picked[0]["alt"] == "有效"
+
+
+@pytest.mark.parametrize("status", ["present", "uncertain", ""])
+def test_watermarked_uncertain_or_unclassified_images_are_rejected(monkeypatch, status):
+    monkeypatch.setattr(images_module, "VISION_MODEL", "vision-model")
+    monkeypatch.setattr(images_module, "VISION_API_KEY", "key")
+    monkeypatch.setattr(images_module, "_download_image",
+                        lambda _client, _url: (_FAKE_IMG, "image/jpeg"))
+
+    if status:
+        response = _vision_reply([(1, "带水印候选")], watermark_status=status)
+    else:
+        response = {"choices": [{"message": {"content": json.dumps({
+            "images": [{"index": 1, "alt": "缺少水印判断"}],
+        }, ensure_ascii=False)}}]}
+    monkeypatch.setattr(images_module.httpx, "post",
+                        lambda *_args, **_kwargs: _FakeResp(json_body=response))
+
+    picked = images_module.select_images(
+        [{"id": "sq_01", "question": "问题？"}],
+        [_candidate("https://img.example/a.jpg")],
+    )
+    assert picked == []
 
 
 # ── 降级链 ───────────────────────────────────────────

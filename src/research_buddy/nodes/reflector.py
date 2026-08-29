@@ -6,9 +6,11 @@ import re
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import StreamWriter
 
-from research_buddy.config import MAX_REFLECTION_ROUNDS
+from research_buddy.config import MAX_REFLECTION_ROUNDS, OPENAI_MODEL, REFLECTOR_MODEL
 from research_buddy.state import ResearchState
-from research_buddy.utils import invoke_llm, parse_llm_json, create_llm, get_prompt_from_langfuse, normalize_url
+from research_buddy.utils import (create_llm, get_prompt_from_langfuse,
+                                  invoke_llm, is_metaphorical_heading,
+                                  normalize_url, parse_llm_json)
 
 logger = logging.getLogger(__name__)
 
@@ -173,8 +175,8 @@ _GUIDE_OR_SELFQA_COMBINED_LIMIT = 3
 # 同时覆盖 markdown（##/###）与独立一行的粗体标题。
 _COLON_HEADING_RATIO_LIMIT = 0.5
 _COLON_HEADING_MIN = 2
-_HEADING_MD_RE = re.compile(r"^#{2,3}\s*.+$", re.M)
-_HEADING_BOLD_RE = re.compile(r"^\*\*.+\*\*\s*$", re.M)
+_HEADING_MD_RE = re.compile(r"^(#{2,3})\s*(.+?)\s*$", re.M)
+_HEADING_BOLD_RE = re.compile(r"^\*\*(.+?)\*\*\s*$", re.M)
 
 
 def _ai_flavor_issues(report: str) -> list[str]:
@@ -242,17 +244,33 @@ def _ai_flavor_issues(report: str) -> list[str]:
         )
 
     # 冒号式小标题过密（「名词：副题」整篇重复，markdown 与粗体都算）
-    headings = (_HEADING_MD_RE.findall(report)
-                + [h for h in _HEADING_BOLD_RE.findall(report) if "：" in h])
+    md_headings = _HEADING_MD_RE.findall(report)
+    headings = ([text for _level, text in md_headings]
+                + _HEADING_BOLD_RE.findall(report))
     if len(headings) >= _COLON_HEADING_MIN:
         colon_headings = [h for h in headings if "：" in h]
         if len(colon_headings) >= _COLON_HEADING_MIN \
                 and len(colon_headings) / len(headings) >= _COLON_HEADING_RATIO_LIMIT:
             issues.append(
                 f"{len(colon_headings)}/{len(headings)} 个小标题都是「名词：副题」式冒号标题"
-                "（如「自注意力：当每个 token 都成为检索者」），请让标题风格多样化——"
-                "交替使用陈述句、疑问句、短语式标题"
+                "（如「自注意力：当每个 token 都成为检索者」），请改成直接、克制的"
+                "陈述或名词短语，不要为了形式变化改成反问或比喻"
             )
+
+    metaphor_headings = [heading for heading in headings if is_metaphorical_heading(heading)]
+    if metaphor_headings:
+        issues.append(
+            f"存在 {len(metaphor_headings)} 个比喻、拟人或口号式标题"
+            f"（如「{metaphor_headings[0]}」），请改成直接说明本节对象或判断的克制标题"
+        )
+
+    h2_count = sum(level == "##" for level, _text in md_headings)
+    h3_count = sum(level == "###" for level, _text in md_headings)
+    if h3_count > 2 and h3_count >= h2_count:
+        issues.append(
+            f"文章使用了 {h3_count} 个三级小标题，结构切分过细；请合并相邻内容，"
+            "只在长章节内部确有多个独立层次时保留三级标题"
+        )
 
     return issues
 
@@ -326,7 +344,6 @@ def reflector(state: ResearchState, config: RunnableConfig | None = None,
 
     logger.info("正在反思评估报告质量...")
 
-    llm = create_llm()
     prompt = get_prompt_from_langfuse(
         "research-buddy-reflector", REFLECTOR_PROMPT,
         question=question,
@@ -338,56 +355,43 @@ def reflector(state: ResearchState, config: RunnableConfig | None = None,
         user_feedback_section=user_feedback_section,
     )
 
-    response = invoke_llm(llm, prompt, config=config)
-
-    # 解析 LLM 返回的 JSON
+    # 独立 Judge 是软依赖：服务异常或返回格式损坏时，仍继续执行下方的
+    # URL、证据缺口和 AI 味确定性硬校验，不能因评审服务故障丢掉文章。
+    judge_degraded = False
+    parse_failed = False
     try:
-        evaluation = parse_llm_json(response.content)
+        llm = (create_llm(model=REFLECTOR_MODEL)
+               if REFLECTOR_MODEL != OPENAI_MODEL else create_llm())
+        response = invoke_llm(llm, prompt, config=config)
     except Exception as exc:
-        logger.warning("反思节点解析失败，按未通过处理: %s", exc)
-        next_round = current_round + 1
-        terminal = next_round >= MAX_REFLECTION_ROUNDS
-        best_report = eligible_best_report
-        restored = bool(terminal and best_report and best_report != report)
-        delivered_report = best_report if restored else report
-        if restored and writer:
-            writer({"type": "report_reset"})
-            for offset in range(0, len(delivered_report), 2000):
-                writer({"type": "report_chunk", "content": delivered_report[offset:offset + 2000]})
-        fallback_target = supplement_targets[0] if supplement_targets else {
-            "sub_question_id": "", "question": question,
-            "language": "auto", "region": "GLOBAL",
+        logger.warning("反思 Judge 不可用，降级为确定性规则检查: %s", exc)
+        judge_degraded = True
+        evaluation = {
+            "completeness": 4,
+            "accuracy": 4,
+            "clarity": 4,
+            "feedback": "独立 Judge 不可用，本轮仅执行确定性规则检查",
+            "supplement_queries": [],
         }
-        return {
-            "report": delivered_report,
-            "reflection_pass": False,
-            "reflection_feedback": "反思结果无法解析，未将报告标记为通过",
-            "reflection_round": next_round,
-            "reflection_score": eligible_best_score if restored else 0,
-            "best_report": best_report,
-            "best_quality_rank": eligible_best_rank,
-            "best_reflection_score": eligible_best_score,
-            "best_reflection_round": eligible_best_round,
-            "best_evidence_signature": evidence_signature,
-            "best_feedback_signature": user_feedback,
-            "best_report_restored": restored,
-            "validation_gaps": _merge_gaps([{
-                "sub_question_id": fallback_target["sub_question_id"],
-                "question": fallback_target["question"],
-                "search_query": f"{question} reliable evidence",
-                "reason": "reflection_parse_error",
-                "priority": "high",
-                "language": fallback_target["language"],
-                "region": fallback_target["region"],
-            }], inherited_gaps),
-            "stop_reason": "reflection_budget_exhausted" if next_round >= MAX_REFLECTION_ROUNDS else "",
-            "research_complete": False,
-        }
+    else:
+        try:
+            evaluation = parse_llm_json(response.content)
+        except Exception as exc:
+            logger.warning("反思结果无法解析，按未通过处理: %s", exc)
+            parse_failed = True
+            evaluation = {
+                "feedback": "反思结果无法解析，未将报告标记为通过",
+                "supplement_queries": [],
+            }
 
     if not isinstance(evaluation, dict):
-        # parse_llm_json 成功不等于拿到了对象：模型可能返回数组或标量
-        logger.warning("反思结果不是 JSON 对象（%s），按未通过处理", type(evaluation).__name__)
-        evaluation = {}
+        logger.warning("反思结果不是 JSON 对象（%s），按未通过处理",
+                       type(evaluation).__name__)
+        parse_failed = True
+        evaluation = {
+            "feedback": "反思结果格式异常，未将报告标记为通过",
+            "supplement_queries": [],
+        }
 
     feedback = str(evaluation.get("feedback", "") or "")
     raw_supplements = evaluation.get("supplement_queries", [])
@@ -457,6 +461,20 @@ def reflector(state: ResearchState, config: RunnableConfig | None = None,
     # 如果未通过，生成补充搜索任务；同时保留 validator 尚未解决的缺口
     report_gaps = []
     if not passed:
+        if parse_failed:
+            target = supplement_targets[0] if supplement_targets else {
+                "sub_question_id": "", "question": question,
+                "language": "auto", "region": "GLOBAL",
+            }
+            report_gaps.append({
+                "sub_question_id": target["sub_question_id"],
+                "question": target["question"],
+                "search_query": f"{question} reliable evidence",
+                "reason": "reflection_parse_error",
+                "priority": "high",
+                "language": target["language"],
+                "region": target["region"],
+            })
         for index, query in enumerate(supplement_queries):
             target = (supplement_targets[index % len(supplement_targets)]
                       if supplement_targets else
@@ -489,7 +507,9 @@ def reflector(state: ResearchState, config: RunnableConfig | None = None,
 
     # 硬校验通过的稿件永远优先于高分但含未知 URL/模板问题/未解决缺口的稿件；
     # 同一层级再比较三维评分。这样重写轮变差时不会覆盖已经更好的历史版本。
-    hard_failure = bool(citation_issues or inherited_gaps or unprocessed_user_feedback)
+    hard_failure = bool(
+        parse_failed or citation_issues or inherited_gaps or unprocessed_user_feedback
+    )
     quality_rank = total_score + (0 if hard_failure else 100)
     best_report = eligible_best_report
     best_rank = eligible_best_rank
@@ -518,6 +538,19 @@ def reflector(state: ResearchState, config: RunnableConfig | None = None,
         "reflection_feedback": feedback,
         "reflection_round": next_round,
         "reflection_score": delivered_score,
+        "reflection_judge_degraded": judge_degraded,
+        "article_versions": [{
+            "stage": "reflector",
+            "reflection_round": next_round,
+            "report": delivered_report,
+            "feedback": feedback,
+            "metadata": {
+                "score": delivered_score,
+                "passed": passed,
+                "judge_degraded": judge_degraded,
+                "best_report_restored": restored,
+            },
+        }],
         "best_report": best_report,
         "best_quality_rank": best_rank,
         "best_reflection_score": best_score,

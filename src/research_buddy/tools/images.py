@@ -110,6 +110,10 @@ SELECT_IMAGES_PROMPT = """你是图片选图专家。下面是一个研究子问
 
 ## 任务
 从候选图中选出适合插入文章的图片（最多 {max_count} 张）。选图标准：
+- **无水印（硬门槛）**：逐张放大检查。出现素材库/媒体站点水印、作者或账号
+  署名叠字、社交平台 ID、二维码、版权叠印、半透明文字或重复斜纹标记的图片
+  一律不能选；看不清、疑似有水印也不能选。图表自身的标题、图例、坐标、
+  正常来源注释，以及产品界面原本就有的品牌 Logo 不属于水印
 - **相关性**：图中内容应与子问题讨论的事物相关；允许与主题相关但信息量
   较低的配图/装饰图（氛围图），但完全无关、明显凑数的图不选
 - **信息量优先**：优先图表、架构图、流程图、截图等有实质内容的图；
@@ -123,9 +127,11 @@ SELECT_IMAGES_PROMPT = """你是图片选图专家。下面是一个研究子问
 ## 输出格式
 只返回 JSON（不要包含其他内容）：
 ```json
-{{"images": [{{"index": 1, "alt": "画面内容描述"}}]}}
+{{"images": [{{"index": 1, "alt": "画面内容描述", "watermark_status": "none"}}]}}
 ```
 - index 必须是候选列表中的编号
+- watermark_status 只能是 `none`、`present` 或 `uncertain`；只有确认无水印时
+  才能写 `none` 并放入 images，`present` 和 `uncertain` 的图片不要输出
 - 没有合适的图片就返回 {{"images": []}}"""
 
 
@@ -289,6 +295,13 @@ def _vision_select(question: str, images: list[tuple[dict, bytes, str]],
         except (TypeError, ValueError):
             continue
         alt = str(item.get("alt", "")).strip()
+        watermark_status = str(item.get("watermark_status", "")).strip().lower()
+        # 水印是硬门槛：只有视觉模型明确确认 none 才放行。字段缺失、疑似水印
+        # 或返回其他值都 fail-closed，避免旧 prompt/异常输出绕过校验。
+        if watermark_status != "none":
+            logger.info("视觉选图拒绝水印状态为 %s 的候选图 %s",
+                        watermark_status or "missing", index)
+            continue
         # 编号必须在已下载列表范围内，且不重复；空 alt 视为无效输出——否则视为幻觉丢弃
         if index < 1 or index > len(images) or index in seen_indexes:
             continue
@@ -299,6 +312,7 @@ def _vision_select(question: str, images: list[tuple[dict, bytes, str]],
         picked.append({
             "url": candidate.get("url", ""),
             "alt": alt,
+            "watermark_status": "none",
             "sub_question_id": candidate.get("sub_question_id", ""),
             "query": candidate.get("query", ""),
         })

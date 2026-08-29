@@ -362,6 +362,12 @@ def article_editor(state: ResearchState, config: RunnableConfig | None = None,
         return {
             "evidence_edits": [],
             "article_editor_changed": False,
+            "article_versions": [{
+                "stage": "article_editor",
+                "reflection_round": int(state.get("reflection_round", 0)),
+                "report": report,
+                "metadata": {"changed": False, "disabled": True},
+            }],
             "messages": ["事实审校已关闭，保留初稿"],
         }
 
@@ -374,6 +380,12 @@ def article_editor(state: ResearchState, config: RunnableConfig | None = None,
 
     return {
         "report": revised,
+        "article_versions": [{
+            "stage": "article_editor",
+            "reflection_round": int(state.get("reflection_round", 0)),
+            "report": revised,
+            "metadata": {"changed": changed, "edits_count": len(edits)},
+        }],
         "evidence_edits": edits,
         "article_editor_changed": changed,
         "messages": [

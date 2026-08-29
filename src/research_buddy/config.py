@@ -27,6 +27,9 @@ OPENAI_STRIP_SDK_HEADERS = os.getenv(
 # Article Eval 可使用独立评审模型，降低写作模型评判自身文风的相关偏差。
 # 留空或未设置时保持兼容，继续使用 OPENAI_MODEL。
 ARTICLE_EVAL_JUDGE_MODEL = os.getenv("ARTICLE_EVAL_JUDGE_MODEL", "").strip() or OPENAI_MODEL
+# 生产反思可使用不同于写作模型的独立 Judge。留空时保持原有行为，
+# 继续使用 OPENAI_MODEL；与离线回归 Judge 分开配置，便于分别固定版本。
+REFLECTOR_MODEL = os.getenv("REFLECTOR_MODEL", "").strip() or OPENAI_MODEL
 
 # 视觉模型选图（可选）：默认与文本模型共用 OPENAI_API_KEY / OPENAI_API_BASE，
 # 需要独立的中转站/密钥时单独指定（比如视觉走 DeepSeek、文本走别的站）。

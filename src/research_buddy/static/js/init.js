@@ -59,6 +59,7 @@ async function init() {
 
   // Load dashboard as landing page
   loadDashboard();
+  loadArticleCount();
 
   // Populate research modes
   refreshResearchModes();

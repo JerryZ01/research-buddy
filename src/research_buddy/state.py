@@ -111,6 +111,7 @@ class ResearchState(TypedDict):
     language_candidates_count: int  # 确定性扫描发现的模板句数量
     evidence_edits: list[dict]  # 事实审校已应用的可审计修改（覆盖语义）
     article_editor_changed: bool  # 审校是否改变正文（含确定性去重）
+    article_versions: Annotated[list[dict], operator.add]  # 各写作/审校阶段稿件快照（永久档案用）
     report: str  # 最终报告（可发布的文章正文，不含评价性内容与内嵌链接）
     report_feedback_signature: str  # 当前报告生成时已纳入的用户反馈
     confidence: str  # 置信度（高/中/低），由代码从证据质量计算，不进报告正文
@@ -128,6 +129,7 @@ class ResearchState(TypedDict):
     reflection_feedback: str  # 反思反馈/改进建议
     reflection_round: int  # 当前反思轮次
     reflection_score: int  # 三维度总分（满分 15），供 API 层展示证据质量
+    reflection_judge_degraded: bool  # 独立 Judge 不可用，当前轮仅执行确定性规则
     best_report: str  # 反思循环中质量排序最高的历史稿
     best_quality_rank: int  # 硬校验优先、模型评分次之的内部排序值
     best_reflection_score: int  # 最佳稿对应的三维度分数

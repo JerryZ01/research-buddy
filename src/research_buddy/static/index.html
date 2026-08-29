@@ -2576,7 +2576,7 @@ select.input {
   }
 }
 </style>
-<link rel="stylesheet" href="/app.css?v=2">
+<link rel="stylesheet" href="/app.css?v=3">
 <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
 </head>
 <body>
@@ -2619,6 +2619,10 @@ select.input {
       <div class="nav-item" data-page="topics" onclick="navigate('topics')" role="link" tabindex="0" aria-label="研究主题">
         <span class="nav-icon" aria-hidden="true"><i data-lucide="library-big"></i></span>研究主题
         <span class="nav-badge" id="topicCount">0</span>
+      </div>
+      <div class="nav-item" data-page="articles" onclick="navigate('articles')" role="link" tabindex="0" aria-label="文章素材库">
+        <span class="nav-icon" aria-hidden="true"><i data-lucide="archive"></i></span>文章素材库
+        <span class="nav-badge" id="articleCount">0</span>
       </div>
     </div>
     <div class="nav-sec">
@@ -2812,6 +2816,56 @@ select.input {
   <div id="topicsList"></div>
 </div>
 
+<!-- ── Page: Article Archive ── -->
+<div id="page-articles" class="page" style="display:none">
+  <div class="page-header">
+    <div><h2>文章素材库</h2><p>整理生成记录，沉淀可复用的高质量文章</p></div>
+    <button class="btn btn-icon" onclick="loadArticles()" aria-label="刷新素材库" title="刷新素材库"><i data-lucide="refresh-cw"></i></button>
+  </div>
+  <div class="archive-summary" id="articleArchiveSummary"></div>
+  <div class="archive-toolbar" aria-label="素材筛选">
+    <label class="archive-search">
+      <i data-lucide="search" aria-hidden="true"></i>
+      <input id="articleSearch" type="search" placeholder="搜索问题或正文摘要" oninput="filterArticles()" aria-label="搜索素材">
+    </label>
+    <select class="input archive-filter" id="articleStatusFilter" onchange="filterArticles()" aria-label="运行状态">
+      <option value="">全部运行状态</option>
+      <option value="completed">已完成</option>
+      <option value="error">失败</option>
+      <option value="running">运行中</option>
+    </select>
+    <select class="input archive-filter" id="articleCurationFilter" onchange="filterArticles()" aria-label="策展状态">
+      <option value="">全部策展状态</option>
+      <option value="raw">未整理</option>
+      <option value="candidate">候选</option>
+      <option value="approved">已批准</option>
+      <option value="excluded">已排除</option>
+    </select>
+    <select class="input archive-filter" id="articleSourceFilter" onchange="filterArticles()" aria-label="生成来源">
+      <option value="">全部来源</option>
+    </select>
+  </div>
+  <div class="archive-table-wrap" id="articlesList"></div>
+</div>
+
+<!-- ── Page: Article Archive Detail ── -->
+<div id="page-article-detail" class="page" style="display:none">
+  <div class="detail-topbar">
+    <button class="btn btn-ghost btn-sm" onclick="goBack()"><i data-lucide="arrow-left"></i>返回</button>
+    <div class="detail-topbar-actions">
+      <select class="input curation-select" id="articleCurationSelect" aria-label="策展状态">
+        <option value="raw">未整理</option>
+        <option value="candidate">候选</option>
+        <option value="approved">已批准</option>
+        <option value="excluded">已排除</option>
+      </select>
+      <button class="btn btn-sm" onclick="saveArticleCuration()"><i data-lucide="save"></i>保存状态</button>
+      <button class="btn btn-primary btn-sm" onclick="openArticleReview()"><i data-lucide="message-square-plus"></i>添加评价</button>
+    </div>
+  </div>
+  <div id="articleDetailContent"></div>
+</div>
+
 <!-- ── Page: Topic Detail ── -->
 <div id="page-topic-detail" class="page" style="display:none">
   <div class="topic-detail-header" id="topicDetailHeader"></div>
@@ -2886,6 +2940,30 @@ select.input {
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-articleReview" role="dialog" aria-modal="true" aria-label="添加文章评价">
+  <div class="modal article-review-modal">
+    <div class="modal-header"><h3>添加文章评价</h3><button class="btn btn-ghost btn-icon" onclick="hideModal('articleReview')" aria-label="关闭"><i data-lucide="x"></i></button></div>
+    <div class="modal-body">
+      <div class="review-score-layout">
+        <div class="form-group review-overall-score"><label class="form-label" for="reviewOverall">文章总分</label><div><input class="input" id="reviewOverall" type="number" min="0" max="10" step="0.5" placeholder="8.0"><span>/ 10</span></div></div>
+        <div class="review-dimension-group">
+          <div class="review-group-label">分项评分</div>
+          <div class="review-score-row">
+            <div class="form-group"><label class="form-label" for="reviewAccuracy">准确性</label><input class="input" id="reviewAccuracy" type="number" min="0" max="10" step="0.5" placeholder="0-10"></div>
+            <div class="form-group"><label class="form-label" for="reviewDepth">深度</label><input class="input" id="reviewDepth" type="number" min="0" max="10" step="0.5" placeholder="0-10"></div>
+            <div class="form-group"><label class="form-label" for="reviewNaturalness">自然度</label><input class="input" id="reviewNaturalness" type="number" min="0" max="10" step="0.5" placeholder="0-10"></div>
+            <div class="form-group"><label class="form-label" for="reviewImages">配图</label><input class="input" id="reviewImages" type="number" min="0" max="10" step="0.5" placeholder="0-10"></div>
+          </div>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label" for="reviewTags">问题标签</label><input class="input" id="reviewTags" placeholder="如：标题偏多, AI味, 图片失效"></div>
+      <div class="form-group"><label class="form-label" for="reviewNotes">评价说明</label><textarea class="input" id="reviewNotes" rows="4" placeholder="记录文章的优点、问题与修改方向"></textarea></div>
+      <label class="review-eval-toggle"><input type="checkbox" id="reviewIncludeEval"><span>纳入后续评价集</span></label>
+    </div>
+    <div class="modal-footer"><button class="btn" onclick="hideModal('articleReview')">取消</button><button class="btn btn-primary" id="submitArticleReview" onclick="submitArticleReview()"><i data-lucide="check"></i>提交评价</button></div>
+  </div>
+</div>
+
 <!-- Confirm Dialog -->
 <div class="confirm-overlay" id="confirmOverlay" role="alertdialog" aria-modal="true" aria-label="确认操作">
   <div class="confirm-dialog">
@@ -2907,6 +2985,7 @@ select.input {
 <script src="/js/hitl.js"></script>
 <script src="/js/report.js"></script>
 <script src="/js/topics.js"></script>
+<script src="/js/articles.js"></script>
 <script src="/js/init.js"></script>
 
 </body>

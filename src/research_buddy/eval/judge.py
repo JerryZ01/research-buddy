@@ -5,6 +5,7 @@ import logging
 from langfuse import Langfuse
 from langchain_core.runnables import RunnableConfig
 
+from research_buddy.config import ARTICLE_EVAL_JUDGE_MODEL
 from research_buddy.utils import create_llm, parse_llm_json, get_prompt_from_langfuse, invoke_llm
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ def judge_report(question: str, expected_points: list[str], report: str,
     """
     points_text = "\n".join(f"- {p}" for p in expected_points)
 
-    llm = create_llm()
+    llm = create_llm(model=ARTICLE_EVAL_JUDGE_MODEL)
 
     prompt = get_prompt_from_langfuse(
         "research-buddy-judge", JUDGE_PROMPT,
