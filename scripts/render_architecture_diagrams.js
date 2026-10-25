@@ -52,12 +52,18 @@ if (!fs.existsSync(mmdc)) {
 fs.mkdirSync(assetsDir, { recursive: true });
 const executablePath = findCachedChromium();
 const configPath = path.join(os.tmpdir(), `research-buddy-mermaid-${process.pid}.json`);
+const mermaidConfig = path.join(diagramsDir, 'mermaid-config.json');
 const argsFor = (input, output) => [
   '-i', path.join(diagramsDir, input),
   '-o', path.join(assetsDir, output),
-  '-b', 'transparent',
+  // 透明背景在 GitHub 深色主题下会把深色文字吞掉，所以固定白底
+  '-b', 'white',
   '-t', 'neutral',
   '-w', '1800',
+  // 关键：mermaid-config.json 里设了 htmlLabels:false，让节点标签输出为
+  // <text>/<tspan> 而不是 <foreignObject>。GitHub 渲染 SVG 时会剥离
+  // foreignObject，用默认配置生成的图在仓库里会变成一堆没有文字的空框。
+  '-c', mermaidConfig,
   ...(executablePath ? ['-p', configPath] : []),
 ];
 

@@ -1,0 +1,17 @@
+{
+  "theme": "neutral",
+  "flowchart": {
+    "htmlLabels": false,
+    "curve": "basis",
+    "nodeSpacing": 55,
+    "rankSpacing": 70,
+    "padding": 14,
+    "useMaxWidth": false
+  },
+  "htmlLabels": false,
+  "securityLevel": "loose",
+  "themeVariables": {
+    "fontFamily": "Noto Sans CJK SC, Source Han Sans SC, WenQuanYi Micro Hei, Microsoft YaHei, sans-serif",
+    "fontSize": "15px"
+  }
+}

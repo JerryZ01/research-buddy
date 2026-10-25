@@ -1,51 +1,64 @@
+%% Research Buddy 系统架构总览（与 src/research_buddy/ 当前实现一致：15 节点 / 6 工具 / 4 种工作流）
+%% 渲染：npm run docs:diagrams
+%% 注意 1：Mermaid 子图只要有一条边跨越子图边界，direction 就会被忽略并强制竖排，
+%%         所以这里不用 subgraph，改用自上而下分层。
+%% 注意 2：HTML 标签（<b>/<i>）在 text-only 模式下会被转义成字面量，
+%%         这里只用 <br/> 和纯文本，确保 GitHub 上文字完整可读。
 flowchart TB
-    User[用户浏览器] --> Web[Web 单页应用<br/>研究 / 主题 / 追踪 / 素材库]
-    Web --> API[FastAPI<br/>HTTP / SSE / HITL / 静态图片]
+    User["用户浏览器<br/>研究 · 主题 · 追踪 · 素材库"]
+    API["FastAPI<br/>HTTP · SSE · HITL · 静态图片"]
 
-    subgraph APP[Research Buddy 应用核心]
-        direction LR
-        Research[研究与证据<br/>规划 / 搜索 / 验证]
-        Editing[编辑型写作<br/>简报 / 写作 / 语言与事实审校]
-        Quality[质量控制<br/>独立 Judge / 硬规则 / 最佳稿]
-        Knowledge[知识与追踪<br/>召回 / 存储 / 变化 / 通知]
+    Research["① 研究与证据<br/>planner · searcher<br/>validator · local_lookup"]
+    Editing["② 编辑型写作<br/>editorial_planner · synthesizer<br/>language_editor · article_editor"]
+    Images["③ 混合配图<br/>image_planner · image_reviewer<br/>搜图优先 · 生图限示意图"]
+    Quality["④ 质量控制<br/>reflector · 独立 Judge<br/>硬规则 · 最佳稿"]
+    Knowledge["⑤ 知识与追踪<br/>knowledge_lookup · knowledge_store<br/>diff_analyzer · change_notifier"]
 
-        Research --> Editing --> Quality
-        Quality -.补充证据.-> Research
-        Quality -.基于现有证据重写.-> Editing
-        Knowledge --> Research
-        Quality --> Knowledge
-    end
+    LLM["OpenAI 兼容 LLM<br/>规划 / 写作 / 审校 / Judge"]
+    Tavily["Tavily<br/>网页与图片搜索"]
+    Vision["视觉模型<br/>选图 / 水印 / 终审"]
+    ImageGen["生图模型<br/>/images/generations"]
+    Langfuse["Langfuse<br/>Trace / Prompt / Score"]
+    Webhook["Webhook<br/>企业微信 · 钉钉 · Telegram"]
 
+    SQLite[("SQLite<br/>主题 / 报告 / 素材")]
+    Chroma[("ChromaDB<br/>分块 / 关键事实")]
+    Checkpoint[("Checkpoint<br/>HITL 中断状态")]
+    ImgCache[("图片缓存<br/>research-images")]
+
+    User --> API
     API --> Research
     API --> Knowledge
-
-    subgraph EXT[外部能力]
-        direction LR
-        LLM[OpenAI 兼容 LLM<br/>写作 / 编辑 / Judge]
-        Tavily[Tavily<br/>网页与图片搜索]
-        Vision[视觉模型<br/>相关性 / 水印判断]
-        Langfuse[Langfuse<br/>Trace / Prompt / Score]
-        Webhook[Webhook<br/>企业微信 / 钉钉 / Telegram]
-    end
-
-    subgraph DATA[持久化]
-        direction LR
-        SQLite[(SQLite<br/>主题 / 报告 / 运行 / 素材 / 评价)]
-        Chroma[(ChromaDB<br/>报告分块 / 关键事实)]
-        Checkpoint[(HITL Checkpoint<br/>人工中断状态)]
-        Images[(图片缓存<br/>data/research-images)]
-    end
+    Research --> Editing
+    Images --> Editing
+    Editing --> Quality
+    Quality --> Knowledge
 
     Research --> Tavily
     Research --> LLM
     Editing --> LLM
-    Editing --> Vision
+    Images --> Tavily
+    Images --> Vision
+    Images --> ImageGen
     Quality --> LLM
-    APP -.可观测性与 Prompt.-> Langfuse
     Knowledge --> Webhook
+    Quality --> Langfuse
 
     API --> SQLite
     API --> Checkpoint
     Knowledge --> SQLite
     Knowledge --> Chroma
-    Vision --> Images
+    Vision --> ImgCache
+    ImageGen --> ImgCache
+
+    classDef core fill:#E8F0FE,stroke:#4285F4,color:#1A3A6B
+    classDef image fill:#FCE8E6,stroke:#EA4335,color:#6B1B15
+    classDef ext fill:#F1F3F4,stroke:#9AA0A6,color:#202124
+    classDef store fill:#E6F4EA,stroke:#34A853,color:#1B4D2E
+    classDef edge fill:#FFFFFF,stroke:#5F6368,color:#202124
+
+    class Research,Editing,Quality,Knowledge core
+    class Images image
+    class LLM,Tavily,Vision,ImageGen,Langfuse,Webhook ext
+    class SQLite,Chroma,Checkpoint,ImgCache store
+    class User,API edge

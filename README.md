@@ -4,6 +4,8 @@
 
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue) ![LangGraph](https://img.shields.io/badge/LangGraph-0.2+-green) ![License](https://img.shields.io/badge/License-MIT-yellow)
 
+![Research Buddy 概念图](docs/assets/readme-hero.png)
+
 ## ✨ 功能特点
 
 **研究工作流**
@@ -36,33 +38,19 @@
 
 ## 🏗️ 架构
 
+### 系统架构
+
+![系统架构总览](docs/assets/architecture-overview.svg)
+
+<sub>源码：[docs/diagrams/architecture-overview.mmd](docs/diagrams/architecture-overview.mmd)。改代码后运行 `npm run docs:diagrams` 重新渲染。</sub>
+
 ### 主研究工作流
 
-```
-用户输入研究问题
-    ↓
-[规划] LLM 拆解为 3-5 个子问题
-    ↓
-[搜索] Tavily API 并行搜索
-    ↓
-[验证] 确定性硬闸 + LLM 语义软闸 ──不足──→ 补充搜索
-    ↓ 通过
-[编辑规划] 定角度、章节结构、证据分配
-    ↓
-[配图规划] 逐处判断 need，结构性推导搜图/生图
-    ↓
-[综合] LLM 流式生成文章（含 [[IMAGE_N]] 占位符）
-    ↓
-[配图终审] 逐图复核图文匹配度
-    ↓
-[语言审校] 受约束改写模板句
-    ↓
-[事实审校] 局部可验证事实校验
-    ↓
-[反思] LLM 自评质量 ──不达标──→ 补充搜索 → 重新生成
-    ↓ 通过
-输出：结构化文章 + 来源引用 + 配图 + 置信度
-```
+![主研究工作流](docs/assets/research-workflow.svg)
+
+<sub>源码：[docs/diagrams/research-workflow.mmd](docs/diagrams/research-workflow.mmd)。节点与 `graph.py` 的 `_add_core_nodes_and_edges` 一一对应。</sub>
+
+流程分两段：**先收证据再定选题**（planner → searcher → validator → editorial_planner），**再写作配图审校**（image_planner → synthesizer → image_reviewer → language_editor → article_editor → reflector）。`validator` 与 `reflector` 都可回到 `searcher` 补充搜索，`reflector` 另有 `revise_report` 分支只重写不重搜。
 
 ### 四种工作流
 
@@ -138,6 +126,8 @@ research-buddy/
 │   └── test_phase{1,2,3}.py     # 分阶段手工验证
 ├── tests/                       # 444 个单元测试 + Playwright e2e
 ├── docs/                        # 见下方「文档索引」
+│   ├── assets/                      # 架构图 SVG 与 README 概念图
+│   ├── diagrams/                    # Mermaid 源文件（改图改这里）
 │   ├── editorial-pipeline.md        # 编辑型管线与配图设计
 │   ├── article-archive.md           # 文章素材库
 │   ├── article-quality-evaluation.md # 质量回归评测

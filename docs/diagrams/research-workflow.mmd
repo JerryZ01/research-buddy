@@ -1,13 +1,28 @@
-flowchart LR
-    START((START)) --> P[planner]
-    P --> S[searcher]
-    S --> V[validator]
-    V -->|search_again| S
-    V -->|synthesize| EP[editorial_planner]
-    EP --> W[synthesizer]
-    W --> LE[language_editor]
-    LE --> AE[article_editor]
-    AE --> R[reflector]
-    R -->|search_again| S
-    R -->|revise_report| W
-    R -->|end| END((END))
+%% Research Buddy 主研究工作流（与 graph.py 的 _add_core_nodes_and_edges 一致）
+%% 渲染：npm run docs:diagrams
+%% 布局：竖版。横排 10 个节点会变成 8.5:1 的细长条，在 README 里被压到不可读。
+flowchart TB
+    START((开始)) --> P["planner<br/>拆解 3-5 个子问题"]
+    P --> S["searcher<br/>并行搜索 + 全文抓取"]
+    S --> V{"validator<br/>覆盖度硬闸 + 语义软闸"}
+    V -->|"不足 · search_again"| S
+    V -->|"充足 · synthesize"| EP["editorial_planner<br/>角度 / 章节 / 证据分配"]
+    EP --> IP["image_planner<br/>判定 need，推导图源"]
+    IP --> W["synthesizer<br/>流式写作，输出占位符"]
+    W --> IR["image_reviewer<br/>图文匹配，只做减法"]
+    IR --> LE["language_editor<br/>改写模板句"]
+    LE --> AE["article_editor<br/>局部事实校验"]
+    AE --> R{"reflector<br/>三维度质量评估"}
+    R -->|"通过 · end"| END((结束))
+    R -->|"补证 · search_again"| S
+    R -->|"重写 · revise_report"| W
+
+    classDef research fill:#E8F0FE,stroke:#4285F4,color:#1A3A6B
+    classDef editorial fill:#E6F4EA,stroke:#34A853,color:#1B4D2E
+    classDef image fill:#FCE8E6,stroke:#EA4335,color:#6B1B15
+    classDef decision fill:#FEF7E0,stroke:#FBBC04,color:#5C4400
+
+    class P,S research
+    class EP,W,LE,AE editorial
+    class IP,IR image
+    class V,R decision
