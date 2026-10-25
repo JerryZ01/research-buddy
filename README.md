@@ -207,7 +207,7 @@ VISION_MODEL=deepseek-v4.1-flash
 # VISION_API_BASE=https://api.deepseek.com/v1
 
 # 生图 — 走 OpenAI 兼容的 POST /images/generations
-IMAGE_GEN_MODEL=gpt-image-2.5-flare
+IMAGE_GEN_MODEL=gpt-image-2.5-sunburst
 IMAGE_GEN_API_KEY=sk-xxx
 IMAGE_GEN_API_BASE=https://api.apikl.ai/v1
 IMAGE_GEN_SIZE=1536x1024
@@ -216,10 +216,11 @@ MAX_GENERATED_IMAGES=4
 
 几个实测踩过的坑，写在 `.env.example` 里也写在这里：
 
-- **模型名的大小写和连字符**：`gpt-image-2.5-flare`（点号）正确，写成 `gpt-image-2-5-flare`（横线）会返回 `model_not_found`
+- **模型名的大小写和连字符**：`gpt-image-2.5-sunburst`（点号）正确，写成 `gpt-image-2-5-sunburst`（横线）会返回 `model_not_found`
 - **尺寸**：`1536x1024` 是唯一精确生效的尺寸，`2048x1152` / `3840x2160` 会被**静默降级**成 1672x940，不报错
 - **耗时**：单张 30~50 秒，`IMAGE_GEN_TIMEOUT` 建议 180
 - **视觉模型选择**：部分模型（如 `mimo-v2.6-flash`）会返回 HTTP 200 但内容是「我无法看到这张图片」，是假阳性，不要用于选图
+- **生图模型选择**：中转站上 `gpt-image-2.5-sunburst` 出图质量明显好于 `gpt-image-2.5-flare`，推荐前者
 
 配图数量受 `MAX_IMAGES_IN_ARTICLE`（默认 10）和 `MAX_GENERATED_IMAGES`（默认 4）双重约束。
 
