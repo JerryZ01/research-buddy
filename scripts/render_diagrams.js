@@ -26,10 +26,17 @@ const projectRoot = path.resolve(__dirname, '..');
 const htmlDir = path.join(projectRoot, 'docs', 'diagrams', 'html');
 const assetsDir = path.join(projectRoot, 'docs', 'assets');
 
-/** 图名 → [html 文件名, 输出 png, 视口宽度] */
+/**
+ * 图名 → [html 文件名, 输出 png, 视口宽度]
+ *
+ * 视口宽度必须贴近 GitHub README 正文区（约 860px）。图比正文区宽时会被
+ * 等比压缩，字号跟着变小——这是"图里的字看不清"的根因，不是字号设小了。
+ * 所以画布固定 900px，显示时接近 1:1。代价是横向放不下太多列，
+ * 只能靠减少信息量来适配：宁可拆成两张图，也不要在一张图里塞满小字。
+ */
 const DIAGRAMS = {
-  architecture: ['architecture.html', 'architecture.png', 1600],
-  workflow: ['workflow.html', 'workflow.png', 1480],
+  architecture: ['architecture.html', 'architecture.png', 900],
+  workflow: ['workflow.html', 'workflow.png', 900],
 };
 
 function findCachedChromium() {
