@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    background: #FFFFFF;
+    padding: 56px 64px 48px;
+    width: 1600px;
+  }
+
+  .header { margin-bottom: 40px; }
+  .header h1 {
+    font-size: 34px; font-weight: 700; color: #12263F;
+    letter-spacing: -0.3px; margin-bottom: 10px;
+  }
+  .header p { font-size: 16px; color: #64748B; line-height: 1.5; }
+
+  /* ── 层 ── */
+  .layer {
+    position: relative;
+    border-radius: 14px;
+    padding: 20px 24px 22px;
+    margin-bottom: 16px;
+  }
+  .layer-label {
+    position: absolute;
+    left: 24px; top: -11px;
+    font-size: 12px; font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 3px 10px;
+    border-radius: 5px;
+    background: #fff;
+  }
+
+  .layer-client  { background: #F8FAFC; border: 1.5px solid #E2E8F0; }
+  .layer-client  .layer-label { color: #64748B; border: 1.5px solid #E2E8F0; }
+  .layer-api     { background: #EFF6FF; border: 1.5px solid #BFDBFE; }
+  .layer-api     .layer-label { color: #1D4ED8; border: 1.5px solid #BFDBFE; }
+  .layer-core    { background: #F5F3FF; border: 1.5px solid #DDD6FE; }
+  .layer-core    .layer-label { color: #6D28D9; border: 1.5px solid #DDD6FE; }
+  .layer-support { background: #F0FDF4; border: 1.5px solid #BBF7D0; }
+  .layer-support .layer-label { color: #15803D; border: 1.5px solid #BBF7D0; }
+  .layer-store   { background: #FFFBEB; border: 1.5px solid #FDE68A; }
+  .layer-store   .layer-label { color: #B45309; border: 1.5px solid #FDE68A; }
+
+  /* ── 卡片 ── */
+  .row { display: flex; gap: 14px; }
+  .row + .row { margin-top: 14px; }
+
+  .card {
+    flex: 1;
+    background: #fff;
+    border: 1.5px solid #E2E8F0;
+    border-radius: 10px;
+    padding: 16px 16px 15px;
+    display: flex; flex-direction: column;
+  }
+
+  .card-head {
+    display: flex; align-items: center; gap: 9px;
+    margin-bottom: 9px;
+  }
+  .card-icon {
+    width: 26px; height: 26px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 7px;
+  }
+  .card-icon svg { width: 15px; height: 15px; }
+  .card-title {
+    font-size: 14.5px; font-weight: 700; color: #1E293B;
+    line-height: 1.2;
+  }
+  .card-desc {
+    font-size: 12.5px; color: #64748B; line-height: 1.62;
+  }
+  .card-desc b { color: #334155; font-weight: 600; }
+
+  /* 主题色 */
+  .c-blue   .card-icon { background: #DBEAFE; } .c-blue   .card-icon svg { stroke: #2563EB; }
+  .c-violet .card-icon { background: #EDE9FE; } .c-violet .card-icon svg { stroke: #7C3AED; }
+  .c-rose   .card-icon { background: #FFE4E6; } .c-rose   .card-icon svg { stroke: #E11D48; }
+  .c-amber  .card-icon { background: #FEF3C7; } .c-amber  .card-icon svg { stroke: #D97706; }
+  .c-green  .card-icon { background: #DCFCE7; } .c-green  .card-icon svg { stroke: #16A34A; }
+  .c-teal   .card-icon { background: #CCFBF1; } .c-teal   .card-icon svg { stroke: #0D9488; }
+  .c-slate  .card-icon { background: #E2E8F0; } .c-slate  .card-icon svg { stroke: #475569; }
+
+  .layer-core .row .card { flex: 1 1 0; min-width: 0; }
+
+  /* 核心层内部用 4 列，四张卡并排，避免右侧空一大块 */
+  .core-4 .card { flex: 1 1 0; min-width: 0; }
+  .core-4 .card-desc { font-size: 12px; line-height: 1.7; }
+  .core-4 .card-title { font-size: 14px; }
+
+  /* ── 数据流箭头 ── */
+  .flow {
+    display: flex; align-items: center; justify-content: center;
+    gap: 10px; padding: 9px 0 7px;
+    font-size: 12px; color: #94A3B8; font-weight: 600;
+  }
+  .flow svg { width: 14px; height: 14px; stroke: #CBD5E1; }
+
+  /* ── 底部外部能力 ── */
+  .ext-wrap { display: flex; gap: 12px; margin-top: 4px; }
+  .ext {
+    flex: 1;
+    background: #fff;
+    border: 1.5px dashed #CBD5E1;
+    border-radius: 9px;
+    padding: 12px 13px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .ext-icon {
+    width: 24px; height: 24px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; background: #F1F5F9;
+  }
+  .ext-icon svg { width: 14px; height: 14px; stroke: #64748B; }
+  .ext-name { font-size: 12.5px; font-weight: 700; color: #334155; line-height: 1.3; }
+  .ext-note { font-size: 11px; color: #94A3B8; line-height: 1.3; margin-top: 1px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Research Buddy · 系统架构</h1>
+  <p>输入一个问题，自动拆解、搜索、验证，生成带来源引用、配图与质量评审的编辑型文章</p>
+</div>
+
+<!-- 接入层 -->
+<div class="layer layer-client">
+  <span class="layer-label">接入层</span>
+  <div class="row">
+    <div class="card c-slate">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+          </svg>
+        </span>
+        <span class="card-title">Web UI</span>
+      </div>
+      <div class="card-desc">研究与进度实时呈现，<b>SSE 流式</b>接收进度、正文与配图</div>
+    </div>
+    <div class="card c-slate">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 17l6-6-6-6M12 19h8"/>
+          </svg>
+        </span>
+        <span class="card-title">HTTP / SSE 客户端</span>
+      </div>
+      <div class="card-desc"><b>35 个端点</b>，支持同步、流式与人机交互中断恢复</div>
+    </div>
+  </div>
+</div>
+
+<div class="flow">
+  <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+  REST / Server-Sent Events
+</div>
+
+<!-- API 层 -->
+<div class="layer layer-api">
+  <span class="layer-label">接口层</span>
+  <div class="row">
+    <div class="card c-blue">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+          </svg>
+        </span>
+        <span class="card-title">FastAPI 应用</span>
+      </div>
+      <div class="card-desc">研究 / 主题 / 追踪 / 素材库四组路由，<b>统一错误处理与静态图片服务</b></div>
+    </div>
+    <div class="card c-blue">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v4M12 18v4M4.9 4.9l2.9 2.9M16.2 16.2l2.9 2.9M2 12h4M18 12h4M4.9 19.1l2.9-2.9M16.2 7.8l2.9-2.9"/>
+          </svg>
+        </span>
+        <span class="card-title">LangGraph 编排</span>
+      </div>
+      <div class="card-desc"><b>4 种工作流</b>：标准 / 人机交互 / 增量 / 定时追踪</div>
+    </div>
+  </div>
+</div>
+
+<div class="flow">
+  <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+  调度 15 个节点
+</div>
+
+<!-- 核心层 -->
+<div class="layer layer-core">
+  <span class="layer-label">核心层 · 文章生成链路</span>
+
+  <div class="row core-4">
+    <div class="card c-blue">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>
+          </svg>
+        </span>
+        <span class="card-title">① 研究与证据</span>
+      </div>
+      <div class="card-desc">
+        <b>planner</b> 拆解子问题<br>
+        <b>searcher</b> 并行搜索与全文抓取<br>
+        <b>validator</b> 覆盖度与语义双闸<br>
+        <b>local_lookup</b> 本地代码检索
+      </div>
+    </div>
+    <div class="card c-green">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 20h16M6 16V9M11 16V5M16 16v-5M21 16v-8"/>
+          </svg>
+        </span>
+        <span class="card-title">② 编辑型写作</span>
+      </div>
+      <div class="card-desc">
+        <b>editorial_planner</b> 定角度章节<br>
+        <b>synthesizer</b> 流式长文写作<br>
+        <b>language_editor</b> 改写模板句<br>
+        <b>article_editor</b> 局部事实校验
+      </div>
+    </div>
+    <div class="card c-rose">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
+          </svg>
+        </span>
+        <span class="card-title">③ 混合配图</span>
+      </div>
+      <div class="card-desc">
+        <b>image_planner</b> 判定 need 推导图源<br>
+        <b>image_reviewer</b> 图文匹配复核<br>
+        <b>搜图优先</b>，搜不到宁可不配<br>
+        <b>生图限示意图</b>，标注不冒充事实
+      </div>
+    </div>
+    <div class="card c-amber">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/>
+          </svg>
+        </span>
+        <span class="card-title">④ 质量控制</span>
+      </div>
+      <div class="card-desc">
+        <b>reflector</b> 三维度评估<br>
+        独立 Judge 打分与硬规则校验<br>
+        <b>最佳稿保留</b>，不合格不交付<br>
+        不达标自动补搜或重写
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="flow">
+  <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+  沉淀与复用
+</div>
+
+<!-- 支撑层 -->
+<div class="layer layer-support">
+  <span class="layer-label">支撑层</span>
+  <div class="row">
+    <div class="card c-teal">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+          </svg>
+        </span>
+        <span class="card-title">知识与追踪</span>
+      </div>
+      <div class="card-desc">
+        <b>knowledge_lookup</b> 复用历史结论 · <b>knowledge_store</b> 报告入库<br>
+        <b>diff_analyzer</b> 变化检测 · <b>change_notifier</b> 多平台通知
+      </div>
+    </div>
+    <div class="card c-teal">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+            <path d="M14 2v6h6M9 15h6M9 11h2"/>
+          </svg>
+        </span>
+        <span class="card-title">文章素材库</span>
+      </div>
+      <div class="card-desc">
+        每次生成自动归档，保留<b>全阶段版本</b><br>
+        支持全文检索、人工评审与策展标记
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="flow">
+  <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+  读写
+</div>
+
+<!-- 存储层 -->
+<div class="layer layer-store">
+  <span class="layer-label">存储层</span>
+  <div class="row">
+    <div class="card c-amber">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
+          </svg>
+        </span>
+        <span class="card-title">SQLite</span>
+      </div>
+      <div class="card-desc">主题 · 报告 · 运行记录 · 素材 · 评价</div>
+    </div>
+    <div class="card c-amber">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="2.5"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/>
+            <circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/>
+            <path d="M6.7 7.3l3.1 3.1M17.3 7.3l-3.1 3.1M6.7 16.7l3.1-3.1M17.3 16.7l-3.1-3.1"/>
+          </svg>
+        </span>
+        <span class="card-title">ChromaDB</span>
+      </div>
+      <div class="card-desc">报告分块与关键事实向量，<b>增量研究复用</b></div>
+    </div>
+    <div class="card c-amber">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/>
+          </svg>
+        </span>
+        <span class="card-title">Checkpoint</span>
+      </div>
+      <div class="card-desc">HITL 中断状态，<b>支持跨重启恢复</b></div>
+    </div>
+    <div class="card c-amber">
+      <div class="card-head">
+        <span class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+          </svg>
+        </span>
+        <span class="card-title">图片缓存</span>
+      </div>
+      <div class="card-desc">按内容哈希去重，<b>搜图与生图共用</b></div>
+    </div>
+  </div>
+</div>
+
+<!-- 外部能力 -->
+<div style="margin-top: 26px;">
+  <div style="font-size: 12px; font-weight: 700; color: #94A3B8; letter-spacing: 0.06em; margin-bottom: 11px;">
+    外部能力
+  </div>
+  <div class="ext-wrap">
+    <div class="ext">
+      <span class="ext-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a4 4 0 014 4v1a5 5 0 015 5v2a5 5 0 01-5 5h-1a4 4 0 01-8 0H6a5 5 0 01-5-5v-2a5 5 0 015-5V6a4 4 0 014-4z"/>
+        </svg>
+      </span>
+      <div>
+        <div class="ext-name">LLM</div>
+        <div class="ext-note">规划 / 写作 / 审校 / Judge</div>
+      </div>
+    </div>
+    <div class="ext">
+      <span class="ext-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>
+        </svg>
+      </span>
+      <div>
+        <div class="ext-name">Tavily</div>
+        <div class="ext-note">网页与图片搜索</div>
+      </div>
+    </div>
+    <div class="ext">
+      <span class="ext-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>
+        </svg>
+      </span>
+      <div>
+        <div class="ext-name">视觉模型</div>
+        <div class="ext-note">选图 / 水印 / 终审</div>
+      </div>
+    </div>
+    <div class="ext">
+      <span class="ext-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </span>
+      <div>
+        <div class="ext-name">生图模型</div>
+        <div class="ext-note">架构图 / 示意图</div>
+      </div>
+    </div>
+    <div class="ext">
+      <span class="ext-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/>
+        </svg>
+      </span>
+      <div>
+        <div class="ext-name">Langfuse</div>
+        <div class="ext-note">Trace / Prompt / Score</div>
+      </div>
+    </div>
+    <div class="ext">
+      <span class="ext-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/>
+        </svg>
+      </span>
+      <div>
+        <div class="ext-name">Webhook</div>
+        <div class="ext-note">企业微信 / 钉钉 / TG</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

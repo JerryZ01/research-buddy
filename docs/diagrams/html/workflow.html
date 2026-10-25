@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    background: #FFFFFF;
+    padding: 52px 56px 44px;
+    width: 1480px;
+  }
+
+  .header { margin-bottom: 44px; }
+  .header h1 {
+    font-size: 33px; font-weight: 700; color: #12263F;
+    letter-spacing: -0.3px; margin-bottom: 10px;
+  }
+  .header p { font-size: 15.5px; color: #64748B; line-height: 1.5; }
+
+  /* ── 阶段条 ── */
+  .stage { display: flex; align-items: stretch; }
+
+  .stage-block {
+    flex: 1 1 0; min-width: 0;
+    display: flex; flex-direction: column;
+  }
+
+  .stage-head {
+    display: flex; align-items: flex-start; gap: 9px;
+    padding: 0 0 13px;
+  }
+  .stage-num {
+    width: 29px; height: 29px; flex-shrink: 0;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13.5px; font-weight: 700; color: #fff;
+    margin-top: 1px;
+  }
+  .stage-title { font-size: 15px; font-weight: 700; color: #1E293B; line-height: 1.25; }
+  .stage-sub { font-size: 11px; color: #94A3B8; margin-top: 2px; line-height: 1.2; }
+
+  .stage-body {
+    border-radius: 11px;
+    padding: 14px 13px 13px;
+    flex: 1;
+  }
+
+  .step {
+    background: #fff;
+    border: 1.5px solid #E2E8F0;
+    border-radius: 8px;
+    padding: 10px 11px;
+    margin-bottom: 8px;
+  }
+  .step:last-child { margin-bottom: 0; }
+  .step-name {
+    font-size: 12px; font-weight: 700; color: #1E293B;
+    display: flex; align-items: center; gap: 5px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+  }
+  .step-name code {
+    font-family: "DejaVu Sans Mono", monospace;
+    font-size: 11.5px; font-weight: 700;
+    background: none; padding: 0; color: #1E293B;
+  }
+  .step-desc { font-size: 10.8px; color: #64748B; line-height: 1.5; }
+  .step-desc b { color: #475569; font-weight: 600; }
+
+  .badge {
+    display: inline-block;
+    font-size: 9px; font-weight: 700;
+    padding: 1px 5px; border-radius: 3px;
+    vertical-align: middle;
+    letter-spacing: 0.02em;
+  }
+
+  /* 阶段配色 */
+  .s1 .stage-num { background: #3B82F6; }
+  .s1 .stage-body { background: #EFF6FF; border: 1.5px solid #DBEAFE; }
+  .s1 .badge { background: #DBEAFE; color: #1D4ED8; }
+
+  .s2 .stage-num { background: #8B5CF6; }
+  .s2 .stage-body { background: #F5F3FF; border: 1.5px solid #EDE9FE; }
+  .s2 .badge { background: #EDE9FE; color: #6D28D9; }
+
+  .s3 .stage-num { background: #16A34A; }
+  .s3 .stage-body { background: #F0FDF4; border: 1.5px solid #DCFCE7; }
+  .s3 .badge { background: #DCFCE7; color: #15803D; }
+
+  .s4 .stage-num { background: #E11D48; }
+  .s4 .stage-body { background: #FFF1F2; border: 1.5px solid #FFE4E6; }
+  .s4 .badge { background: #FFE4E6; color: #BE123C; }
+
+  .s5 .stage-num { background: #0D9488; }
+  .s5 .stage-body { background: #F0FDFA; border: 1.5px solid #CCFBF1; }
+  .s5 .badge { background: #CCFBF1; color: #0F766E; }
+
+  .s6 .stage-num { background: #D97706; }
+  .s6 .stage-body { background: #FFFBEB; border: 1.5px solid #FEF3C7; }
+  .s6 .badge { background: #FEF3C7; color: #B45309; }
+
+  /* 箭头的列 */
+  .arrow-col {
+    width: 30px; flex: 0 0 30px;
+    display: flex; align-items: center; justify-content: center;
+    padding-bottom: 34px;
+  }
+  .arrow-col svg { width: 17px; height: 17px; stroke: #CBD5E1; }
+
+  /* ── 回边区 ── */
+  .loops {
+    margin-top: 32px;
+    background: #F8FAFC;
+    border: 1.5px dashed #CBD5E1;
+    border-radius: 11px;
+    padding: 19px 22px;
+  }
+  .loops-title {
+    font-size: 11.5px; font-weight: 700; color: #64748B;
+    letter-spacing: 0.05em; margin-bottom: 12px;
+  }
+  .loop-row {
+    display: flex; align-items: flex-start; gap: 13px;
+    padding: 10px 0;
+    border-top: 1px solid #E2E8F0;
+  }
+  .loop-row:first-of-type { border-top: none; padding-top: 0; }
+  .loop-icon {
+    width: 25px; height: 25px; flex-shrink: 0;
+    border-radius: 6px; background: #E2E8F0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .loop-icon svg { width: 13px; height: 13px; stroke: #475569; }
+  .loop-body { flex: 1; }
+  .loop-cond { font-size: 12.5px; font-weight: 700; color: #334155; margin-bottom: 3px; }
+  .loop-cond code {
+    font-family: "DejaVu Sans Mono", monospace;
+    font-size: 11px; background: #E2E8F0;
+    padding: 1px 5px; border-radius: 3px; color: #475569; font-weight: 600;
+  }
+  .loop-desc { font-size: 11.5px; color: #64748B; line-height: 1.5; }
+  .loop-desc b { color: #475569; }
+
+  /* ── 底部说明 ── */
+  .footer { margin-top: 22px; display: flex; gap: 11px; }
+  .foot-card {
+    flex: 1;
+    background: #fff;
+    border: 1.5px solid #E2E8F0;
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .foot-title { font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 4px; }
+  .foot-desc { font-size: 11px; color: #64748B; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Research Buddy · 主研究工作流</h1>
+  <p>六个阶段、十个节点。证据不足自动补搜，质量不达标自动重写，任一步失败都不阻断出稿</p>
+</div>
+
+<div class="stage">
+
+  <!-- 1 拆解 -->
+  <div class="stage-block s1">
+    <div class="stage-head">
+      <span class="stage-num">1</span>
+      <div>
+        <div class="stage-title">拆解</div>
+        <div class="stage-sub">Framing</div>
+      </div>
+    </div>
+    <div class="stage-body">
+      <div class="step">
+        <div class="step-name"><code>planner</code></div>
+        <div class="step-desc">拆成 3~5 个子问题，每个生成中英双语搜索词</div>
+      </div>
+      <div class="step">
+        <div class="step-name"><code>local_lookup</code> <span class="badge">可选</span></div>
+        <div class="step-desc">本地代码库 agentic 检索，自主决定搜什么、读哪个文件</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-col">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+  </div>
+
+  <!-- 2 取证 -->
+  <div class="stage-block s2">
+    <div class="stage-head">
+      <span class="stage-num">2</span>
+      <div>
+        <div class="stage-title">取证</div>
+        <div class="stage-sub">Evidence</div>
+      </div>
+    </div>
+    <div class="stage-body">
+      <div class="step">
+        <div class="step-name"><code>searcher</code></div>
+        <div class="step-desc">Tavily 并行搜索，按需抓全文补齐摘要</div>
+      </div>
+      <div class="step">
+        <div class="step-name"><code>validator</code></div>
+        <div class="step-desc">覆盖度 <b>0.75</b> · 域名数 <b>≥2</b> · 语义充足度 <b>0.6</b> 三道闸</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-col">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+  </div>
+
+  <!-- 3 写作 -->
+  <div class="stage-block s3">
+    <div class="stage-head">
+      <span class="stage-num">3</span>
+      <div>
+        <div class="stage-title">写作</div>
+        <div class="stage-sub">Composition</div>
+      </div>
+    </div>
+    <div class="stage-body">
+      <div class="step">
+        <div class="step-name"><code>editorial_planner</code></div>
+        <div class="step-desc">定角度、章节、证据分配，避免资料堆砌</div>
+      </div>
+      <div class="step">
+        <div class="step-name"><code>synthesizer</code></div>
+        <div class="step-desc">流式生成全文，超长自动续写，占位符标记配图位</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-col">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+  </div>
+
+  <!-- 4 配图 -->
+  <div class="stage-block s4">
+    <div class="stage-head">
+      <span class="stage-num">4</span>
+      <div>
+        <div class="stage-title">配图</div>
+        <div class="stage-sub">Illustration</div>
+      </div>
+    </div>
+    <div class="stage-body">
+      <div class="step">
+        <div class="step-name"><code>image_planner</code></div>
+        <div class="step-desc">逐处判定 need，代码推导搜图 / 生图 / 不配</div>
+      </div>
+      <div class="step">
+        <div class="step-name"><code>image_reviewer</code> <span class="badge">新增</span></div>
+        <div class="step-desc">逐图复核图文匹配，矛盾时删图不改正文</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-col">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+  </div>
+
+  <!-- 5 审校 -->
+  <div class="stage-block s5">
+    <div class="stage-head">
+      <span class="stage-num">5</span>
+      <div>
+        <div class="stage-title">审校</div>
+        <div class="stage-sub">Review</div>
+      </div>
+    </div>
+    <div class="stage-body">
+      <div class="step">
+        <div class="step-name"><code>language_editor</code> <span class="badge">可选</span></div>
+        <div class="step-desc">仅对高置信模板句做一次受约束改写</div>
+      </div>
+      <div class="step">
+        <div class="step-name"><code>article_editor</code> <span class="badge">可选</span></div>
+        <div class="step-desc">局部可验证事实校验，失败保留原稿</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-col">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+  </div>
+
+  <!-- 6 质检 -->
+  <div class="stage-block s6">
+    <div class="stage-head">
+      <span class="stage-num">6</span>
+      <div>
+        <div class="stage-title">质检</div>
+        <div class="stage-sub">Quality Gate</div>
+      </div>
+    </div>
+    <div class="stage-body">
+      <div class="step">
+        <div class="step-name"><code>reflector</code></div>
+        <div class="step-desc">相关性 / 完整性 / 准确性三维打分，保留最佳稿</div>
+      </div>
+      <div class="step">
+        <div class="step-name">独立 Judge</div>
+        <div class="step-desc">与写作模型分离的评分器，避免自评自夸</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 回边 -->
+<div class="loops">
+  <div class="loops-title">三条回边 · 决定这篇稿子是怎么改出来的</div>
+
+  <div class="loop-row">
+    <span class="loop-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 019-9 9 9 0 016.7 3M21 12a9 9 0 01-9 9 9 9 0 01-6.7-3"/><path d="M18 3v3h-3M6 21v-3h3"/>
+      </svg>
+    </span>
+    <div class="loop-body">
+      <div class="loop-cond"><code>validator → search_again</code> → searcher</div>
+      <div class="loop-desc">证据不足时补搜。受 <b>MAX_SEARCH_ROUNDS=4</b> 与 <b>MAX_TOTAL_QUERIES=30</b> 双重约束，不会无限循环</div>
+    </div>
+  </div>
+
+  <div class="loop-row">
+    <span class="loop-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 019-9 9 9 0 016.7 3M21 12a9 9 0 01-9 9 9 9 0 01-6.7-3"/><path d="M18 3v3h-3M6 21v-3h3"/>
+      </svg>
+    </span>
+    <div class="loop-body">
+      <div class="loop-cond"><code>reflector → search_again</code> → searcher</div>
+      <div class="loop-desc">反思发现证据缺口，回到搜索补证后重新生成。默认最多 <b>2</b> 轮</div>
+    </div>
+  </div>
+
+  <div class="loop-row">
+    <span class="loop-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 019-9 9 9 0 016.7 3M21 12a9 9 0 01-9 9 9 9 0 01-6.7-3"/><path d="M18 3v3h-3M6 21v-3h3"/>
+      </svg>
+    </span>
+    <div class="loop-body">
+      <div class="loop-cond"><code>reflector → revise_report</code> → synthesizer</div>
+      <div class="loop-desc">只是表达不好、证据已够时走这条：<b>不消耗搜索预算</b>，直接基于现有证据重写</div>
+    </div>
+  </div>
+</div>
+
+<!-- 底部要点 -->
+<div class="footer">
+  <div class="foot-card">
+    <div class="foot-title">失败不阻断</div>
+    <div class="foot-desc">搜索挂了跳过补搜直接改写；视觉接口挂了跳过配图；任一步异常都降级而非中止</div>
+  </div>
+  <div class="foot-card">
+    <div class="foot-title">只交付最佳稿</div>
+    <div class="foot-desc">每轮记录并排序，结束时输出历史最优版本，而不是最后一版</div>
+  </div>
+  <div class="foot-card">
+    <div class="foot-title">HITL 可介入</div>
+    <div class="foot-desc">在 searcher 与 reflector 前可中断，人工确认后恢复</div>
+  </div>
+</div>
+
+</body>
+</html>

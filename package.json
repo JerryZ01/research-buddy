@@ -1,11 +1,14 @@
 {
   "scripts": {
-    "docs:diagrams": "node scripts/render_architecture_diagrams.js",
+    "docs:diagrams": "node scripts/render_diagrams.js && node scripts/render_architecture_diagrams.js",
+    "docs:product": "node scripts/render_diagrams.js",
+    "docs:mermaid": "node scripts/render_architecture_diagrams.js",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed"
   },
   "devDependencies": {
     "@mermaid-js/mermaid-cli": "^11.16.0",
-    "playwright": "^1.62.1"
+    "playwright": "^1.62.1",
+    "puppeteer-core": "^25.9.0"
   }
 }

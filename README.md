@@ -40,17 +40,21 @@
 
 ### 系统架构
 
-![系统架构总览](docs/assets/architecture-overview.svg)
+![系统架构总览](docs/assets/architecture.png)
 
-<sub>源码：[docs/diagrams/architecture-overview.mmd](docs/diagrams/architecture-overview.mmd)。改代码后运行 `npm run docs:diagrams` 重新渲染。</sub>
+<sub>源码：[docs/diagrams/html/architecture.html](docs/diagrams/html/architecture.html)。改完运行 `npm run docs:diagrams` 重新出图。</sub>
+
+五层结构：**接入层**（Web UI 与 HTTP/SSE 客户端）→ **接口层**（FastAPI 路由与 LangGraph 编排）→ **核心层**（研究与证据 → 编辑型写作 → 混合配图 → 质量控制）→ **支撑层**（知识与追踪、文章素材库）→ **存储层**（SQLite、ChromaDB、Checkpoint、图片缓存）。右侧虚线框是外部依赖，缺任何一个都有降级路径。
 
 ### 主研究工作流
 
-![主研究工作流](docs/assets/research-workflow.svg)
+![主研究工作流](docs/assets/workflow.png)
 
-<sub>源码：[docs/diagrams/research-workflow.mmd](docs/diagrams/research-workflow.mmd)。节点与 `graph.py` 的 `_add_core_nodes_and_edges` 一一对应。</sub>
+<sub>源码：[docs/diagrams/html/workflow.html](docs/diagrams/html/workflow.html)。节点与 `graph.py` 的 `_add_core_nodes_and_edges` 一一对应。</sub>
 
-流程分两段：**先收证据再定选题**（planner → searcher → validator → editorial_planner），**再写作配图审校**（image_planner → synthesizer → image_reviewer → language_editor → article_editor → reflector）。`validator` 与 `reflector` 都可回到 `searcher` 补充搜索，`reflector` 另有 `revise_report` 分支只重写不重搜。
+六个阶段、十个节点：**拆解 → 取证 → 写作 → 配图 → 审校 → 质检**。其中 `local_lookup`、`language_editor`、`article_editor` 为可选增强，未配置或失败时直接跳过，不影响出稿。
+
+底部三条回边决定了稿子是怎么改出来的：`validator` 补搜受 `MAX_SEARCH_ROUNDS=4` 与 `MAX_TOTAL_QUERIES=30` 双重约束；`reflector` 发现证据缺口时回到 `searcher` 补证（默认最多 2 轮）；只是表达不好、证据已够时走 `revise_report` 直接重写，**不消耗搜索预算**。
 
 ### 四种工作流
 
@@ -122,12 +126,13 @@ research-buddy/
 │   ├── run_article_eval.py      # 文章质量 A/B 回归
 │   ├── run_process_eval.py      # 生成过程评测
 │   ├── audit_image_watermarks.py# 存量配图水印审计
-│   ├── render_architecture_diagrams.js # Mermaid 架构图渲染
+│   ├── render_diagrams.js       # 产品架构图/工作流图（HTML → PNG）
+│   ├── render_architecture_diagrams.js # 内部文档的 Mermaid 图（SVG）
 │   └── test_phase{1,2,3}.py     # 分阶段手工验证
 ├── tests/                       # 444 个单元测试 + Playwright e2e
 ├── docs/                        # 见下方「文档索引」
-│   ├── assets/                      # 架构图 SVG 与 README 概念图
-│   ├── diagrams/                    # Mermaid 源文件（改图改这里）
+│   ├── assets/                      # 渲染产物（PNG + SVG）
+│   ├── diagrams/                    # 图源：html/ 为产品图，*.mmd 为 Mermaid
 │   ├── editorial-pipeline.md        # 编辑型管线与配图设计
 │   ├── article-archive.md           # 文章素材库
 │   ├── article-quality-evaluation.md # 质量回归评测
