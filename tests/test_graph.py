@@ -20,7 +20,7 @@ class TestResearchGraph:
         graph = create_research_graph()
         nodes = set(graph.get_graph().nodes.keys())
         expected = {"__start__", "__end__", "planner", "searcher", "validator",
-                    "editorial_planner", "synthesizer", "language_editor",
+                    "editorial_planner", "image_planner", "synthesizer", "language_editor",
                     "article_editor", "reflector"}
         assert expected.issubset(nodes), f"Missing nodes: {expected - nodes}"
 
@@ -29,8 +29,11 @@ class TestResearchGraph:
         edge_keys = {(edge.source, edge.target, edge.data) for edge in edges}
         assert ("validator", "searcher", "search_again") in edge_keys
         assert ("validator", "editorial_planner", "synthesize") in edge_keys
-        assert ("editorial_planner", "synthesizer", None) in edge_keys
-        assert ("synthesizer", "language_editor", None) in edge_keys
+        assert ("editorial_planner", "image_planner", None) in edge_keys
+        assert ("image_planner", "synthesizer", None) in edge_keys
+        # 配图终审夹在写作与语言审校之间
+        assert ("synthesizer", "image_reviewer", None) in edge_keys
+        assert ("image_reviewer", "language_editor", None) in edge_keys
         assert ("language_editor", "article_editor", None) in edge_keys
         assert ("article_editor", "reflector", None) in edge_keys
 

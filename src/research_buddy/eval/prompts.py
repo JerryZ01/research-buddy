@@ -125,9 +125,15 @@ def register_prompts() -> None:
     from research_buddy.nodes.reflector import REFLECTOR_PROMPT
     from research_buddy.nodes.validator import EVIDENCE_EVALUATOR_PROMPT
     from research_buddy.tracking.diff import DIFF_ANALYZER_PROMPT
-    from research_buddy.eval.judge import JUDGE_PROMPT
+    from research_buddy.eval.judge import (
+        JUDGE_PROMPT,
+        PLAN_JUDGE_PROMPT,
+        EVIDENCE_JUDGE_PROMPT,
+        BRIEF_JUDGE_PROMPT,
+    )
     from research_buddy.nodes.knowledge_store import KEY_FACTS_PROMPT
     from research_buddy.nodes.editorial_planner import EDITORIAL_BRIEF_PROMPT
+    from research_buddy.nodes.local_lookup import LOCAL_LOOKUP_PROMPT, AGENTIC_SUMMARY_PROMPT
     from research_buddy.nodes.article_editor import (
         EVIDENCE_EDITOR_PROMPT,
         GROUNDING_VERIFIER_PROMPT,
@@ -146,10 +152,15 @@ def register_prompts() -> None:
         "research-buddy-evidence-evaluator": EVIDENCE_EVALUATOR_PROMPT,
         "research-buddy-diff-analyzer": DIFF_ANALYZER_PROMPT,
         "research-buddy-judge": JUDGE_PROMPT,
+        "research-buddy-judge-plan": PLAN_JUDGE_PROMPT,
+        "research-buddy-judge-evidence": EVIDENCE_JUDGE_PROMPT,
+        "research-buddy-judge-brief": BRIEF_JUDGE_PROMPT,
         "research-buddy-key-facts": KEY_FACTS_PROMPT,
         "research-buddy-core-refs": CORE_REFS_PROMPT,
         "research-buddy-heading-rewrite": HEADING_REWRITE_PROMPT,
         "research-buddy-editorial-brief": EDITORIAL_BRIEF_PROMPT,
+        "research-buddy-local-lookup": LOCAL_LOOKUP_PROMPT,
+        "research-buddy-local-summary": AGENTIC_SUMMARY_PROMPT,
         "research-buddy-evidence-editor": EVIDENCE_EDITOR_PROMPT,
         "research-buddy-grounding-verifier": GROUNDING_VERIFIER_PROMPT,
         "research-buddy-language-editor": LANGUAGE_EDITOR_PROMPT,

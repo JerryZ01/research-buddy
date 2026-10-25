@@ -44,12 +44,12 @@ const appState = {
 };
 
 const STEPS = [
-  'knowledge_lookup', 'planner', 'searcher',
+  'knowledge_lookup', 'planner', 'local_lookup', 'searcher',
   'validator', 'editorial_planner', 'synthesizer', 'language_editor', 'article_editor', 'reflector',
   'knowledge_store', 'diff_analyzer', 'change_notifier'
 ];
 
-const CORE_RESEARCH_STEPS = ['planner', 'searcher', 'validator', 'editorial_planner', 'synthesizer', 'language_editor', 'article_editor', 'reflector'];
+const CORE_RESEARCH_STEPS = ['planner', 'local_lookup', 'searcher', 'validator', 'editorial_planner', 'synthesizer', 'language_editor', 'article_editor', 'reflector'];
 const KNOWLEDGE_RESEARCH_STEPS = ['knowledge_lookup', ...CORE_RESEARCH_STEPS, 'knowledge_store'];
 
 let researchViz = null;
@@ -217,7 +217,11 @@ class ResearchEvidenceMap {
     $('executionPhaseIndex').textContent = node === 'complete' ? 'OK' : phaseIndex >= 0 ? String(phaseIndex + 1).padStart(2, '0') : '00';
     $('executionPhaseTitle').textContent = node === 'start' ? '建立研究上下文' : node === 'complete' ? '研究完成' : meta ? meta.title : '研究进行中';
     const eventText = this.eventText(node, detail);
-    $('executionPhaseSummary').textContent = eventText;
+    // 编辑规划阶段的核心信息是文章主线。放在当前阶段摘要里能直接检查规划
+    // 是否跑偏；事件流仍保留简短的节点状态，避免长文本挤压时间列。
+    $('executionPhaseSummary').textContent = node === 'editorial_planner' && detail.thesis
+      ? detail.thesis
+      : eventText;
 
     this.events.push({ text: eventText, at: new Date() });
     this.events = this.events.slice(-4);

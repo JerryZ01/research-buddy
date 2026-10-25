@@ -40,7 +40,9 @@ from research_buddy.utils import (
     track_run_tokens,
 )
 from research_buddy.config import DATA_DIR
-from research_buddy.archive import complete_generation, fail_generation, start_generation
+from research_buddy.archive import (
+    auto_judge_generation, complete_generation, fail_generation, start_generation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +292,7 @@ REFINE_QUESTION_PROMPT = """你是研究问题润色助手。用户想用 AI 做
 
 每条候选都必须满足：
 1. **主题锁定**：改写结果必须围绕上面的原始问题，原始问题中的核心名词短语必须原样出现在每条候选里，一个字都不能换成别的主题；只允许补充时间/地域/研究维度等边界。
+   - **专有名词与英文术语必须逐字保留，禁止用同义词/近义词替换**：例如原问题是 "Agent Harness"，"Harness" 是核心术语，绝不能改写成 "runtime"、"framework"、"platform" 等任何近义词——它们是不同主题；"Agent runtime" 是另一个概念，禁止出现。
 2. 候选之间要有差异：
    - [轻度] 至少 1 条：只去口语壳子、补最明显的边界，尽量贴近原问题；
    - [深度] 至少 1 条：在轻度基础上补全时间/地域/研究维度，让研究意图更明确；
@@ -325,6 +328,35 @@ def _parse_refine_candidates(text: str) -> list[RefineCandidate]:
     return candidates
 
 
+# 提取原问题里的英文术语（含字母数字、连字符、下划线，长度 ≥ 2），
+# 用于后置校验候选是否把核心术语偷换成了近义词（如 Harness → runtime）。
+_ENGLISH_TERM_RE = re.compile(r"[A-Za-z][A-Za-z0-9_\-]*")
+
+
+def _extract_english_terms(text: str) -> set[str]:
+    return {t for t in _ENGLISH_TERM_RE.findall(text or "") if len(t) >= 2}
+
+
+def _filter_drifted_candidates(original: str,
+                               candidates: list[RefineCandidate]) -> list[RefineCandidate]:
+    """丢弃把原问题英文术语偷换成别的词的候选。
+
+    模型偶尔会把 Harness 漂移成 runtime、framework 等同义词/近义词，导致主题偷换。
+    这里做确定性兜底：原问题里的英文术语（如 "Agent"、"Harness"）必须逐字出现在
+    候选里，缺一个就视为主题漂移并丢弃。原问题纯中文（无英文术语）则不做此校验。
+    """
+    required_terms = _extract_english_terms(original)
+    if not required_terms:
+        return candidates
+    kept = []
+    for c in candidates:
+        q = c.refined_question or ""
+        # 逐字匹配（不区分大小写）：核心术语不能被改写/省略
+        if all(term.lower() in q.lower() for term in required_terms):
+            kept.append(c)
+    return kept
+
+
 @app.post("/research/refine-question", response_model=RefineQuestionResponse)
 async def refine_question(req: RefineQuestionRequest):
     """AI 润色研究问题：一次生成多条候选（轻度/深度），前端供用户选择。
@@ -345,8 +377,10 @@ async def refine_question(req: RefineQuestionRequest):
         llm = create_llm(temperature=0.5)
         response = invoke_llm(llm, prompt)
         candidates = _parse_refine_candidates(response.content)
+        # 确定性兜底：丢弃把英文核心术语偷换成近义词的候选（Harness→runtime 这类）
+        candidates = _filter_drifted_candidates(question, candidates)
         if not candidates:
-            raise ValueError("没有解析出候选")
+            raise ValueError("候选全部因主题漂移被过滤")
         return RefineQuestionResponse(candidates=candidates)
     except Exception as exc:
         logger.warning("问题润色失败，返回原问题候选: %s", str(exc)[:160])
@@ -379,6 +413,7 @@ async def research(req: ResearchRequest):
         raise
     result.setdefault("question", req.question)
     result["token_usage"] = dict(usage)
+    auto_judge_generation(generation_id, result)
     complete_generation(generation_id, result)
     result["article_id"] = generation_id
 
@@ -529,6 +564,7 @@ async def knowledge_research(req: KnowledgeResearchRequest):
         raise
     result.setdefault("question", req.question)
     result["token_usage"] = dict(usage)
+    auto_judge_generation(generation_id, result)
     complete_generation(generation_id, result)
     result["article_id"] = generation_id
 
@@ -807,6 +843,10 @@ def _report_payload(result: dict, question: str, topic_id: str = "",
         "cached_images_count": sum(
             1 for image in result.get("selected_images", []) if image.get("cached_url")
         ),
+        "generated_images_count": sum(
+            1 for image in result.get("selected_images", [])
+            if image.get("kind") == "generated"
+        ),
         "reflection_round": result.get("reflection_round", 0),
         "reflection_pass": result.get("reflection_pass", False),
         "reflection_score": result.get("reflection_score", 0),
@@ -860,6 +900,15 @@ def _emit_stream_event(queue, mode: str, payload, result: dict) -> None:
         elif isinstance(payload, dict) and payload.get("type") == "report_reset":
             # 改进模式重写：前端应清空已显示的文章再重新流式输出
             queue.put_nowait({"event": "report_reset", "data": "{}"})
+        elif isinstance(payload, dict) and payload.get("type") == "agent_step":
+            # agentic 探索的每步进度：让前端实时看到 agent 在做什么
+            queue.put_nowait({
+                "event": "agent_step",
+                "data": json.dumps({
+                    "step": payload.get("step", 0),
+                    "brief": payload.get("brief", ""),
+                }),
+            })
         return
 
     if mode != "updates" or not isinstance(payload, dict):
@@ -988,6 +1037,10 @@ def _event_generator(question: str, topic_id: str = "",
                     "data": json.dumps(_done_payload(result)),
                 })
                 logger.info("SSE 最终报告事件已入队 (run_id=%s)", run_id)
+
+                # 报告已交付，再后台做流程打分并落库（前端「流程打分」面板读取）。
+                # 放在 report/done 事件之后，避免 3~4 次额外 LLM 调用阻塞报告推送。
+                auto_judge_generation(generation_id, result)
 
             except Exception as e:
                 logger.error("SSE 图执行失败: %s", e)
@@ -1128,6 +1181,10 @@ def _hitl_event_generator(question: str, style: str = "tech-blog"):
                         "event": "done",
                         "data": json.dumps(_done_payload(result)),
                     })
+                    # 报告已交付，再后台做流程打分并落库
+                    auto_judge_generation(
+                        _hitl_sessions.get(thread_id, {}).get("generation_id", ""), result,
+                    )
                     # 清理会话
                     _hitl_sessions.pop(thread_id, None)
 
@@ -1264,6 +1321,8 @@ def _hitl_resume_event_generator(thread_id: str, resume_data: dict):
                         "event": "done",
                         "data": json.dumps(_done_payload(result)),
                     })
+                    # 报告已交付，再后台做流程打分并落库
+                    auto_judge_generation(session.get("generation_id", ""), result)
                     _hitl_sessions.pop(thread_id, None)
 
             except Exception as e:
@@ -1314,6 +1373,19 @@ def _extract_detail(node_name: str, state_update: dict) -> dict:
             for sq in sqs
         ]
 
+    elif node_name == "local_lookup":
+        evidence = state_update.get("local_evidence", [])
+        detail["evidence_count"] = len(evidence)
+        detail["web_count"] = sum(1 for e in evidence if e.get("source_type") == "web")
+        detail["local_count"] = len(evidence) - detail["web_count"]
+        detail["evidence_preview"] = [
+            {
+                "source_type": e.get("source_type", "local"),
+                "title": (e.get("title") or e.get("path") or "")[:120],
+            }
+            for e in evidence[:10]
+        ]
+
     elif node_name == "searcher":
         results = state_update.get("search_results", [])
         detail["results_count"] = len(results)
@@ -1344,10 +1416,23 @@ def _extract_detail(node_name: str, state_update: dict) -> dict:
     elif node_name == "editorial_planner":
         ledger = state_update.get("evidence_ledger", [])
         brief = state_update.get("editorial_brief", {})
+        sections = brief.get("section_plan", []) if isinstance(brief, dict) else []
         detail["evidence_count"] = len(ledger)
         detail["thesis"] = brief.get("thesis", "")
         detail["intent"] = brief.get("intent", "")
-        detail["section_count"] = len(brief.get("section_plan", []))
+        detail["audience"] = brief.get("audience", "")
+        detail["depth"] = brief.get("depth", "")
+        detail["section_count"] = len(sections)
+        detail["sections"] = [
+            {
+                "heading": str(section.get("heading", ""))[:160],
+                "purpose": str(section.get("purpose", ""))[:320],
+                "depth": str(section.get("depth", ""))[:24],
+                "completion_count": len(section.get("completion_criteria", [])),
+            }
+            for section in sections[:5] if isinstance(section, dict)
+        ]
+        detail["must_cover_count"] = len(brief.get("must_cover", []))
         detail["degraded"] = not bool(brief)
 
     elif node_name == "article_editor":
@@ -1383,6 +1468,22 @@ def _extract_detail(node_name: str, state_update: dict) -> dict:
             1 for image in selected_images if image.get("cached_url")
         )
         detail["embedded_images_count"] = report.count("![")
+        detail["generated_images_count"] = sum(
+            1 for image in selected_images if image.get("kind") == "generated"
+        )
+
+    elif node_name == "image_planner":
+        plans = state_update.get("image_plans", [])
+        detail["image_plans_count"] = len(plans)
+        detail["search_plans_count"] = sum(
+            1 for plan in plans if plan.get("kind") == "search"
+        )
+        detail["generate_plans_count"] = sum(
+            1 for plan in plans if plan.get("kind") == "generate"
+        )
+        detail["skip_plans_count"] = sum(
+            1 for plan in plans if plan.get("kind") == "skip"
+        )
 
     elif node_name == "reflector":
         detail["reflection_pass"] = state_update.get("reflection_pass", False)
@@ -1421,6 +1522,13 @@ def _summarize_update(node_name: str, state_update: dict) -> str:
     elif node_name == "planner":
         count = len(state_update.get("sub_questions", []))
         return f"拆解为 {count} 个子问题"
+    elif node_name == "local_lookup":
+        evidence = state_update.get("local_evidence", [])
+        if not evidence:
+            return "自主探索未命中相关内容"
+        web_count = sum(1 for e in evidence if e.get("source_type") == "web")
+        local_count = len(evidence) - web_count
+        return f"自主探索得到 {len(evidence)} 条证据（网页 {web_count}，本地 {local_count}）"
     elif node_name == "searcher":
         count = len(state_update.get("search_results", []))
         return f"获取 {count} 条搜索结果"
@@ -1434,6 +1542,15 @@ def _summarize_update(node_name: str, state_update: dict) -> str:
         if not brief:
             return "编辑规划不可用，已降级为直接写作"
         return f"完成证据账本与 {len(brief.get('section_plan', []))} 节写作规划"
+    elif node_name == "image_planner":
+        plans = state_update.get("image_plans", [])
+        if not plans:
+            return "配图规划不可用，本次全部按搜图处理"
+        search_count = sum(1 for plan in plans if plan.get("kind") == "search")
+        generate_count = sum(1 for plan in plans if plan.get("kind") == "generate")
+        skip_count = sum(1 for plan in plans if plan.get("kind") == "skip")
+        return (f"配图规划完成：搜图 {search_count} 处、生图 {generate_count} 处、"
+                f"不配图 {skip_count} 处")
     elif node_name == "article_editor":
         count = len(state_update.get("evidence_edits", []))
         if count:

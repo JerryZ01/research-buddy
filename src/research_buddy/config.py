@@ -38,6 +38,23 @@ VISION_MODEL = os.getenv("VISION_MODEL", "").strip()
 VISION_API_KEY = os.getenv("VISION_API_KEY", "").strip()
 VISION_API_BASE = os.getenv("VISION_API_BASE", "").strip()
 
+# 生图模型（可选）：用于「搜图找不到 / 水印不通过 / 需要解释性示意图」的
+# 补位。走 OpenAI 兼容的 /images/generations 接口，与文本模型共用中转站时
+# 留空 IMAGE_GEN_API_KEY / IMAGE_GEN_API_BASE 即可复用 OPENAI_* 配置。
+# 留空 IMAGE_GEN_MODEL 则关闭生图，配图行为退回纯搜图。
+IMAGE_GEN_MODEL = os.getenv("IMAGE_GEN_MODEL", "").strip()
+IMAGE_GEN_API_KEY = os.getenv("IMAGE_GEN_API_KEY", "").strip()
+IMAGE_GEN_API_BASE = os.getenv("IMAGE_GEN_API_BASE", "").strip()
+# 生图尺寸（宽x高）。中转站/模型对尺寸的支持差异较大，常见值：
+# 1024x1024（方图）、1536x1024（横图，适合文章插图）、1024x1536（竖图）。
+# 留空则不传该字段，由服务端默认决定。
+IMAGE_GEN_SIZE = os.getenv("IMAGE_GEN_SIZE", "1536x1024").strip()
+# 单篇文章最多允许生图几张（含搜图失败后的兜底）。生图比搜图贵且慢，
+# 独立设上限，避免一次研究被生图拖到无法接受。0 = 关闭生图。
+MAX_GENERATED_IMAGES = max(0, min(8, int(os.getenv("MAX_GENERATED_IMAGES", "4"))))
+# 生图单次请求超时（秒）。图像生成通常 10~60s，给足余量。
+IMAGE_GEN_TIMEOUT = float(os.getenv("IMAGE_GEN_TIMEOUT", "120"))
+
 # Langfuse 可观测性
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
@@ -52,10 +69,11 @@ LANGFUSE_TIMEOUT = int(os.getenv("LANGFUSE_TIMEOUT", "20"))
 # Prompt 缓存 TTL。SDK 默认 60 秒，意味着每分钟就有一次冷取会阻塞节点；
 # prompt 内容变动频率远低于此，放到 10 分钟。
 LANGFUSE_PROMPT_CACHE_TTL = int(os.getenv("LANGFUSE_PROMPT_CACHE_DEFAULT_TTL_SECONDS", "600"))
-# Prompt 发布必须经过文章回归和人工确认。应用启动默认不再把本地常量自动
-# 标成 production；需要显式同步时运行 python -m research_buddy.eval.prompts。
+# 应用启动时自动把本地 prompt 常量同步到 Langfuse（幂等：内容未变则跳过，
+# 内容有变则创建新版本并打 production 标签）。默认开启，保证本地 prompt 改动
+# 立即在生产流程生效，无需手动跑 python -m research_buddy.eval.prompts。
 LANGFUSE_AUTO_REGISTER_PROMPTS = os.getenv(
-    "LANGFUSE_AUTO_REGISTER_PROMPTS", "false"
+    "LANGFUSE_AUTO_REGISTER_PROMPTS", "true"
 ).strip().lower() in {"1", "true", "yes", "on"}
 LANGFUSE_PROMPT_REGISTER_LABEL = os.getenv(
     "LANGFUSE_PROMPT_REGISTER_LABEL", "production"
@@ -80,6 +98,9 @@ MAX_IMAGES_IN_ARTICLE = max(0, min(12, int(os.getenv("MAX_IMAGES_IN_ARTICLE", "1
 # 设具体值（如 4000）会限制 synthesizer 流式生成的长度，参考文献/图解
 # 由代码追加不受影响。注意别设太小导致文章被截断。
 MAX_ARTICLE_TOKENS = int(os.getenv("MAX_ARTICLE_TOKENS", "0"))
+# 服务商因单次输出上限截断正文时，最多自动续写几次。续写仍使用同一写作模型，
+# 每次都携带已完成正文与编辑简报，避免从头重写。0 = 关闭自动续写。
+MAX_ARTICLE_CONTINUATIONS = max(0, min(4, int(os.getenv("MAX_ARTICLE_CONTINUATIONS", "2"))))
 # 文章正文生成长度/温度。MAX_ARTICLE_TOKENS 见上文；WRITER_TEMPERATURE 只影响
 # synthesizer 出稿（写作调用），planner/validator/reflector 等评估类调用仍保持
 # 温度 0 以保证判断稳定。默认 0.5：保留措辞变化，同时降低长文在高温度下
@@ -119,3 +140,54 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "").strip()
 
 # 通知 Webhook（可选，支持企业微信/钉钉/Telegram）
 NOTIFICATION_WEBHOOK_URL = os.getenv("NOTIFICATION_WEBHOOK_URL", "")
+
+# 本地代码/文件检索：让研究能读取本地代码库作为证据来源（与 Tavily web 搜索平行）。
+# LOCAL_REPO_ROOT 为空或目录不存在时，本地检索整体关闭，行为与旧版一致。
+LOCAL_REPO_ROOT = os.getenv("LOCAL_REPO_ROOT", "").strip()
+# 是否自动把「当前工作目录」作为本地检索根目录（LOCAL_REPO_ROOT 为空时生效）。
+LOCAL_AUTO_ROOT = os.getenv("LOCAL_AUTO_ROOT", "true").strip().lower() in {"1", "true", "yes", "on"}
+if not LOCAL_REPO_ROOT and LOCAL_AUTO_ROOT:
+    # 未显式指定目标仓库时，默认检索启动服务时所在的工作目录，开箱可用。
+    LOCAL_REPO_ROOT = os.getcwd()
+# grep 单次最多返回的命中数（避免把海量匹配灌进上下文）。
+LOCAL_GREP_MAX_RESULTS = int(os.getenv("LOCAL_GREP_MAX_RESULTS", "40"))
+# 单文件读取大小上限（字节），超过则跳过。
+LOCAL_FILE_MAX_BYTES = int(os.getenv("LOCAL_FILE_MAX_BYTES", str(200 * 1024)))
+# 本地证据单文件最多保留的字符数（进入证据账本前的截断）。
+# 之前 4000 字会截断中等规模源码文件（如 300+ 行的模块），导致 agent 读不到
+# 完整函数体；放宽到 8000 字，配合 read_local_file 的分段续读与按 path 合并。
+LOCAL_EXCERPT_CHARS = int(os.getenv("LOCAL_EXCERPT_CHARS", "8000"))
+
+# 本地 agentic loop：LLM 自主决定读哪个文件、grep 什么、执行哪些只读命令，并据结果
+# 迭代探索，直到收集够写文档的证据（ReAct 模式）。关闭则退化为单轮启发式检索。
+LOCAL_AGENTIC_ENABLED = os.getenv("LOCAL_AGENTIC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+# agentic loop 单次研究最多执行的探索步数（每步 = 一次 LLM 工具调用决策）。
+# 深度研究需要更多步数才能充分探索 + 交叉验证，默认 20。
+LOCAL_AGENTIC_MAX_STEPS = int(os.getenv("LOCAL_AGENTIC_MAX_STEPS", "20"))
+# 是否允许 agentic loop 使用只读 shell（git log/show/diff、find、ls、tree 等）。
+# 默认关闭——shell 执行有安全风险，需显式开启。
+LOCAL_AGENTIC_SHELL_ENABLED = os.getenv("LOCAL_AGENTIC_SHELL_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+# 是否允许 agentic loop 使用「执行验证」能力：跑代码片段（python -c/node -e）、
+# 查真实版本（pip show、--version）、收集测试结构（pytest --collect-only）。
+# 这是写文档的关键验证手段（确认示例能跑、版本准确），但会执行任意代码片段，
+# 以当前用户权限运行，默认关闭，需显式开启。仍不开放写文件/改源码/任意 shell。
+LOCAL_AGENTIC_EXEC_ENABLED = os.getenv("LOCAL_AGENTIC_EXEC_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+# 执行验证单条命令的超时（秒）。
+LOCAL_EXEC_TIMEOUT = int(os.getenv("LOCAL_EXEC_TIMEOUT", "30"))
+
+# 网页全文抓取（agentic 研究循环的 web 证据来源，弥补 Tavily 只有摘要的短板）。
+# fetch_webpage 抓取 URL 全文并提取正文；失败返回 None 不阻断研究。
+FETCH_TIMEOUT = float(os.getenv("FETCH_TIMEOUT", "15"))
+FETCH_MAX_BYTES = int(os.getenv("FETCH_MAX_BYTES", str(512 * 1024)))
+FETCH_MAX_TEXT_CHARS = int(os.getenv("FETCH_MAX_TEXT_CHARS", "12000"))
+# 单次 agentic 研究中，最多抓取多少个网页全文（控制成本与上下文膨胀）。
+# 深度研究需要多抓几个权威来源交叉验证，默认 10。
+FETCH_MAX_PAGES = int(os.getenv("FETCH_MAX_PAGES", "10"))
+
+# 在线自动打分：研究流程结束后，对拆解/证据/编辑简报/最终报告各做一次 LLM-as-Judge，
+# 并把分数写回 Langfuse trace 与本地素材库（前端「流程打分」面板展示）。
+# 默认开启——每轮研究额外增加约 3~4 次 LLM 调用；如需关闭设 AUTO_JUDGE_PROCESS=false。
+AUTO_JUDGE_PROCESS = os.getenv(
+    "AUTO_JUDGE_PROCESS", "true"
+).strip().lower() in {"1", "true", "yes", "on"}

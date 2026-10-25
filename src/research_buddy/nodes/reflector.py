@@ -175,7 +175,7 @@ _GUIDE_OR_SELFQA_COMBINED_LIMIT = 3
 # 同时覆盖 markdown（##/###）与独立一行的粗体标题。
 _COLON_HEADING_RATIO_LIMIT = 0.5
 _COLON_HEADING_MIN = 2
-_HEADING_MD_RE = re.compile(r"^(#{2,3})\s*(.+?)\s*$", re.M)
+_HEADING_MD_RE = re.compile(r"^(#{1,3})\s*(.+?)\s*$", re.M)
 _HEADING_BOLD_RE = re.compile(r"^\*\*(.+?)\*\*\s*$", re.M)
 
 

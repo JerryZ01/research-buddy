@@ -15,6 +15,8 @@ from research_buddy.nodes.planner import planner
 from research_buddy.nodes.searcher import searcher
 from research_buddy.nodes.validator import validator
 from research_buddy.nodes.editorial_planner import editorial_planner
+from research_buddy.nodes.image_planner import image_planner
+from research_buddy.nodes.image_reviewer import image_reviewer
 from research_buddy.nodes.synthesizer import synthesizer
 from research_buddy.nodes.language_editor import language_editor
 from research_buddy.nodes.article_editor import article_editor
@@ -138,7 +140,9 @@ def _add_core_nodes_and_edges(graph: StateGraph) -> None:
     graph.add_node("searcher", searcher)
     graph.add_node("validator", validator)
     graph.add_node("editorial_planner", editorial_planner)
+    graph.add_node("image_planner", image_planner)
     graph.add_node("synthesizer", synthesizer)
+    graph.add_node("image_reviewer", image_reviewer)
     graph.add_node("language_editor", language_editor)
     graph.add_node("article_editor", article_editor)
     graph.add_node("reflector", reflector)
@@ -151,8 +155,10 @@ def _add_core_nodes_and_edges(graph: StateGraph) -> None:
         route_after_validation,
         {"search_again": "searcher", "synthesize": "editorial_planner"},
     )
-    graph.add_edge("editorial_planner", "synthesizer")
-    graph.add_edge("synthesizer", "language_editor")
+    graph.add_edge("editorial_planner", "image_planner")
+    graph.add_edge("image_planner", "synthesizer")
+    graph.add_edge("synthesizer", "image_reviewer")
+    graph.add_edge("image_reviewer", "language_editor")
     graph.add_edge("language_editor", "article_editor")
     graph.add_edge("article_editor", "reflector")
 
@@ -190,7 +196,9 @@ def create_knowledge_research_graph() -> StateGraph:
     graph.add_node("searcher", searcher)
     graph.add_node("validator", validator)
     graph.add_node("editorial_planner", editorial_planner)
+    graph.add_node("image_planner", image_planner)
     graph.add_node("synthesizer", synthesizer)
+    graph.add_node("image_reviewer", image_reviewer)
     graph.add_node("language_editor", language_editor)
     graph.add_node("article_editor", article_editor)
     graph.add_node("reflector", reflector)
@@ -210,8 +218,10 @@ def create_knowledge_research_graph() -> StateGraph:
         route_after_validation,
         {"search_again": "searcher", "synthesize": "editorial_planner"},
     )
-    graph.add_edge("editorial_planner", "synthesizer")
-    graph.add_edge("synthesizer", "language_editor")
+    graph.add_edge("editorial_planner", "image_planner")
+    graph.add_edge("image_planner", "synthesizer")
+    graph.add_edge("synthesizer", "image_reviewer")
+    graph.add_edge("image_reviewer", "language_editor")
     graph.add_edge("language_editor", "article_editor")
     graph.add_edge("article_editor", "reflector")
 
@@ -382,7 +392,9 @@ def create_tracking_graph() -> StateGraph:
     graph.add_node("searcher", searcher)
     graph.add_node("validator", validator)
     graph.add_node("editorial_planner", editorial_planner)
+    graph.add_node("image_planner", image_planner)
     graph.add_node("synthesizer", synthesizer)
+    graph.add_node("image_reviewer", image_reviewer)
     graph.add_node("language_editor", language_editor)
     graph.add_node("article_editor", article_editor)
     graph.add_node("reflector", reflector)
@@ -405,8 +417,10 @@ def create_tracking_graph() -> StateGraph:
         route_after_validation,
         {"search_again": "searcher", "synthesize": "editorial_planner"},
     )
-    graph.add_edge("editorial_planner", "synthesizer")
-    graph.add_edge("synthesizer", "language_editor")
+    graph.add_edge("editorial_planner", "image_planner")
+    graph.add_edge("image_planner", "synthesizer")
+    graph.add_edge("synthesizer", "image_reviewer")
+    graph.add_edge("image_reviewer", "language_editor")
     graph.add_edge("language_editor", "article_editor")
     graph.add_edge("article_editor", "reflector")
 

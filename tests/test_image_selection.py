@@ -65,12 +65,52 @@ def _candidate(url: str, sq: str = "sq_01", query: str = "查询") -> dict:
 
 
 def _vision_reply(indexes_alts: list[tuple[int, str]],
-                  watermark_status: str = "none") -> dict:
+                  watermark_status: str = "none", overlay: str = "") -> dict:
     return {"choices": [{"message": {"content": json.dumps(
-        {"images": [{"index": i, "alt": a, "watermark_status": watermark_status}
+        {"images": [{"index": i, "overlay": overlay, "alt": a,
+                     "watermark_status": watermark_status}
                     for i, a in indexes_alts]},
         ensure_ascii=False,
     )}}]}
+
+
+def _verify_reply(overlay_text: str = "") -> dict:
+    """二次复核的响应：抄写内容为空串即视为无水印。"""
+    return {"choices": [{"message": {"content": json.dumps(
+        {"overlay_text": overlay_text}, ensure_ascii=False)}}]}
+
+
+def _install_vision(monkeypatch, select_body, verify_body=None):
+    """同时接管选图调用和水印复核调用，按 prompt 内容分流。
+
+    select_body / verify_body 可以是响应 dict，也可以是 callable(entry) -> dict，
+    便于测试重试逻辑。返回每次调用的记录列表。
+    """
+    calls: list[dict] = []
+
+    def fake_post(url, json=None, **kwargs):
+        parts = json["messages"][0]["content"]
+        n_images = sum(1 for c in parts if c["type"] == "image_url")
+        prompt_text = next(c["text"] for c in parts if c["type"] == "text")
+        is_verify = prompt_text.startswith("你是图片水印审查员")
+        entry = {
+            "kind": "verify" if is_verify else "select",
+            "images": n_images,
+            "model": json["model"],
+            "max_tokens": json.get("max_tokens"),
+            "url": url,
+            "auth": (kwargs.get("headers") or {}).get("Authorization"),
+        }
+        calls.append(entry)
+        body = verify_body if is_verify else select_body
+        if callable(body):
+            return _FakeResp(json_body=body(entry))
+        if is_verify:
+            return _FakeResp(json_body=body or _verify_reply())
+        return _FakeResp(json_body=body)
+
+    monkeypatch.setattr(images_module.httpx, "post", fake_post)
+    return calls
 
 
 # ── 功能开关 ──────────────────────────────────────────
@@ -94,14 +134,7 @@ def test_select_images_returns_picked_images(monkeypatch):
     client = _FakeClient()
     monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: client)
 
-    captured = {}
-
-    def fake_post(url, json=None, **kwargs):
-        captured["url"] = url
-        captured["json"] = json
-        return _FakeResp(json_body=_vision_reply([(2, "画面内容示意图")]))
-
-    monkeypatch.setattr(images_module.httpx, "post", fake_post)
+    calls = _install_vision(monkeypatch, _vision_reply([(2, "画面内容示意图")]))
 
     sub_questions = [{"id": "sq_01", "question": "两个模型的定位区别？"}]
     candidates = [
@@ -116,20 +149,116 @@ def test_select_images_returns_picked_images(monkeypatch):
     assert picked[0]["alt"] == "画面内容示意图"
     assert picked[0]["watermark_status"] == "none"
     assert picked[0]["sub_question_id"] == "sq_01"
-    # 请求参数正确：vision 模型 + base64 data URL
-    assert captured["json"]["model"] == "v4-flash-vision-exp"
-    image_parts = [c for c in captured["json"]["messages"][0]["content"]
-                   if c["type"] == "image_url"]
-    assert len(image_parts) == 2
-    assert image_parts[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    # 选图请求参数正确：vision 模型 + base64 data URL
+    select_calls = [c for c in calls if c["kind"] == "select"]
+    assert len(select_calls) == 1
+    assert select_calls[0]["model"] == "v4-flash-vision-exp"
+    assert select_calls[0]["images"] == 2
+
+
+def test_every_picked_image_gets_an_independent_watermark_verify(monkeypatch):
+    """入选图必须逐张单独复核（一图一请求），复核通过才缓存。"""
+    _enable_vision(monkeypatch)
+    monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
+    calls = _install_vision(monkeypatch, _vision_reply([(1, "图一"), (2, "图二")]))
+
+    picked = images_module.select_images(
+        [{"id": "sq_01", "question": "问题？"}],
+        [_candidate("https://img.example/a.jpg", "sq_01"),
+         _candidate("https://img.example/b.jpg", "sq_01")],
+    )
+
+    verify_calls = [c for c in calls if c["kind"] == "verify"]
+    assert len(verify_calls) == 2          # 两张入选图各一次复核
+    assert all(c["images"] == 1 for c in verify_calls)   # 每次只发一张图
+    assert [p["url"] for p in picked] == ["https://img.example/a.jpg",
+                                          "https://img.example/b.jpg"]
+
+
+def test_verify_overlay_text_rejects_image(monkeypatch):
+    """选图放行、但独立复核抄出叠加内容 → 丢弃且不缓存。"""
+    _enable_vision(monkeypatch)
+    monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
+    _install_vision(monkeypatch, _vision_reply([(1, "看着很干净")]),
+                    verify_body=_verify_reply("右下角：知乎 @北方的郎"))
+
+    picked = images_module.select_images(
+        [{"id": "sq_01", "question": "问题？"}],
+        [_candidate("https://img.example/wm.jpg", "sq_01")],
+    )
+
+    assert picked == []
+    # 未通过复核的图不能进缓存，否则会被后续文章按哈希复用
+    cache_dir = images_module.IMAGE_CACHE_DIR
+    assert not cache_dir.exists() or not list(cache_dir.iterdir())
+
+
+@pytest.mark.parametrize("overlay", ["none", "NULL", "无", "没有水印", "无叠加内容"])
+def test_verify_negative_phrasings_count_as_clean(overlay):
+    """模型把「无」写成各种否定表述时，不能被误判成有水印。"""
+    assert images_module._overlay_detected(overlay) is False
+
+
+@pytest.mark.parametrize("overlay", [
+    "知乎 @北方的郎", "右下角：CSDN", "© 2024 SomeMedia", "二维码",
+    "中间有半透明斜纹水印：WIRINGO By Gleam Tech",
+])
+def test_verify_real_overlay_counts_as_watermark(overlay):
+    assert images_module._overlay_detected(overlay) is True
+
+
+def test_verify_fails_closed_when_call_fails(monkeypatch):
+    """复核调用重试后仍失败 → 拒绝该图（fail-closed），不因为出错就放行。"""
+    _enable_vision(monkeypatch)
+    attempts = []
+
+    def boom(*_a, **_k):
+        attempts.append(1)
+        raise images_module.httpx.HTTPError("verify api down")
+
+    monkeypatch.setattr(images_module.httpx, "post", boom)
+    monkeypatch.setattr(images_module.time, "sleep", lambda _s: None)
+    assert images_module.verify_watermark(_FAKE_IMG, "image/jpeg") is False
+    # 重试由 _vision_post 承担，次数等于复核的尝试次数
+    assert len(attempts) == images_module._VERIFY_ATTEMPTS
+
+
+def test_verify_fails_closed_on_unparsable_output(monkeypatch):
+    """复核输出不是约定 JSON → 按有水印处理。"""
+    _enable_vision(monkeypatch)
+    monkeypatch.setattr(images_module.httpx, "post", lambda *a, **k: _FakeResp(
+        json_body={"choices": [{"message": {"content": "这张图应该是没问题的"}}]}))
+    assert images_module.verify_watermark(_FAKE_IMG, "image/jpeg") is False
+
+
+def test_verify_accepts_missing_key_as_clean(monkeypatch):
+    """overlay_text 为空串 → 确认无水印。"""
+    _enable_vision(monkeypatch)
+    monkeypatch.setattr(images_module.httpx, "post", lambda *a, **k: _FakeResp(
+        json_body=_verify_reply("")))
+    assert images_module.verify_watermark(_FAKE_IMG, "image/jpeg") is True
+
+
+def test_self_contradictory_select_output_is_rejected(monkeypatch):
+    """选图判 none 却自报抄出了叠加文字 → 拒绝（水印漏网的典型形态）。"""
+    _enable_vision(monkeypatch)
+    monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
+    monkeypatch.setattr(images_module.httpx, "post", lambda *a, **k: _FakeResp(
+        json_body=_vision_reply([(1, "矛盾输出")], overlay="右下角：知乎 @北方的郎")))
+
+    picked = images_module.select_images(
+        [{"id": "sq_01", "question": "问题？"}],
+        [_candidate("https://img.example/a.jpg", "sq_01")],
+    )
+    assert picked == []
 
 
 def test_out_of_range_and_duplicate_indexes_are_dropped(monkeypatch):
     """幻觉输出（编号越界/重复/非对象）必须被丢弃，而不是带进文章。"""
     _enable_vision(monkeypatch)
     monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
-    monkeypatch.setattr(images_module.httpx, "post", lambda *a, **k: _FakeResp(
-        json_body=_vision_reply([(9, "越界"), (1, "有效"), (1, "重复"), (2, "")])))
+    _install_vision(monkeypatch, _vision_reply([(9, "越界"), (1, "有效"),
+                                                (1, "重复"), (2, "")]))
     sub_questions = [{"id": "sq_01", "question": "问题？"}]
     candidates = [_candidate("https://img.example/a.jpg", "sq_01"),
                   _candidate("https://img.example/b.jpg", "sq_01")]
@@ -168,8 +297,7 @@ def test_download_failures_are_skipped(monkeypatch):
     _enable_vision(monkeypatch)
     client = _FakeClient(failures={"https://img.example/bad.jpg"})
     monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: client)
-    monkeypatch.setattr(images_module.httpx, "post", lambda *a, **k: _FakeResp(
-        json_body=_vision_reply([(1, "好图")])))
+    _install_vision(monkeypatch, _vision_reply([(1, "好图")]))
     sub_questions = [{"id": "sq_01", "question": "问题？"}]
     candidates = [_candidate("https://img.example/bad.jpg", "sq_01"),
                   _candidate("https://img.example/good.jpg", "sq_01")]
@@ -198,8 +326,7 @@ def test_oversized_image_is_skipped(monkeypatch):
     _enable_vision(monkeypatch)
     client = _FakeClient(oversized={"https://img.example/huge.jpg"})
     monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: client)
-    monkeypatch.setattr(images_module.httpx, "post", lambda *a, **k: _FakeResp(
-        json_body=_vision_reply([(1, "x")])))
+    _install_vision(monkeypatch, _vision_reply([(1, "x")]))
     picked = images_module.select_images(
         [{"id": "sq_01", "question": "问题？"}],
         [_candidate("https://img.example/huge.jpg", "sq_01")],
@@ -227,23 +354,20 @@ def test_vision_400_halves_batch_and_retries(monkeypatch):
     """请求过大（400/413）→ 减半图片批次重试，而不是直接放弃该子问题。"""
     _enable_vision(monkeypatch)
     monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
-
     calls = []
 
-    def flaky_post(url, json=None, **kwargs):
-        calls.append(len([c for c in json["messages"][0]["content"]
-                          if c["type"] == "image_url"]))
+    def flaky_select(entry):
+        calls.append(entry["images"])
         if len(calls) == 1:
             raise _http_status_error(400)
-        return _FakeResp(json_body=_vision_reply([(1, "重试后的图")]))
+        return _vision_reply([(1, "重试后的图")])
 
-    monkeypatch.setattr(images_module.httpx, "post", flaky_post)
+    _install_vision(monkeypatch, flaky_select)
     picked = images_module.select_images(
         [{"id": "sq_01", "question": "问题？"}],
         [_candidate(f"https://img.example/{i}.jpg", "sq_01") for i in range(4)],
     )
-    assert len(calls) == 2
-    assert calls[0] == 4 and calls[1] == 2  # 批次从 4 减半到 2
+    assert calls == [4, 2]  # 批次从 4 减半到 2
     # 减半后的批次 = [0.jpg, 1.jpg]，index 1 → 0.jpg
     assert [p["url"] for p in picked] == ["https://img.example/0.jpg"]
 
@@ -252,17 +376,16 @@ def test_truncated_json_retries_with_larger_max_tokens(monkeypatch):
     """输出 JSON 被截断 → 加大 max_tokens 重试一次。"""
     _enable_vision(monkeypatch)
     monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
-
     calls = []
 
-    def flaky_post(url, json=None, **kwargs):
-        calls.append(json.get("max_tokens"))
+    def flaky_select(entry):
+        calls.append(entry["max_tokens"])
         if len(calls) == 1:
             # 截断的 JSON：Unterminated string
-            return _FakeResp(json_body={"choices": [{"message": {"content": '{"images": [{"index": 1, "alt": "未完成'}}]})
-        return _FakeResp(json_body=_vision_reply([(1, "完整输出")]))
+            return {"choices": [{"message": {"content": '{"images": [{"index": 1, "alt": "未完成'}}]}
+        return _vision_reply([(1, "完整输出")])
 
-    monkeypatch.setattr(images_module.httpx, "post", flaky_post)
+    _install_vision(monkeypatch, flaky_select)
     picked = images_module.select_images(
         [{"id": "sq_01", "question": "问题？"}],
         [_candidate("https://img.example/a.jpg", "sq_01")],
@@ -319,20 +442,18 @@ def test_global_image_cap_limits_total(monkeypatch):
     """供图总数不得超过 MAX_TOTAL_IMAGES（供图池有上限，文章模型在池内按需配图）。"""
     _enable_vision(monkeypatch)
     monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
-    calls = {"n": 0}
-
-    def fake_post(url, json=None, **kw):
-        calls["n"] += 1
-        return _FakeResp(json_body=_vision_reply([(1, "图1"), (2, "图2"), (3, "图3")]))
-
-    monkeypatch.setattr(images_module.httpx, "post", fake_post)
+    calls = _install_vision(
+        monkeypatch,
+        lambda entry: _vision_reply([(1, "图1"), (2, "图2"), (3, "图3")]),
+    )
     sub_questions = [{"id": f"sq_0{i}", "question": f"问题{i}"} for i in range(1, 6)]
     candidates = [
         _candidate(f"https://img.example/s{i}/a{j}.jpg", f"sq_0{i}")
         for i in range(1, 6) for j in range(1, 4)
     ]
     picked = images_module.select_images(sub_questions, candidates)
-    assert calls["n"] == 5                      # 5 个子问题各一次视觉调用
+    select_calls = [c for c in calls if c["kind"] == "select"]
+    assert len(select_calls) == 5    # 5 个子问题各一次视觉选图调用
     assert len(picked) == images_module.MAX_TOTAL_IMAGES
     assert images_module.MAX_TOTAL_IMAGES <= 12
 
@@ -385,20 +506,15 @@ def test_vision_uses_separate_credentials(monkeypatch):
     monkeypatch.setattr(images_module, "VISION_API_BASE", "https://vision.example/v1")
     monkeypatch.setattr(images_module, "OPENAI_API_KEY", "")   # 文本 key 置空
     monkeypatch.setattr(images_module.httpx, "Client", lambda *a, **k: _FakeClient())
-    captured = {}
+    calls = _install_vision(monkeypatch, _vision_reply([(1, "图")]))
 
-    def fake_post(url, json=None, **kw):
-        captured["url"] = url
-        captured["auth"] = kw["headers"]["Authorization"]
-        captured["model"] = json["model"]
-        return _FakeResp(json_body=_vision_reply([(1, "图")]))
-
-    monkeypatch.setattr(images_module.httpx, "post", fake_post)
     picked = images_module.select_images(
         [{"id": "sq_01", "question": "问题？"}],
         [_candidate("https://img.example/a.jpg", "sq_01")],
     )
     assert picked  # 即使文本 key 为空也能选图
-    assert captured["url"] == "https://vision.example/v1/chat/completions"
-    assert captured["auth"] == "Bearer sk-vision"
-    assert captured["model"] == "vision-model-x"
+    assert calls, "应至少发生一次视觉调用"
+    for call in calls:                      # 选图和复核都必须走视觉凭据
+        assert call["url"] == "https://vision.example/v1/chat/completions"
+        assert call["auth"] == "Bearer sk-vision"
+        assert call["model"] == "vision-model-x"

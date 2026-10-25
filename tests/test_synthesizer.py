@@ -25,8 +25,9 @@ _URL_B = "https://b.example/two"
 
 
 class _Chunk:
-    def __init__(self, content: str):
+    def __init__(self, content: str, finish_reason: str = ""):
         self.content = content
+        self.response_metadata = ({"finish_reason": finish_reason} if finish_reason else {})
 
 
 class _FakeLLM:
@@ -391,9 +392,13 @@ def test_image_budget_scales_with_editorial_sections():
     assert synthesizer_module.compute_image_budget(state, selected_count=3) == 3
 
 
-def test_image_budget_keeps_three_candidates_for_single_topic():
+def test_image_budget_no_longer_compresses_single_topic():
+    """单主题也不再人为压缩候选池：通过筛选的图全部交给写作者，由其按内容决定。"""
     state = {"editorial_brief": {"section_plan": []}, "sub_questions": []}
-    assert synthesizer_module.compute_image_budget(state, selected_count=8) == 3
+    assert synthesizer_module.compute_image_budget(state, selected_count=8) == 8
+    # 仍受全局硬上限约束
+    assert synthesizer_module.compute_image_budget(state, selected_count=99) \
+        == synthesizer_module.MAX_IMAGES_IN_ARTICLE
 
 
 def test_no_candidates_skips_selection(monkeypatch):
@@ -670,6 +675,64 @@ def test_prompts_scope_to_question_intent():
     assert "只覆盖问题明确问到的范围" in synthesizer_module.WRITING_RULES
     # 增量 prompt 保留自己的增量语义行
     assert "增量补充" in synthesizer_module.SYNTHESIZER_INCREMENTAL_PROMPT
+
+
+def test_depth_contract_requires_completion_without_target_word_count():
+    contract = synthesizer_module._depth_contract("请详细阐述", {
+        "depth": "deep",
+        "section_plan": [{
+            "heading": "反馈如何形成", "depth": "deep",
+            "completion_criteria": ["解释评分如何变成下一轮输入"],
+        }],
+    })
+    assert "关键因果链" in contract
+    assert "解释评分如何变成下一轮输入" in contract
+    assert "不设目标字数" in contract
+
+
+def test_length_finish_reason_triggers_continuation(monkeypatch):
+    calls = {"n": 0}
+
+    class _LLM:
+        def stream(self, prompt, **_kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                yield _Chunk("# 标题\n\n第一部分尚未完成，", "length")
+            else:
+                assert "已完成正文" in prompt
+                yield _Chunk("继续解释并自然收束。", "stop")
+
+    monkeypatch.setattr(synthesizer_module, "MAX_ARTICLE_CONTINUATIONS", 2)
+    monkeypatch.setattr(synthesizer_module, "create_llm", lambda **_: _LLM())
+    monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
+                        lambda _name, _fallback, **_kwargs: "prompt")
+    monkeypatch.setattr(synthesizer_module, "curate_core_references",
+                        lambda _q, table, **_k: table)
+    result = _graph().invoke({"question": "详细解释", "search_results": []})
+    assert calls["n"] == 2
+    assert "第一部分尚未完成，\n继续解释并自然收束。" in result["report"]
+    assert result["writer_continuations"] == 1
+    assert result["writer_finish_reason"] == "stop"
+    assert result["article_versions"][0]["metadata"]["writer_initial_finish_reason"] == "length"
+
+
+def test_natural_stop_does_not_trigger_continuation(monkeypatch):
+    calls = {"n": 0}
+
+    class _LLM:
+        def stream(self, _prompt, **_kwargs):
+            calls["n"] += 1
+            yield _Chunk("# 标题\n\n问题已经完整回答。", "stop")
+
+    monkeypatch.setattr(synthesizer_module, "MAX_ARTICLE_CONTINUATIONS", 2)
+    monkeypatch.setattr(synthesizer_module, "create_llm", lambda **_: _LLM())
+    monkeypatch.setattr(synthesizer_module, "get_prompt_from_langfuse",
+                        lambda _name, _fallback, **_kwargs: "prompt")
+    monkeypatch.setattr(synthesizer_module, "curate_core_references",
+                        lambda _q, table, **_k: table)
+    result = _graph().invoke({"question": "解释问题", "search_results": []})
+    assert calls["n"] == 1
+    assert result["writer_continuations"] == 0
 
 
 def test_refine_mode_emits_report_reset_before_chunks(monkeypatch):

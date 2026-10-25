@@ -1,0 +1,51 @@
+flowchart TB
+    User[用户浏览器] --> Web[Web 单页应用<br/>研究 / 主题 / 追踪 / 素材库]
+    Web --> API[FastAPI<br/>HTTP / SSE / HITL / 静态图片]
+
+    subgraph APP[Research Buddy 应用核心]
+        direction LR
+        Research[研究与证据<br/>规划 / 搜索 / 验证]
+        Editing[编辑型写作<br/>简报 / 写作 / 语言与事实审校]
+        Quality[质量控制<br/>独立 Judge / 硬规则 / 最佳稿]
+        Knowledge[知识与追踪<br/>召回 / 存储 / 变化 / 通知]
+
+        Research --> Editing --> Quality
+        Quality -.补充证据.-> Research
+        Quality -.基于现有证据重写.-> Editing
+        Knowledge --> Research
+        Quality --> Knowledge
+    end
+
+    API --> Research
+    API --> Knowledge
+
+    subgraph EXT[外部能力]
+        direction LR
+        LLM[OpenAI 兼容 LLM<br/>写作 / 编辑 / Judge]
+        Tavily[Tavily<br/>网页与图片搜索]
+        Vision[视觉模型<br/>相关性 / 水印判断]
+        Langfuse[Langfuse<br/>Trace / Prompt / Score]
+        Webhook[Webhook<br/>企业微信 / 钉钉 / Telegram]
+    end
+
+    subgraph DATA[持久化]
+        direction LR
+        SQLite[(SQLite<br/>主题 / 报告 / 运行 / 素材 / 评价)]
+        Chroma[(ChromaDB<br/>报告分块 / 关键事实)]
+        Checkpoint[(HITL Checkpoint<br/>人工中断状态)]
+        Images[(图片缓存<br/>data/research-images)]
+    end
+
+    Research --> Tavily
+    Research --> LLM
+    Editing --> LLM
+    Editing --> Vision
+    Quality --> LLM
+    APP -.可观测性与 Prompt.-> Langfuse
+    Knowledge --> Webhook
+
+    API --> SQLite
+    API --> Checkpoint
+    Knowledge --> SQLite
+    Knowledge --> Chroma
+    Vision --> Images

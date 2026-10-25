@@ -1,0 +1,6 @@
+flowchart LR
+    Result[一次文章生成] --> Archive[(素材库<br/>所有成功与失败运行)]
+    Result -->|仅知识研究/追踪| Reports[(知识报告)]
+    Reports --> Vector[(ChromaDB 向量索引)]
+    Archive --> Review[人工评价与策展]
+    Review -->|未来显式纳入| Eval[回归评测集]

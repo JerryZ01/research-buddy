@@ -63,6 +63,24 @@ function renderArchiveMarkdown(markdown) {
   }
 }
 
+function copyArchivedArticle() {
+  const report = appState.currentArticle && appState.currentArticle.report;
+  if (!report) {
+    toast('当前素材没有可复制的正文', 'warning');
+    return;
+  }
+  copyToClipboard(report);
+}
+
+function downloadArchivedArticle() {
+  const article = appState.currentArticle;
+  downloadMarkdownDocument(
+    article && article.report,
+    article && article.question,
+    '当前素材没有可导出的正文',
+  );
+}
+
 function openArticleFromKeyboard(event, articleId) {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault();
@@ -241,10 +259,12 @@ function renderArticleDetail(article) {
       <button class="article-tab active" data-article-tab="final" onclick="switchArticleTab('final',this)" role="tab" aria-selected="true" aria-controls="article-panel-final">最终稿</button>
       <button class="article-tab" data-article-tab="versions" onclick="switchArticleTab('versions',this)" role="tab" aria-selected="false" aria-controls="article-panel-versions">版本历史 <span>${versions.length}</span></button>
       <button class="article-tab" data-article-tab="reviews" onclick="switchArticleTab('reviews',this)" role="tab" aria-selected="false" aria-controls="article-panel-reviews">质量评价 <span>${reviews.length}</span></button>
+      <button class="article-tab" data-article-tab="process" onclick="switchArticleTab('process',this)" role="tab" aria-selected="false" aria-controls="article-panel-process">流程打分 <span>${processStageCount(article)}</span></button>
     </div>
     <section class="article-tab-panel active" id="article-panel-final" role="tabpanel">${renderArticleFinal(article)}</section>
     <section class="article-tab-panel" id="article-panel-versions" role="tabpanel">${renderArticleVersions(article)}</section>
-    <section class="article-tab-panel" id="article-panel-reviews" role="tabpanel">${renderArticleReviews(article)}</section>`;
+    <section class="article-tab-panel" id="article-panel-reviews" role="tabpanel">${renderArticleReviews(article)}</section>
+    <section class="article-tab-panel" id="article-panel-process" role="tabpanel">${renderArticleProcessScores(article)}</section>`;
 }
 
 function renderArticleFinal(article) {
@@ -321,6 +341,89 @@ function selectArticleVersion(index, button) {
   renderArchiveIcons();
 }
 
+function markdownDiffText(markdown) {
+  const template = document.createElement('template');
+  template.innerHTML = renderArchiveMarkdown(markdown);
+  const blockTags = new Set([
+    'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DIV', 'FIGCAPTION', 'FIGURE',
+    'FOOTER', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HEADER', 'HR', 'LI',
+    'MAIN', 'NAV', 'OL', 'P', 'PRE', 'SECTION', 'TABLE', 'TR', 'UL',
+  ]);
+
+  function read(node) {
+    if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
+    if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return '';
+    if (node.nodeName === 'BR') return '\n';
+    const content = [...node.childNodes].map(read).join('');
+    return blockTags.has(node.nodeName) ? `\n${content}\n` : content;
+  }
+
+  return read(template.content)
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function fallbackVersionDiff(previousText, currentText) {
+  let prefixLength = 0;
+  const sharedLength = Math.min(previousText.length, currentText.length);
+  while (prefixLength < sharedLength && previousText[prefixLength] === currentText[prefixLength]) {
+    prefixLength += 1;
+  }
+
+  let suffixLength = 0;
+  while (
+    suffixLength < sharedLength - prefixLength
+    && previousText[previousText.length - 1 - suffixLength] === currentText[currentText.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+
+  const parts = [];
+  if (prefixLength) parts.push({ value: previousText.slice(0, prefixLength) });
+  const previousEnd = suffixLength ? previousText.length - suffixLength : previousText.length;
+  const currentEnd = suffixLength ? currentText.length - suffixLength : currentText.length;
+  if (prefixLength < previousEnd) parts.push({ value: previousText.slice(prefixLength, previousEnd), removed: true });
+  if (prefixLength < currentEnd) parts.push({ value: currentText.slice(prefixLength, currentEnd), added: true });
+  if (suffixLength) parts.push({ value: previousText.slice(previousEnd) });
+  return parts;
+}
+
+function renderVersionDiff(previousReport, currentReport) {
+  const previousText = markdownDiffText(previousReport);
+  const currentText = markdownDiffText(currentReport);
+  const parts = window.Diff && typeof window.Diff.diffWordsWithSpace === 'function'
+    ? window.Diff.diffWordsWithSpace(previousText, currentText)
+    : fallbackVersionDiff(previousText, currentText);
+  const previousHtml = [];
+  const currentHtml = [];
+  let changeCount = 0;
+
+  function highlight(raw, className) {
+    const match = raw.match(/^(\s*)([\s\S]*?\S)(\s*)$/);
+    if (!match) return esc(raw);
+    return `${esc(match[1])}<mark class="${className}">${esc(match[2])}</mark>${esc(match[3])}`;
+  }
+
+  parts.forEach(part => {
+    const value = esc(part.value);
+    const onlyWhitespace = !part.value.trim();
+    if (part.added) {
+      if (!onlyWhitespace) changeCount += 1;
+      currentHtml.push(onlyWhitespace ? value : highlight(part.value, 'version-diff-added'));
+    } else if (part.removed) {
+      if (!onlyWhitespace) changeCount += 1;
+      previousHtml.push(onlyWhitespace ? value : highlight(part.value, 'version-diff-removed'));
+    } else {
+      previousHtml.push(value);
+      currentHtml.push(value);
+    }
+  });
+
+  return { previousHtml: previousHtml.join(''), currentHtml: currentHtml.join(''), changeCount };
+}
+
 function renderVersionViewer(versions, index, compare = false) {
   const version = versions[index];
   const previous = index > 0 ? versions[index - 1] : null;
@@ -332,11 +435,19 @@ function renderVersionViewer(versions, index, compare = false) {
     metadata.best_report_restored ? '恢复历史最佳稿' : '',
   ].filter(Boolean);
   if (compare && previous) {
+    const diff = renderVersionDiff(previous.report, version.report);
     return `
-      <div class="version-viewer-header"><div><span>版本对比</span><h3>${esc(articleStageLabel(previous.stage))} → ${esc(articleStageLabel(version.stage))}</h3></div><button class="btn btn-sm" onclick="toggleArticleVersionCompare(${index},false)"><i data-lucide="panel-top-close"></i>退出对比</button></div>
+      <div class="version-viewer-header version-diff-header">
+        <div>
+          <span>版本对比 · ${diff.changeCount} 处差异</span>
+          <h3>${esc(articleStageLabel(previous.stage))} → ${esc(articleStageLabel(version.stage))}</h3>
+          <div class="version-diff-legend" aria-label="差异颜色说明"><span><i class="diff-swatch removed"></i>上一版删改</span><span><i class="diff-swatch added"></i>当前版新增</span></div>
+        </div>
+        <button class="btn btn-sm" onclick="toggleArticleVersionCompare(${index},false)"><i data-lucide="panel-top-close"></i>退出对比</button>
+      </div>
       <div class="version-compare">
-        <section><div class="version-compare-label">上一版本</div><article class="report-body">${renderArchiveMarkdown(previous.report)}</article></section>
-        <section><div class="version-compare-label">当前版本</div><article class="report-body">${renderArchiveMarkdown(version.report)}</article></section>
+        <section><div class="version-compare-label">上一版本 · ${esc(articleStageLabel(previous.stage))}</div><article class="version-diff-document" aria-label="上一版本差异内容">${diff.previousHtml}</article></section>
+        <section><div class="version-compare-label">当前版本 · ${esc(articleStageLabel(version.stage))}</div><article class="version-diff-document" aria-label="当前版本差异内容">${diff.currentHtml}</article></section>
       </div>`;
   }
   return `
@@ -377,6 +488,67 @@ function renderArticleReviews(article) {
 
 function reviewDimensionLabel(name) {
   return { accuracy: '准确性', depth: '深度', naturalness: '自然度', images: '配图' }[name] || name;
+}
+
+// ── 流程打分（LLM-as-Judge 对整个流程中间产物 + 结果打分） ──
+
+const PROCESS_STAGE_META = {
+  plan: { label: '问题拆解', icon: 'split', dims: { necessity: '必要性', coverage: '覆盖完整性', granularity: '粒度合理性' } },
+  evidence: { label: '搜索证据', icon: 'search', dims: { sufficiency: '充分性', relevance: '相关性', diversity: '来源多样性' } },
+  editorial_brief: { label: '编辑简报', icon: 'file-text', dims: { clarity: '清晰性', actionability: '可执行性', evidence_alignment: '证据对齐' } },
+  report: { label: '最终报告', icon: 'file-check', dims: { relevance: '相关性', completeness: '完整性', accuracy: '准确性' } },
+};
+
+function processStageCount(article) {
+  const scores = article.process_scores || {};
+  return Object.keys(scores).length;
+}
+
+function renderArticleProcessScores(article) {
+  const scores = article.process_scores || {};
+  const stages = Object.keys(PROCESS_STAGE_META);
+  const hasAny = stages.some(stage => scores[stage]);
+  if (!hasAny) {
+    return `
+      <div class="empty-state">
+        <i data-lucide="gauge"></i>
+        <div class="empty-text">还没有流程打分</div>
+        <p class="text-muted">开启在线自动打分（AUTO_JUDGE_PROCESS=true）或运行 <code>scripts/run_process_eval.py</code> 后，拆解 / 证据 / 简报 / 报告的评分会显示在这里。</p>
+      </div>`;
+  }
+  return `
+    <div class="process-score-list">
+      ${stages.filter(stage => scores[stage]).map(stage => {
+        const meta = PROCESS_STAGE_META[stage];
+        const s = scores[stage] || {};
+        const dims = Object.entries(meta.dims).map(([dim, label]) => ({
+          dim, label, value: s[dim],
+        }));
+        const validDims = dims.filter(d => typeof d.value === 'number');
+        const total = validDims.reduce((sum, d) => sum + d.value, 0);
+        const max = validDims.length * 5;
+        const failed = s.parse_failed === true;
+        return `
+          <article class="process-score-card${failed ? ' process-score-failed' : ''}">
+            <header>
+              <i data-lucide="${meta.icon}" aria-hidden="true"></i>
+              <div><h4>${meta.label}</h4>${failed ? '<span class="badge badge-amber">解析失败</span>' : ''}</div>
+              ${validDims.length ? `<div class="process-score-total"><strong>${total}</strong><span>/ ${max}</span></div>` : ''}
+            </header>
+            ${failed ? `<p class="process-score-reason">${esc(s.reasoning || '评分解析失败，使用默认分数')}</p>` : `
+              <div class="process-score-dims">
+                ${dims.map(d => `
+                  <div class="process-score-dim">
+                    <span>${d.label}</span>
+                    <div class="process-score-bar"><i style="width:${typeof d.value === 'number' ? Math.max(0, Math.min(100, d.value / 5 * 100)) : 0}%"></i></div>
+                    <b>${typeof d.value === 'number' ? d.value : '—'}</b>
+                  </div>`).join('')}
+              </div>
+              ${s.reasoning ? `<p class="process-score-reason">${esc(s.reasoning)}</p>` : ''}
+            `}
+          </article>`;
+      }).join('')}
+    </div>`;
 }
 
 function switchArticleTab(name, button) {

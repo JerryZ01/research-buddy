@@ -12,6 +12,11 @@ build/
 .venv/
 .python-version
 
+# Frontend test tooling
+node_modules/
+test-results/
+playwright-report/
+
 # IDE
 .vscode/
 .idea/
@@ -31,3 +36,6 @@ eval/results/
 
 # 本地检测报告等二进制资料
 *.pdf
+
+# DSH 沙箱 ACL 诊断产物：含本机绝对路径与 DACL，仅本机有效
+.acl-recovery/

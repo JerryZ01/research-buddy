@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Research Buddy</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/diff@5.2.0/dist/diff.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
@@ -2576,7 +2577,7 @@ select.input {
   }
 }
 </style>
-<link rel="stylesheet" href="/app.css?v=3">
+<link rel="stylesheet" href="/app.css?v=6">
 <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
 </head>
 <body>
@@ -2853,6 +2854,8 @@ select.input {
   <div class="detail-topbar">
     <button class="btn btn-ghost btn-sm" onclick="goBack()"><i data-lucide="arrow-left"></i>返回</button>
     <div class="detail-topbar-actions">
+      <button class="btn btn-sm article-document-action" onclick="copyArchivedArticle()" aria-label="复制文章正文" title="复制文章正文"><i data-lucide="copy"></i>复制</button>
+      <button class="btn btn-sm article-document-action" onclick="downloadArchivedArticle()" aria-label="导出 Markdown" title="导出 Markdown"><i data-lucide="download"></i>Markdown</button>
       <select class="input curation-select" id="articleCurationSelect" aria-label="策展状态">
         <option value="raw">未整理</option>
         <option value="candidate">候选</option>
@@ -2979,13 +2982,13 @@ select.input {
 <!-- Toast Container -->
 <div class="toast-container" id="toastContainer" aria-live="polite" aria-label="通知"></div>
 
-<script src="/js/core.js"></script>
+<script src="/js/core.js?v=2"></script>
 <script src="/js/dashboard.js"></script>
-<script src="/js/research.js"></script>
+<script src="/js/research.js?v=4"></script>
 <script src="/js/hitl.js"></script>
 <script src="/js/report.js"></script>
 <script src="/js/topics.js"></script>
-<script src="/js/articles.js"></script>
+<script src="/js/articles.js?v=4"></script>
 <script src="/js/init.js"></script>
 
 </body>

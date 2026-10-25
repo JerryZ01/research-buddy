@@ -38,12 +38,15 @@ _EVALUATION = {
 }
 
 _EDITORIAL_BRIEF = {
-    "intent": "explanation", "audience": "技术读者", "thesis": "证据支持的核心判断",
+    "intent": "explanation", "audience": "技术读者", "depth": "deep",
+    "thesis": "证据支持的核心判断",
     "scope_include": ["问题本身"], "scope_exclude": [],
     "must_cover": [{"point": "核心事实", "evidence_ids": ["E1"]}],
     "section_plan": [
-        {"heading": "机制", "purpose": "建立解释", "evidence_ids": ["E1"]},
-        {"heading": "影响", "purpose": "完成推论", "evidence_ids": ["E2"]},
+        {"heading": "机制", "purpose": "建立解释", "depth": "deep",
+         "completion_criteria": ["解释因果链"], "evidence_ids": ["E1"]},
+        {"heading": "影响", "purpose": "完成推论", "depth": "standard",
+         "completion_criteria": ["说明边界", "完成判断"], "evidence_ids": ["E2"]},
     ],
     "claims_to_avoid": [], "evidence_gaps": [], "ending": "回答原问题",
 }
@@ -192,6 +195,18 @@ def test_stream_progress_carries_structured_detail(offline_graph):
         if name == "progress" and data.get("node") == "searcher"
     )
     assert searcher_detail["results_count"] == 2
+
+    editorial_detail = next(
+        data["detail"] for name, data in events
+        if name == "progress" and data.get("node") == "editorial_planner"
+    )
+    assert editorial_detail["thesis"] == "证据支持的核心判断"
+    assert editorial_detail["depth"] == "deep"
+    assert editorial_detail["audience"] == "技术读者"
+    assert editorial_detail["sections"][0] == {
+        "heading": "机制", "purpose": "建立解释", "depth": "deep",
+        "completion_count": 1,
+    }
 
 
 def test_report_payload_carries_quality_fields(offline_graph):

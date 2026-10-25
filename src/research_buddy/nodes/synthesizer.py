@@ -6,7 +6,6 @@
 """
 
 import logging
-import math
 import re
 import time
 
@@ -14,6 +13,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.types import StreamWriter
 
 from research_buddy.config import (
+    MAX_ARTICLE_CONTINUATIONS,
     MAX_ARTICLE_TOKENS,
     MAX_IMAGES_IN_ARTICLE,
     MAX_REFERENCES,
@@ -37,16 +37,28 @@ def _display_image_url(image: dict) -> str:
     return str(image.get("cached_url") or image.get("url") or "").strip()
 
 
+def _image_kind_label(image: dict) -> str:
+    """给写作模型的图源说明：让它在插入生成图时只用于解释，不当作事实证据。"""
+    return "示意图（AI 生成，只能用于解释机制/流程，不可当作事实证据）：" \
+        if image.get("kind") == "generated" else ""
+
+
+def _render_image_alt(image: dict) -> str:
+    """插入正文的题注。生成图必须显式标注，读者要能分辨事实图与示意图。"""
+    alt = str(image.get("alt", "")).strip() or "文章插图"
+    if image.get("kind") == "generated" and "示意" not in alt:
+        return f"示意图：{alt}"
+    return alt
+
+
 def compute_image_budget(state: ResearchState, selected_count: int) -> int:
-    """按文章结构分配候选额度，实际用图数量仍由内容相关性决定。"""
-    section_count = len((state.get("editorial_brief") or {}).get("section_plan", []))
-    if not section_count:
-        section_count = len(state.get("sub_questions", []))
-    # 视觉模型已经先做相关性筛选，这里只控制交给写作者的候选池大小。
-    # 每个核心章节允许两张互补图片；单一主题也保留三张候选，避免复杂机制
-    # 只能在架构图、流程图、界面截图中三选一。写作者不需要用满额度。
-    desired = 3 if section_count <= 1 else math.ceil(section_count * 2)
-    return min(MAX_IMAGES_IN_ARTICLE, selected_count, max(0, desired))
+    """决定交给写作者的候选图片池大小。
+
+    目标是「尽可能多配图」：只要视觉模型已经通过相关性 + 无水印筛选的图，
+    就全部交给写作者，由它按内容相关性决定实际插入数量，而不是在这里用
+    章节数×2 提前砍掉。最终仍受 MAX_IMAGES_IN_ARTICLE 全局硬上限约束。
+    """
+    return min(MAX_IMAGES_IN_ARTICLE, selected_count)
 
 
 def normalize_report_images(report: str, selected_images: list[dict],
@@ -74,8 +86,7 @@ def normalize_report_images(report: str, selected_images: list[dict],
             return ""
         used.add(index)
         image = images[index]
-        alt = str(image.get("alt", "")).strip() or "文章插图"
-        return f"![{alt}]({_display_image_url(image)})"
+        return f"![{_render_image_alt(image)}]({_display_image_url(image)})"
 
     def resolve(alt: str, url: str) -> int | None:
         key = normalize_url(url.strip())
@@ -133,10 +144,10 @@ WRITING_RULES = """## 写作要求
 - **句式要有节奏差异**：长短句交错，允许短句独立成段，禁止连续两句结构相同（同长度/同「主谓宾」骨架）；段落长短也应有差异，偶尔出现一行段落
 - **案例必须具体可查**：禁止「某文档 pipeline」「社区报告显示」这类模糊编造——要么给出真实名称/可查的细节，要么不写
 - **各章节结构差异化**：篇幅允许 3:1 的差距；不要每节都是「定义→展开→小结」同一骨架——有的节以具体例子开头、有的以问题开头、有的直接下判断
-7. **小标题不是必需品**。只在讨论对象、论证阶段或操作步骤发生实质切换时使用标题；不要给每个观点、案例或两三段正文单独起标题。通常只用 `##` 组织 2-4 个核心章节，`###` 只用于一个长章节内确有多个独立层次的情况，每个标题下通常应有至少 2-3 个实质段落。标题优先用直接、克制的陈述或名词短语，准确说明本节谈什么；禁止在标题里使用比喻、拟人、口号、悬念和为了显得生动而写的反问句（如「Agent 的导航仪」「给模型装上大脑」「会思考的镜子」）。避免「概述」「背景介绍」等空标题，也不要连续使用「名词：副题」式冒号标题。
+7. **主标题与标题不是必需品**。文章开头用 `#` 写一个主标题：直接、克制的陈述或名词短语，准确说明本文讨论对象或核心判断；**禁止「名词：副题」式冒号主标题**，禁止比喻、拟人、口号、悬念和反问（如「Agent Runtime：模型之下的执行层」「Agent 的导航仪」这类都禁止）。小标题不是必需品，只在讨论对象、论证阶段或操作步骤发生实质切换时使用；不要给每个观点、案例或两三段正文单独起标题。通常只用 `##` 组织 2-4 个核心章节，`###` 只用于一个长章节内确有多个独立层次的情况，每个标题下通常应有至少 2-3 个实质段落。标题优先用直接、克制的陈述或名词短语，准确说明本节谈什么；禁止在标题里使用比喻、拟人、口号、悬念和为了显得生动而写的反问句（如「Agent 的导航仪」「给模型装上大脑」「会思考的镜子」）。避免「概述」「背景介绍」等空标题，也不要连续使用「名词：副题」式冒号标题。
 8. 语气专业、克制、自信；语言自然流畅，像一个有经验的人认真讲清楚一件事，避免套话、模板腔和「综上」「众所周知」式的空泛表达。
 9. 论点直接陈述，**不需要**标注引用编号或来源链接（文末参考文献由系统自动生成）。
-10. 如果提供了「可用插图」，根据当前问题和各章节的信息密度决定是否配图，在真正有帮助的位置单独插入对应占位符（如 `[[IMAGE_1]]`），整篇最多 {image_limit} 张。默认使用所有能解释概念、机制、差异、数据或操作步骤的插图；核心章节可使用多张互补的图，不要为了控制数量而省略有解释价值的图片。只有图片与正文重复、彼此重复或只是无关装饰时才省略，不能为了凑数插图。占位符必须逐字复制、独占一行且每个最多使用一次；不要输出 Markdown 图片、图片 URL 或自行编写 alt。
+10. 如果提供了「可用插图」，根据当前问题尽量充分地使用它们——这是本次任务的重要要求。在真正有帮助的位置（解释概念、机制、差异、数据、流程、操作步骤的地方）单独插入对应占位符（如 `[[IMAGE_1]]`），整篇最多 {image_limit} 张。默认目标接近用满额度：能解释或佐证正文内容的图都应插入，核心章节可放多张互补的图。只有图片与正文完全重复、彼此明显重复、或与主题完全无关时才可省略；「信息量一般但相关」的图也应插入而非省略。宁可多插也不要漏插有解释价值的图片。占位符必须逐字复制、独占一行且每个最多使用一次；不要输出 Markdown 图片、图片 URL 或自行编写 alt。**注意区分图源**：标注为「示意图（AI 生成）」的图只能用来解释机制、流程、结构关系，绝不可当作事实依据——不要写「如图所示，某公司市占率……」这类把示意图当证据的句子，也不要用它佐证任何数字、人物、产品或事件；未标注的图是真实素材，可正常用于陈述事实。
 11. 不要在正文中直接写出任何 URL，也不要出现**研究过程元评论**——包括但不限于：「信息存在矛盾」「证据不足」「研究局限」「本报告基于……搜索」「从检索到的资料看」「有来源提到」「检索到的证据」「多个来源指出」「据资料显示」「公开资料称」等；不要自行添加「参考文献」「来源」「置信度」章节（文末参考文献由系统自动生成）。
 12. 使用中文撰写。
 
@@ -238,14 +249,140 @@ SYNTHESIZER_REFINE_PROMPT = """你是一位资深技术作者，作品常见于�
 ## 文风要求（当前所选风格）
 {style_section}"""
 
+CONTINUATION_PROMPT = """你正在续写一篇因单次输出长度限制而中断的文章。只输出接在现有正文之后的新内容，不要重复已有文字，不要重新输出文章标题，不要解释续写过程，也不要添加参考文献章节。
+
+## 研究问题
+{question}
+
+## 编辑简报
+{editorial_brief}
+
+## 原始证据与写作上下文
+{search_results}
+
+## 已完成正文
+{report}
+
+从中断处自然接续：如果最后一句没有写完，先把它补完整；然后完成编辑简报中尚未满足的章节职责和完成条件。保持原文的术语、观点、标题层级和文风。不要为了写长而重复解释，也不能引入上方证据之外的新事实。"""
+
+_LENGTH_FINISH_REASONS = {"length", "max_tokens", "max_output_tokens"}
+
+
+def _depth_contract(question: str, brief: dict) -> str:
+    """生成始终本地注入的深度约束，不受 Langfuse 旧模板版本影响。"""
+    depth = str(brief.get("depth", "standard"))
+    sections = brief.get("section_plan", [])
+    requirements = []
+    for section in sections:
+        criteria = section.get("completion_criteria", [])
+        requirements.append({
+            "heading": section.get("heading", ""),
+            "depth": section.get("depth", depth),
+            "completion_criteria": criteria,
+        })
+    return (
+        "\n\n## 展开深度契约（必须执行）\n"
+        f"本题深度等级为 `{depth}`。用户原始问题是：{question}\n"
+        "篇幅由把问题讲清所需的内容决定，不设目标字数，也不要在关键因果链、"
+        "实现步骤或边界条件尚未解释时提前收束。deep 章节应解释为什么、如何发生、"
+        "在什么条件下不成立，并用证据允许的具体例子帮助理解；brief 章节保持简洁。"
+        "写完前逐项确认下面的完成条件已经在正文中得到实质回答，不要在正文中展示检查过程：\n"
+        + format_editorial_brief(requirements)
+    )
+
+
+def _chunk_finish_reason(chunk) -> str:
+    """兼容 OpenAI/LangChain 及部分中转站的流式停止原因字段。"""
+    for metadata in (
+        getattr(chunk, "response_metadata", None),
+        getattr(chunk, "generation_info", None),
+    ):
+        if not isinstance(metadata, dict):
+            continue
+        reason = metadata.get("finish_reason") or metadata.get("stop_reason")
+        if reason:
+            return str(reason).strip().lower()
+    return ""
+
+
+def _looks_abruptly_cut_off(report: str) -> bool:
+    """在中转站不返回 finish_reason 时识别明显的半句或未闭合代码块。"""
+    text = report.rstrip()
+    if not text:
+        return False
+    if text.count("```") % 2:
+        return True
+    last_line = text.rsplit("\n", 1)[-1].strip()
+    if re.match(r"^#{1,6}\s+\S", last_line):
+        return True
+    terminal = "。！？.!?；;：:）)]】}”’`"
+    return len(text) >= 1000 and len(last_line) >= 24 and text[-1] not in terminal
+
+
+def _append_without_overlap(existing: str, continuation: str, max_overlap: int = 800) -> tuple[str, str]:
+    """移除续写模型偶尔重复的正文尾部，返回完整稿与实际新增片段。"""
+    addition = continuation.lstrip("\n")
+    upper = min(max_overlap, len(existing), len(addition))
+    overlap = 0
+    for size in range(upper, 19, -1):
+        if existing[-size:] == addition[:size]:
+            overlap = size
+            break
+    addition = addition[overlap:]
+    separator = "" if not addition or existing.endswith(("\n", " ")) else "\n"
+    emitted = separator + addition
+    return existing + emitted, emitted
+
+
+def _stream_once(llm, prompt: str, config: RunnableConfig | None,
+                 writer: StreamWriter | None = None) -> tuple[str, str]:
+    """执行一次正文流，保留最后一个 chunk 的 finish_reason。"""
+    stream = llm.stream(prompt, config=config)
+    first_chunk = None
+    for attempt in range(3):
+        try:
+            first_chunk = next(stream)
+            break
+        except StopIteration:
+            break
+        except Exception as exc:
+            if not _is_transient_error(exc) or attempt >= 2:
+                raise
+            logger.warning("文章流式生成在首个 chunk 前失败，整段重试（第 %d/3 次）: %s",
+                           attempt + 1, str(exc)[:120])
+            time.sleep(1.5 * (attempt + 1))
+            stream = llm.stream(prompt, config=config)
+
+    content_parts: list[str] = []
+    finish_reason = ""
+
+    def consume(chunk) -> None:
+        nonlocal finish_reason
+        reason = _chunk_finish_reason(chunk)
+        if reason:
+            finish_reason = reason
+        content = getattr(chunk, "content", "")
+        if content:
+            print(content, end="", flush=True)
+            content_parts.append(content)
+            if writer:
+                writer({"type": "report_chunk", "content": content})
+
+    if first_chunk is not None:
+        consume(first_chunk)
+        for chunk in stream:
+            consume(chunk)
+    return "".join(content_parts), finish_reason
+
 
 # ── 来源编号表 ──────────────────────────────────────────
 
 def build_source_table(state: ResearchState) -> list[dict]:
-    """从 search_results + known_source_urls 构建编号引用表。
+    """从 search_results + local_evidence + known_source_urls 构建编号引用表。
 
-    顺序：本次检索结果（按收集顺序）在前，历史知识来源在后。
-    按 normalize_url 去重；knowledge 来源没有标题，用 URL 充当。
+    顺序：本次检索结果（按收集顺序）在前，本地代码证据次之，历史知识来源在后。
+    按 normalize_url 去重；knowledge 来源没有标题，用 URL 充当；本地证据无 URL，
+    用 path 充当来源标识。
     """
     table: list[dict] = []
     seen: set[str] = set()
@@ -260,6 +397,32 @@ def build_source_table(state: ResearchState) -> list[dict]:
                 "url": url,
                 "source": "search",
             })
+    # agentic 探索证据：source_type 区分 web（抓取全文，有 URL）与 local（本地文件，有 path）。
+    for item in state.get("local_evidence", []):
+        source_type = str(item.get("source_type", "local"))
+        if source_type == "web":
+            url = str(item.get("url", "")).strip()
+            title = str(item.get("title", "")).strip() or url
+            key = normalize_url(url) if url else None
+            if url and key and key not in seen:
+                seen.add(key)
+                table.append({
+                    "index": len(table) + 1,
+                    "title": title,
+                    "url": url,
+                    "source": "web",
+                })
+        else:
+            path = str(item.get("path", "")).strip()
+            title = str(item.get("title", "")).strip() or f"本地文件：{path}"
+            if path and f"local:{path}" not in seen:
+                seen.add(f"local:{path}")
+                table.append({
+                    "index": len(table) + 1,
+                    "title": title,
+                    "url": path,  # 参考文献里显示为相对路径（本地证据无 http 链接）
+                    "source": "local",
+                })
     for url in state.get("known_source_urls", []):
         key = normalize_url(url)
         if url and key and key not in seen:
@@ -382,7 +545,7 @@ def curate_core_references(question: str, source_table: list[dict],
 
 import re as _re
 
-_HEADING_MD_RE = _re.compile(r"^#{2,3}\s*(.+?)\s*$", _re.M)
+_HEADING_MD_RE = _re.compile(r"^#{1,3}\s*(.+?)\s*$", _re.M)
 _HEADING_BOLD_RE = _re.compile(r"^\*\*(.+?)\*\*\s*$")
 _COLON_HEADING_RATIO = 0.5      # 冒号式标题占比 ≥ 50% 且 ≥2 个 → 重写
 _COLON_HEADING_MIN = 2
@@ -570,10 +733,13 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
     # 跨轮次复用：反思后的重写/回环轮直接复用上一轮选中的图，
     # 不再重新下载图片 + 调视觉模型（省 40~90s/轮）。
     image_candidates = state.get("image_candidates", [])
+    image_plans = state.get("image_plans", []) or []
     selected_images: list[dict] = state.get("selected_images", []) or []
-    if not selected_images and image_candidates:
+    if not selected_images and (image_candidates or image_plans):
         try:
-            selected_images = select_images(state.get("sub_questions", []), image_candidates)
+            selected_images = select_images(
+                state.get("sub_questions", []), image_candidates, image_plans,
+            )
         except Exception as exc:
             logger.warning("视觉选图整体失败，文章不含插图: %s", exc)
     elif selected_images:
@@ -584,7 +750,7 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
     if article_images:
         image_section = "\n".join(
             f"- [[IMAGE_{i}]]（子问题：{img.get('sub_question_id', '')}，"
-            f"内容：{img.get('alt', '')}）"
+            f"{_image_kind_label(img)}内容：{img.get('alt', '')}）"
             for i, img in enumerate(article_images, 1)
         )
     else:
@@ -696,6 +862,10 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
         )
         mode = "全新"
 
+    # 始终由本地代码追加，确保 Langfuse 中尚未同步的新旧模板都能获得同一份
+    # 深度约束。简报不可用时仍明确采用 standard，避免模型自行追求短答。
+    prompt += _depth_contract(question, editorial_brief)
+
     logger.info("正在生成研究文章（%s模式）...", mode)
 
     # 改进模式（重写旧稿）时，先通知前端清空已显示的文章再流式输出，
@@ -704,42 +874,38 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
     if writer and mode == "改进":
         writer({"type": "report_reset"})
 
-    # 流式输出正文。流式中途失败无法干净重试（已推送的 chunk 会重复），
-    # 但首个 chunk 前的瞬时错误（503/429 等）可以整段重试——否则一次
-    # 上游抖动就让整个研究失败。
-    full_report = ""
-    stream = llm.stream(prompt, config=config)
-    first_chunk = None
-    for attempt in range(3):
-        try:
-            first_chunk = next(stream)
+    # 第一次正文正常流式推送。若服务商明确返回长度截断，或兼容中转站没有
+    # finish_reason 但正文停在半句/未闭合代码块，续写结果先缓冲、去重后再推送。
+    full_report, finish_reason = _stream_once(llm, prompt, config, writer=writer)
+    initial_finish_reason = finish_reason
+    continuation_count = 0
+    while continuation_count < MAX_ARTICLE_CONTINUATIONS:
+        length_cutoff = finish_reason in _LENGTH_FINISH_REASONS
+        structural_cutoff = not finish_reason and _looks_abruptly_cut_off(full_report)
+        if not length_cutoff and not structural_cutoff:
             break
-        except StopIteration:
+        continuation_count += 1
+        detected_reason = finish_reason or "structural_incomplete"
+        logger.warning(
+            "文章输出疑似被截断（%s），自动续写第 %d/%d 次",
+            detected_reason, continuation_count, MAX_ARTICLE_CONTINUATIONS,
+        )
+        continuation_prompt = CONTINUATION_PROMPT.format(
+            question=question,
+            editorial_brief=format_editorial_brief(editorial_brief),
+            search_results=formatted_results,
+            report=full_report,
+        )
+        continuation, next_finish_reason = _stream_once(
+            llm, continuation_prompt, config, writer=None,
+        )
+        if not continuation.strip():
+            finish_reason = next_finish_reason or finish_reason
             break
-        except Exception as exc:
-            if not _is_transient_error(exc) or attempt >= 2:
-                raise
-            logger.warning("文章流式生成在首个 chunk 前失败，整段重试（第 %d/3 次）: %s",
-                           attempt + 1, str(exc)[:120])
-            time.sleep(1.5 * (attempt + 1))
-            stream = llm.stream(prompt, config=config)
-
-    def _emit(chunk) -> None:
-        nonlocal full_report
-        content = chunk.content
-        if content:
-            print(content, end="", flush=True)
-            full_report += content
-            if writer:
-                writer({"type": "report_chunk", "content": content})
-
-    if first_chunk is not None:
-        _emit(first_chunk)
-        try:
-            while True:
-                _emit(next(stream))
-        except StopIteration:
-            pass
+        full_report, emitted = _append_without_overlap(full_report, continuation)
+        if writer and emitted:
+            writer({"type": "report_chunk", "content": emitted})
+        finish_reason = next_finish_reason
 
     # 标题去模板化（代码级保底）：模型即使反复写「名词：副题」式冒号标题，
     # 这里也直接重写标题让风格多样——不依赖反思循环是否拦住。
@@ -782,9 +948,16 @@ def synthesizer(state: ResearchState, config: RunnableConfig, *, writer: StreamW
             "stage": "synthesizer",
             "reflection_round": int(state.get("reflection_round", 0)),
             "report": full_report,
-            "metadata": {"mode": mode},
+            "metadata": {
+                "mode": mode,
+                "writer_initial_finish_reason": initial_finish_reason,
+                "writer_finish_reason": finish_reason,
+                "writer_continuations": continuation_count,
+            },
         }],
         "report_feedback_signature": state.get("user_feedback", ""),
+        "writer_finish_reason": finish_reason,
+        "writer_continuations": continuation_count,
         "confidence": compute_confidence(state),
         "research_notes": _build_research_notes(state),
         "source_table": source_table,

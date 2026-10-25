@@ -292,6 +292,7 @@ function setupSSEHandlers(es) {
 
   es.addEventListener('progress', e => handleSSEEvent('progress', e.data));
   es.addEventListener('message', e => handleSSEEvent('message', e.data));
+  es.addEventListener('agent_step', e => handleSSEEvent('agent_step', e.data));
   es.addEventListener('report_chunk', e => handleSSEEvent('report_chunk', e.data));
   es.addEventListener('report_reset', e => handleSSEEvent('report_reset', e.data));
   es.addEventListener('report', e => handleSSEEvent('report', e.data));
@@ -413,6 +414,11 @@ function handleSSEEvent(type, raw) {
       if (d.detail) showNodeDetail(d.node, d.detail);
     } else if (type === 'message') {
       if (d.text) addLog(esc(d.text));
+    } else if (type === 'agent_step') {
+      // agentic 探索的每步进度：用醒目标识显示 agent 正在自主做什么
+      const step = d.step || 0;
+      const brief = d.brief || '';
+      addLog(`<span class="text-cyan">🤖 探索第 ${step} 步：${esc(brief)}</span>`);
     } else if (type === 'report') {
       showReport(d);
       setAllDone();
@@ -442,6 +448,7 @@ function handleSSEEvent(type, raw) {
 const NODE_META = {
   knowledge_lookup: { icon: '◎', title: '知识查询', status: '正在读取历史知识', color: 'cyan' },
   planner: { icon: '◈', title: '问题规划', status: '研究问题正在形成分支', color: 'purple' },
+  local_lookup: { icon: '🤖', title: '自主探索', status: '正在自主搜索与阅读资料', color: 'cyan' },
   searcher: { icon: '◉', title: '并行搜索', status: '外部来源信号正在汇入', color: 'purple' },
   validator: { icon: '✓', title: '结果验证', status: '正在标记证据缺口', color: 'green' },
   editorial_planner: { icon: '≡', title: '编辑规划', status: '正在建立证据账本与写作主线', color: 'cyan' },
@@ -533,11 +540,41 @@ function buildNodeBody(node, detail) {
   if (node === 'editorial_planner') {
     const count = detail.evidence_count || 0;
     const sections = detail.section_count || 0;
+    const intentLabels = {
+      mechanism: '机制解析', comparison: '对比分析', decision: '决策评估',
+      tutorial: '实操教程', trend: '趋势分析', explanation: '解释说明',
+    };
+    const depthLabels = { brief: '简要', standard: '标准', deep: '深入' };
+    const intent = intentLabels[detail.intent] || detail.intent || '类型未标注';
+    const depth = depthLabels[detail.depth] || detail.depth || '标准';
     badge = detail.degraded ? '已降级' : `${sections} 个章节`;
     body = detail.degraded
       ? `<div class="nd-warn">编辑简报生成失败，将使用 ${count} 条证据直接写作</div>`
-      : `<div class="nd-info">证据账本 <strong class="text-cyan">${count}</strong> 条，规划 <strong class="text-purple2">${sections}</strong> 个章节</div>
-         <div class="nd-sq"><div class="nd-sq-copy"><div class="nd-sq-q">${esc(detail.thesis || '')}</div></div></div>`;
+      : `<div class="nd-editorial">
+          <div class="nd-editorial-meta" aria-label="编辑规划摘要">
+            <span>${esc(intent)}</span>
+            <span>深度：${esc(depth)}</span>
+            <span>${count} 条证据</span>
+            <span>${detail.must_cover_count || 0} 个必答点</span>
+          </div>
+          <section class="nd-editorial-thesis">
+            <span>文章主线</span>
+            <p>${esc(detail.thesis || '未生成明确主线')}</p>
+            ${detail.audience ? `<small>面向：${esc(detail.audience)}</small>` : ''}
+          </section>
+          ${detail.sections && detail.sections.length ? `
+            <div class="nd-editorial-plan" aria-label="章节规划">
+              ${detail.sections.map((section, index) => `
+                <div class="nd-editorial-section">
+                  <span class="nd-editorial-index">${String(index + 1).padStart(2, '0')}</span>
+                  <div class="nd-editorial-copy">
+                    <strong>${esc(section.heading || `章节 ${index + 1}`)}</strong>
+                    <p>${esc(section.purpose || '推进文章主线')}</p>
+                  </div>
+                  <span class="nd-editorial-depth">${esc(depthLabels[section.depth] || section.depth || depth)}${section.completion_count ? ` · ${section.completion_count} 项` : ''}</span>
+                </div>`).join('')}
+            </div>` : ''}
+        </div>`;
   }
 
   // ── Synthesizer ──
@@ -565,8 +602,9 @@ function buildNodeBody(node, detail) {
     badge = count ? `${count} 处改写` : candidates ? '候选未改' : '✓ 通过';
     body = count
       ? `<div class="nd-info">已改写 <strong class="text-cyan">${count}</strong> 处模板化表达</div>` +
-        (detail.edits_preview || []).map(edit => `
+        (detail.edits_preview || []).map((edit, i) => `
           <div class="nd-sq">
+            <div class="nd-sq-num">${i + 1}</div>
             <div class="nd-sq-copy">
               <div class="nd-sq-kw">${esc(labels[edit.issue_type] || edit.issue_type || '语言问题')} · ${esc(edit.reason || '')}</div>
               <div class="nd-sq-q">原：${esc(edit.before || '')}</div>
@@ -1010,7 +1048,11 @@ function handleReportChunk(d) {
     appState.reportRenderTimer = setTimeout(() => {
       appState.reportRenderTimer = null;
       try {
-        body.innerHTML = renderMarkdown(appState.streamingReportText);
+        // 流式阶段正文里还残留 [[IMAGE_N]] 占位符（它们要等 synthesizer 最后
+        // 才被后端 normalize 成真实图片）。这里先过滤掉，避免占位符以纯文本
+        // 闪现造成排版混乱；最终定稿由 report 事件用 normalize 后的全文覆盖。
+        const draft = appState.streamingReportText.replace(/\[\[IMAGE_\d+\]\]/g, '');
+        body.innerHTML = renderMarkdown(draft);
       } catch {
         body.textContent = appState.streamingReportText;
       }
@@ -1076,24 +1118,63 @@ function copyReport() {
   }
 }
 
-/** 导出报告为 Markdown 文件（含问题标题 + 正文 + 参考文献） */
-function downloadReport() {
-  const text = appState.lastReportText || '';
-  if (!text) {
-    toast('没有可下载的报告', 'warning');
-    return;
+/**
+ * 独立 Markdown 文件没有站点根路径上下文，把站内缓存图片转换为完整 URL。
+ * 外部图片、普通链接和围栏代码块中的路径保持不变。
+ */
+function prepareMarkdownForExport(markdown, origin = window.location.origin) {
+  let base;
+  try {
+    base = new URL(origin);
+  } catch (_) {
+    return markdown;
   }
-  const q = ($('foundryQuestion') && $('foundryQuestion').textContent) || '研究报告';
-  const title = q.trim().replace(/[\\/:*?"<>|\n]+/g, ' ').slice(0, 60);
-  const md = `# ${q.trim()}\n\n${text}`;
+  if (!['http:', 'https:'].includes(base.protocol)) return markdown;
+  const mediaBase = `${base.origin}/media/research-images/`;
+  let fence = '';
+  return String(markdown || '').split(/(\r?\n)/).map(line => {
+    if (/^\r?\n$/.test(line)) return line;
+    const marker = line.match(/^\s*(`{3,}|~{3,})/);
+    if (marker) {
+      const kind = marker[1][0];
+      if (!fence) fence = kind;
+      else if (fence === kind) fence = '';
+      return line;
+    }
+    if (fence) return line;
+    return line.replace(
+      /(!\[[^\]\r\n]*\]\(\s*)\/media\/research-images\//g,
+      (_, prefix) => prefix + mediaBase,
+    );
+  }).join('');
+}
+
+/** 下载 Markdown 的共享实现，研究结果与文章素材库必须保持相同行为。 */
+function downloadMarkdownDocument(markdown, question, emptyMessage = '没有可下载的报告') {
+  const text = String(markdown || '');
+  if (!text) {
+    toast(emptyMessage, 'warning');
+    return false;
+  }
+  const q = String(question || '研究报告').trim() || '研究报告';
+  const title = q.replace(/[\\/:*?"<>|\n]+/g, ' ').slice(0, 60);
+  const md = `# ${q}\n\n${prepareMarkdownForExport(text)}`;
   const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
+  const objectUrl = URL.createObjectURL(blob);
+  a.href = objectUrl;
   a.download = (title || '研究报告') + '.md';
   document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(a.href);
   a.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  return true;
+}
+
+/** 导出报告为 Markdown 文件（含问题标题 + 正文 + 参考文献） */
+function downloadReport() {
+  const q = ($('foundryQuestion') && $('foundryQuestion').textContent) || '研究报告';
+  downloadMarkdownDocument(appState.lastReportText, q);
 }
 
 // Keyboard shortcuts

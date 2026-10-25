@@ -312,7 +312,8 @@ def normalize_url(url: str) -> str:
 # research_notes / source_table / selected_images 每次综合由 synthesizer 全量重建，覆盖而非追加。
 _OVERWRITE_LIST_KEYS = frozenset({
     "sub_questions", "validation_gaps", "evidence_assessments",
-    "research_notes", "source_table", "selected_images", "core_refs",
+    "research_notes", "source_table", "selected_images", "core_refs", "image_review",
+    "image_plans",
     "evidence_ledger", "language_edits", "evidence_edits",
 })
 

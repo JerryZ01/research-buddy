@@ -139,6 +139,7 @@ class Database:
                 best_report_restored INTEGER DEFAULT 0,
                 language_edits TEXT DEFAULT '[]',
                 evidence_edits TEXT DEFAULT '[]',
+                process_scores TEXT DEFAULT '{}',
                 token_usage TEXT DEFAULT '{}',
                 error TEXT DEFAULT '',
                 curation_status TEXT DEFAULT 'raw',
@@ -203,6 +204,11 @@ class Database:
             if column not in cols:
                 default = "TEXT DEFAULT '[]'" if column == "research_notes" else "INTEGER DEFAULT 0"
                 conn.execute(f"ALTER TABLE reports ADD COLUMN {column} {default}")
+
+        # article_generations 的 process_scores 列（流程打分，JSON）
+        gen_cols = {row[1] for row in conn.execute("PRAGMA table_info(article_generations)").fetchall()}
+        if "process_scores" not in gen_cols:
+            conn.execute("ALTER TABLE article_generations ADD COLUMN process_scores TEXT DEFAULT '{}'")
 
     # ── Topic CRUD ──────────────────────────────────────
 
@@ -534,14 +540,16 @@ class Database:
             "selected_images", "sub_questions", "research_notes", "writer_model",
             "judge_model", "config_snapshot", "reflection_rounds", "reflection_score",
             "reflection_pass", "reflection_judge_degraded", "stop_reason",
-            "best_report_restored", "language_edits", "evidence_edits", "token_usage",
+            "best_report_restored", "language_edits", "evidence_edits",
+            "process_scores", "token_usage",
             "error", "curation_status", "topic_id", "style",
         }
         versions = kwargs.get("article_versions")
         updates = {key: value for key, value in kwargs.items() if key in allowed}
         json_fields = {
             "sources", "selected_images", "sub_questions", "research_notes",
-            "config_snapshot", "language_edits", "evidence_edits", "token_usage",
+            "config_snapshot", "language_edits", "evidence_edits", "process_scores",
+            "token_usage",
         }
         bool_fields = {"reflection_pass", "reflection_judge_degraded", "best_report_restored"}
         for key in list(updates):
@@ -678,7 +686,7 @@ class Database:
         for key, default in (
             ("sources", []), ("selected_images", []), ("sub_questions", []),
             ("research_notes", []), ("config_snapshot", {}), ("language_edits", []),
-            ("evidence_edits", []), ("token_usage", {}),
+            ("evidence_edits", []), ("process_scores", {}), ("token_usage", {}),
         ):
             record[key] = cls._load_json(record.get(key), default)
         for key in ("reflection_pass", "reflection_judge_degraded", "best_report_restored"):

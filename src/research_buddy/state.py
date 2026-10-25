@@ -92,6 +92,11 @@ class ResearchState(TypedDict):
     # 搜索阶段
     search_results: Annotated[list[SearchResult], operator.add]  # 搜索结果
 
+    # 本地代码检索（Phase 8）：与 web 搜索平行，作为第二类证据来源。
+    # 独立于 search_results，避免污染 validator 的域名/覆盖度检查。
+    local_evidence: Annotated[list[dict], operator.add]  # [{path, title, content, query, score, source_type="local"}]
+    local_lookup_done: bool  # 本地检索是否已执行过（避免回环轮重复检索）
+
     # 验证阶段（Phase 2）
     validation_gaps: list[ValidationGap]  # 信息缺口（覆盖语义，搜索后可清空）
     evidence_assessments: list[EvidenceAssessment]  # 当前证据评估（覆盖语义）
@@ -114,15 +119,20 @@ class ResearchState(TypedDict):
     article_versions: Annotated[list[dict], operator.add]  # 各写作/审校阶段稿件快照（永久档案用）
     report: str  # 最终报告（可发布的文章正文，不含评价性内容与内嵌链接）
     report_feedback_signature: str  # 当前报告生成时已纳入的用户反馈
+    writer_finish_reason: str  # 写作模型最后一次流式调用的停止原因
+    writer_continuations: int  # 因输出长度截断而自动续写的次数
     confidence: str  # 置信度（高/中/低），由代码从证据质量计算，不进报告正文
     research_notes: list[str]  # 研究说明（局限/降级/未解决缺口），不进正文，供 API/前端展示
     source_table: list[dict]  # 编号引用表 [{index, title, url, source}]，synthesizer 构建，reflector 校验用
     core_refs: list[dict]  # 核心文献筛选结果（跨轮次复用，来源集未变时跳过重筛）
     core_refs_signature: str  # 核心文献对应的来源 URL 签名（判断来源集是否变化）
 
-    # 插图（可选，视觉模型选图）
+    # 插图（可选，搜图 + 生图混合）
     image_candidates: Annotated[list[dict], operator.add]  # 搜索聚合的候选图 {url, sub_question_id, query}
-    selected_images: list[dict]  # 视觉模型选中的插图 {url, alt, sub_question_id}（覆盖语义）
+    image_plans: list[dict]  # 配图意图 [{sub_question_id, kind, reason, want}]（覆盖语义，每轮重算）
+    selected_images: list[dict]  # 最终入选插图 {url, alt, sub_question_id, kind, ...}（覆盖语义）
+    # kind: search=搜图命中，generated=生图（示意图，前端须标注 AI 生成）
+    image_review: dict  # 配图终审结果 {dropped: [...], alt_fixes: {...}, reviewed: int}（覆盖语义）
 
     # 反思阶段（Phase 2）
     reflection_pass: bool  # 反思是否通过

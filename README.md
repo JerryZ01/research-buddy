@@ -166,6 +166,13 @@ uv sync --extra multilingual
 # 单元测试（全离线，不需要 API Key）
 uv run pytest -q
 
+# 前端真实浏览器测试（首次使用先安装依赖）
+npm install
+npm run test:e2e
+
+# 如果本机没有可用的 Chromium，再安装 Playwright 管理的浏览器
+npx playwright install chromium
+
 # 文章质量 A/B 回归（会实际调用 LLM，先用一题一次估算费用）
 uv run python scripts/run_article_eval.py \
   --candidate-rules eval/prompts/candidate-v1.md \
@@ -183,6 +190,13 @@ uv run python scripts/test_phase3.py
 # 运行评估（LLM-as-Judge 评分，需要 Langfuse 密钥才会写入分数）
 uv run python -m research_buddy.eval.dataset   # 首次：创建/更新测试集
 uv run python scripts/run_eval.py
+```
+
+前端测试默认使用 Playwright 管理的 Chromium；也会自动查找
+`~/.cache/puppeteer/chrome` 中已有的 Chromium。需要指定其他浏览器时，可设置：
+
+```bash
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/path/to/chrome npm run test:e2e
 ```
 
 程序测试与文章质量评测用途不同。后者会冻结搜索证据，对 baseline/candidate 多次采样，生成本地 JSON 和 HTML 对比报告；完整说明见 [文章质量回归评测](docs/article-quality-evaluation.md)。

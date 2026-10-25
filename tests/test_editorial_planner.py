@@ -27,6 +27,19 @@ def test_normalize_brief_drops_hallucinated_evidence_ids():
     result = planner.normalize_editorial_brief(_payload(), evidence_count=2)
     assert result["must_cover"][0]["evidence_ids"] == ["E1"]
     assert result["section_plan"][1]["evidence_ids"] == ["E1", "E2"]
+    assert result["depth"] == "standard"
+    assert result["section_plan"][0]["completion_criteria"] == ["完成本节职责：建立机制"]
+
+
+def test_detailed_question_forces_deep_brief_even_for_old_prompt_shape():
+    payload = _payload()
+    payload["depth"] = "brief"
+    payload["section_plan"][0]["depth"] = "brief"
+    result = planner.normalize_editorial_brief(
+        payload, evidence_count=2, question="请详细阐述 Agent 的反思机制",
+    )
+    assert result["depth"] == "deep"
+    assert result["section_plan"][0]["depth"] == "standard"
 
 
 @pytest.mark.parametrize("payload", [{}, [], {"thesis": "x", "must_cover": [], "section_plan": []}])
@@ -59,6 +72,7 @@ def test_build_brief_uses_local_prompt_and_validates(monkeypatch):
 def test_editorial_prompt_limits_sections_and_bans_metaphorical_headings():
     assert "通常规划 2-4 个核心章节" in planner.EDITORIAL_BRIEF_PROMPT
     assert "禁止比喻、拟人、口号" in planner.EDITORIAL_BRIEF_PROMPT
+    assert "completion_criteria" in planner.EDITORIAL_BRIEF_PROMPT
 
 
 def test_build_brief_fails_open(monkeypatch):

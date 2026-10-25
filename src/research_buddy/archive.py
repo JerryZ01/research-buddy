@@ -4,8 +4,10 @@ import logging
 
 from research_buddy.config import (
     ARTICLE_EDITOR_ROUNDS,
+    AUTO_JUDGE_PROCESS,
     ENABLE_ARTICLE_EDITOR,
     ENABLE_LANGUAGE_EDITOR,
+    MAX_ARTICLE_CONTINUATIONS,
     MAX_ARTICLE_TOKENS,
     MAX_IMAGES_IN_ARTICLE,
     MAX_REFLECTION_ROUNDS,
@@ -24,6 +26,7 @@ def safe_generation_config() -> dict:
     return {
         "max_reflection_rounds": MAX_REFLECTION_ROUNDS,
         "max_article_tokens": MAX_ARTICLE_TOKENS,
+        "max_article_continuations": MAX_ARTICLE_CONTINUATIONS,
         "max_images_in_article": MAX_IMAGES_IN_ARTICLE,
         "writer_temperature": WRITER_TEMPERATURE,
         "language_editor_enabled": ENABLE_LANGUAGE_EDITOR,
@@ -90,6 +93,7 @@ def complete_generation(generation_id: str, result: dict,
             best_report_restored=result.get("best_report_restored", False),
             language_edits=result.get("language_edits", []),
             evidence_edits=result.get("evidence_edits", []),
+            process_scores=result.get("process_scores", {}),
             token_usage=result.get("token_usage", {}),
             article_versions=result.get("article_versions", []),
             error="",
@@ -111,3 +115,47 @@ def fail_generation(generation_id: str, error: str,
         )
     except Exception as exc:
         logger.warning("记录文章失败档案失败 (id=%s): %s", generation_id, exc)
+
+
+def auto_judge_generation(generation_id: str, result: dict,
+                          trace_id: str = "",
+                          database: Database | None = None) -> dict:
+    """对一次已完成的研究做流程打分（拆解/证据/简报/报告），并落库 + 写 Langfuse。
+
+    供所有研究入口在流程结束后调用，实现「每次研究实时打分」：
+    - 打分结果写回 result["process_scores"]，并落库到 article_generations.process_scores
+      （前端「流程打分」面板读取）；
+    - 若提供 trace_id，同时用 score_process_trace 把分数挂到 Langfuse trace。
+
+    AUTO_JUDGE_PROCESS 关闭时直接返回空 dict（零额外 LLM 调用）。
+    打分或落库失败只记 warning，绝不阻断研究结果交付。
+    """
+    if not AUTO_JUDGE_PROCESS:
+        return {}
+    try:
+        from research_buddy.eval.judge import judge_full_process, score_process_trace
+        process_scores = judge_full_process(result)
+        result["process_scores"] = process_scores
+        # 未显式传 trace_id 时，尝试从当前 Langfuse 上下文获取（CallbackHandler 已建立 OTEL 上下文）
+        if not trace_id:
+            try:
+                from langfuse import get_client
+                trace_id = get_client().get_current_trace_id() or ""
+            except Exception:
+                trace_id = ""
+        if trace_id:
+            try:
+                score_process_trace(trace_id, process_scores)
+            except Exception as exc:
+                logger.warning("流程打分写回 Langfuse 失败 (trace=%s): %s", trace_id, exc)
+        if generation_id:
+            try:
+                (database or get_db()).update_article_generation(
+                    generation_id, process_scores=process_scores,
+                )
+            except Exception as exc:
+                logger.warning("流程打分落库失败 (id=%s): %s", generation_id, exc)
+        return process_scores
+    except Exception as exc:
+        logger.warning("流程打分失败（不影响研究结果）: %s", exc)
+        return {}
